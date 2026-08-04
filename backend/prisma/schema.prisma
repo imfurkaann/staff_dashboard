@@ -1,0 +1,288 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+enum Role {
+  ADMIN
+  HOUSING_MANAGER
+  SECURITY
+  STAFF
+}
+
+enum EmployeeStatus {
+  PENDING_ASSIGNMENT
+  RESIDENT
+  ON_LEAVE
+  CHECKED_OUT
+}
+
+enum RoomStatus {
+  READY
+  NEEDS_CLEANING
+  OUT_OF_ORDER
+}
+
+enum VisitorStatus {
+  INSIDE
+  EXITED
+}
+
+enum MaintenancePriority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+enum MaintenanceStatus {
+  OPEN
+  IN_PROGRESS
+  RESOLVED
+  CLOSED
+}
+
+enum RoomInventoryStatus {
+  HEALTHY
+  MAINTENANCE_REQUIRED
+  DAMAGED
+  LOST
+  IN_SERVICE
+  REPLACEMENT_REQUIRED
+  RETIRED
+}
+
+model User {
+  id           String        @id @default(uuid())
+  username     String        @unique
+  email        String        @unique
+  passwordHash String
+  fullName     String
+  role         Role          @default(HOUSING_MANAGER)
+  isActive     Boolean       @default(true)
+  lastLoginAt  DateTime?
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+  FacilityLogs FacilityLog[]
+  visitorsCreated Visitor[]      @relation("VisitorCreatedBy")
+  visitorsUpdated Visitor[]      @relation("VisitorUpdatedBy")
+  visitorsDeleted Visitor[]      @relation("VisitorDeletedBy")
+}
+
+model Employee {
+  id                    String         @id @default(uuid())
+  tcNo                  String? // Sensitive TC/Passport
+  tcNoHash              String?        @unique
+  registrationNo        String?        @unique // Normalized Sicil No
+  firstName             String // Normalized Ad
+  lastName              String // Normalized Soyad
+  gender                String // Required: Male / Female
+  department            String // Required Dropdown
+  title                 String? // Dropdown: Görev/Unvan
+  company               String? // Normalized Taşeron/Şirket
+  phone                 String? // Telefon
+  isSmoker              Boolean        @default(false) // Sigara Kullanımı (Sigarasız/Sigaralı Oda)
+  hasSnoring            Boolean        @default(false) // Horlama Durumu (Uyku Uyumluluğu)
+  vehiclePlate          String? // Otopark araç plakası
+  contractEndDate       DateTime? // Tahmini Görev Bitiş Tarihi
+  ageGroup              String? // Yaş Grubu (18-25, 26-40, 41-55, 56+)
+  languageNationality   String? // Konuşulan Dil / Uyruk (Türkçe, İngilizce, Rusça, Arapça vb.)
+  emergencyContactName  String? // Acil Durum Yakını Adı Soyadı
+  emergencyRelation     String? // Acil Durum Yakınlık Derecesi (Dropdown)
+  emergencyContactPhone String? // Acil Durum Yakını Telefonu
+  photoUrl              String? // Photo (Base64/URL)
+  shiftType             String?        @default("Gündüz") // Gündüz / Gece / Dönüşümlü
+  status                EmployeeStatus @default(PENDING_ASSIGNMENT)
+  createdAt             DateTime       @default(now())
+  updatedAt             DateTime       @updatedAt
+
+  beds              Bed[]
+  inventories       InventoryItem[]
+  disciplinaryNotes DisciplinaryNote[]
+  occupancies       OccupancyLog[]
+  visitors          Visitor[]
+
+  @@index([status])
+  @@index([department])
+  @@index([lastName, firstName])
+}
+
+model Block {
+  id           String   @id @default(uuid())
+  name         String   @unique // e.g. A Blok, B Blok
+  genderPolicy String // Male, Female, Mixed
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  rooms        Room[]
+}
+
+model Room {
+  id         String     @id @default(uuid())
+  blockId    String
+  block      Block      @relation(fields: [blockId], references: [id], onDelete: Cascade)
+  floor      Int
+  roomNumber String // e.g. 101, 102
+  capacity   Int        @default(2)
+  status     RoomStatus @default(READY)
+  createdAt  DateTime   @default(now())
+  updatedAt  DateTime   @updatedAt
+
+  beds         Bed[]
+  maintenances MaintenanceLog[]
+  inventories  RoomInventory[]
+
+  @@unique([blockId, roomNumber])
+}
+
+model Bed {
+  id                String    @id @default(uuid())
+  roomId            String
+  room              Room      @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  bedLabel          String // e.g. Yatak-A, Yatak-B
+  isOccupied        Boolean   @default(false)
+  currentEmployeeId String?   @unique
+  currentEmployee   Employee? @relation(fields: [currentEmployeeId], references: [id], onDelete: SetNull)
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  occupancies OccupancyLog[]
+
+  @@unique([roomId, bedLabel])
+  @@index([currentEmployeeId])
+}
+
+model OccupancyLog {
+  id                 String    @id @default(uuid())
+  employeeId         String?
+  employee           Employee? @relation(fields: [employeeId], references: [id], onDelete: SetNull)
+  employeeName       String
+  employeeDepartment String?
+  employeeTitle      String?
+  employeeCompany    String?
+  bedId              String
+  bed                Bed       @relation(fields: [bedId], references: [id], onDelete: Cascade)
+  checkInDate        DateTime  @default(now())
+  checkOutDate       DateTime?
+  transferReason     String?
+  createdAt          DateTime  @default(now())
+
+  @@index([employeeId, checkInDate])
+  @@index([bedId, checkOutDate])
+}
+
+model InventoryItem {
+  id           String    @id @default(uuid())
+  employeeId   String
+  employee     Employee  @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  itemName     String // Eşya / Cihaz Adı (Nevresim, Vestel TV vb.)
+  itemCode     String? // Stok / Ürün Kodu (KEY-101 vb.)
+  category     String    @default("LOJMAN_ZİMMETİ") // LOJMAN_ZİMMETİ veya ŞAHSİ_EŞYA
+  status       String    @default("TESLİM_EDİLDİ") // TESLİM_EDİLDİ, TAM_İADE_ALINDI, ÇIKIŞ_İZİNLİ_ŞAHSİ_MÜLK
+  serialNo     String? // Şahsi Eşya Seri Numarası / Markası
+  photoUrl     String? // Şahsi Eşya / Cihaz Fotoğrafı (Opsiyonel)
+  assignedDate DateTime  @default(now())
+  returnedDate DateTime?
+  notes        String? // Açıklama / Beyan notları
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@index([employeeId])
+}
+
+model DisciplinaryNote {
+  id         String   @id @default(uuid())
+  employeeId String
+  employee   Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  title      String // Şikayet / Disiplin Başlığı
+  content    String // Detaylı Açıklama
+  reportedBy String   @default("Lojman Amirliği") // Bildiren
+  status     String   @default("GÖRÜŞÜLDÜ") // GÖRÜŞÜLDÜ, ÇÖZÜLDÜ, UYARILDI
+  createdAt  DateTime @default(now())
+
+  @@index([employeeId])
+}
+
+model MaintenanceLog {
+  id             String              @id @default(uuid())
+  roomId         String
+  room           Room                @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  category       String?
+  location       String?
+  title          String
+  description    String
+  priority       MaintenancePriority @default(MEDIUM)
+  status         MaintenanceStatus   @default(OPEN)
+  reportedBy     String
+  assignedTo     String?
+  createdAt      DateTime            @default(now())
+  updatedAt      DateTime            @updatedAt
+  resolvedAt     DateTime?
+  resolutionNote String?
+
+  @@index([roomId, status])
+  @@index([status, priority, createdAt])
+}
+
+model RoomInventory {
+  id          String              @id @default(uuid())
+  roomId      String
+  room        Room                @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  itemName    String
+  location    String
+  quantity    Int                 @default(1)
+  installedAt DateTime            @default(now())
+  status      RoomInventoryStatus @default(HEALTHY)
+  notes       String?
+  createdAt   DateTime            @default(now())
+  updatedAt   DateTime            @updatedAt
+
+  @@unique([roomId, itemName, location])
+  @@index([roomId, status])
+}
+
+model FacilityLog {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  category  String // Discipline, ShiftHandover, GeneralNotice, Visitor
+  content   String
+  createdAt DateTime @default(now())
+
+  @@index([userId, createdAt])
+}
+
+model Visitor {
+  id               String        @id @default(uuid())
+  fullName         String
+  visitorCount     Int           @default(1)
+  phone            String?
+  company          String?
+  hostEmployeeId   String?
+  hostEmployee     Employee?     @relation(fields: [hostEmployeeId], references: [id], onDelete: SetNull)
+  hostEmployeeName String?
+  hostRoomLabel    String?
+  purpose          String?
+  vehiclePlate     String?
+  entryTime        DateTime      @default(now())
+  exitTime         DateTime?
+  status           VisitorStatus @default(INSIDE)
+  notes            String?
+  isDeleted        Boolean       @default(false)
+  deletedAt        DateTime?
+  createdById      String?
+  createdBy        User?         @relation("VisitorCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  updatedById      String?
+  updatedBy        User?         @relation("VisitorUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
+  deletedById      String?
+  deletedBy        User?         @relation("VisitorDeletedBy", fields: [deletedById], references: [id], onDelete: SetNull)
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+
+  @@index([hostEmployeeId, entryTime])
+  @@index([status, isDeleted, entryTime])
+  @@index([fullName])
+}

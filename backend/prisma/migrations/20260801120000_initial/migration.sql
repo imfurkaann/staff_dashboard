@@ -1,0 +1,44 @@
+CREATE TYPE "Role" AS ENUM ('ADMIN', 'HOUSING_MANAGER', 'SECURITY', 'STAFF');
+CREATE TYPE "EmployeeStatus" AS ENUM ('PENDING_ASSIGNMENT', 'RESIDENT', 'ON_LEAVE', 'CHECKED_OUT');
+CREATE TYPE "RoomStatus" AS ENUM ('READY', 'NEEDS_CLEANING', 'OUT_OF_ORDER');
+CREATE TYPE "MaintenancePriority" AS ENUM ('LOW', 'MEDIUM', 'HIGH', 'URGENT');
+CREATE TYPE "MaintenanceStatus" AS ENUM ('OPEN', 'IN_PROGRESS', 'RESOLVED', 'CLOSED');
+
+CREATE TABLE "User" ("id" TEXT NOT NULL, "username" TEXT NOT NULL, "email" TEXT NOT NULL, "passwordHash" TEXT NOT NULL, "fullName" TEXT NOT NULL, "role" "Role" NOT NULL DEFAULT 'HOUSING_MANAGER', "isActive" BOOLEAN NOT NULL DEFAULT true, "lastLoginAt" TIMESTAMP(3), "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP, "updatedAt" TIMESTAMP(3) NOT NULL, CONSTRAINT "User_pkey" PRIMARY KEY ("id"));
+CREATE TABLE "Employee" ("id" TEXT NOT NULL, "tcNo" TEXT, "tcNoHash" TEXT, "registrationNo" TEXT, "firstName" TEXT NOT NULL, "lastName" TEXT NOT NULL, "gender" TEXT NOT NULL, "department" TEXT NOT NULL, "title" TEXT, "company" TEXT, "phone" TEXT, "isSmoker" BOOLEAN NOT NULL DEFAULT false, "hasSnoring" BOOLEAN NOT NULL DEFAULT false, "vehiclePlate" TEXT, "contractEndDate" TIMESTAMP(3), "ageGroup" TEXT, "languageNationality" TEXT, "emergencyContactName" TEXT, "emergencyRelation" TEXT, "emergencyContactPhone" TEXT, "photoUrl" TEXT, "shiftType" TEXT DEFAULT 'Gündüz', "status" "EmployeeStatus" NOT NULL DEFAULT 'PENDING_ASSIGNMENT', "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP, "updatedAt" TIMESTAMP(3) NOT NULL, CONSTRAINT "Employee_pkey" PRIMARY KEY ("id"));
+CREATE TABLE "Block" ("id" TEXT NOT NULL, "name" TEXT NOT NULL, "genderPolicy" TEXT NOT NULL, "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP, "updatedAt" TIMESTAMP(3) NOT NULL, CONSTRAINT "Block_pkey" PRIMARY KEY ("id"));
+CREATE TABLE "Room" ("id" TEXT NOT NULL, "blockId" TEXT NOT NULL, "floor" INTEGER NOT NULL, "roomNumber" TEXT NOT NULL, "capacity" INTEGER NOT NULL DEFAULT 2, "status" "RoomStatus" NOT NULL DEFAULT 'READY', "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP, "updatedAt" TIMESTAMP(3) NOT NULL, CONSTRAINT "Room_pkey" PRIMARY KEY ("id"));
+CREATE TABLE "Bed" ("id" TEXT NOT NULL, "roomId" TEXT NOT NULL, "bedLabel" TEXT NOT NULL, "isOccupied" BOOLEAN NOT NULL DEFAULT false, "currentEmployeeId" TEXT, "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP, "updatedAt" TIMESTAMP(3) NOT NULL, CONSTRAINT "Bed_pkey" PRIMARY KEY ("id"));
+CREATE TABLE "OccupancyLog" ("id" TEXT NOT NULL, "employeeId" TEXT NOT NULL, "bedId" TEXT NOT NULL, "checkInDate" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP, "checkOutDate" TIMESTAMP(3), "transferReason" TEXT, "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP, CONSTRAINT "OccupancyLog_pkey" PRIMARY KEY ("id"));
+CREATE TABLE "InventoryItem" ("id" TEXT NOT NULL, "employeeId" TEXT NOT NULL, "itemName" TEXT NOT NULL, "itemCode" TEXT, "category" TEXT NOT NULL DEFAULT 'LOJMAN_ZİMMETİ', "status" TEXT NOT NULL DEFAULT 'TESLİM_EDİLDİ', "serialNo" TEXT, "photoUrl" TEXT, "assignedDate" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP, "returnedDate" TIMESTAMP(3), "notes" TEXT, "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP, "updatedAt" TIMESTAMP(3) NOT NULL, CONSTRAINT "InventoryItem_pkey" PRIMARY KEY ("id"));
+CREATE TABLE "DisciplinaryNote" ("id" TEXT NOT NULL, "employeeId" TEXT NOT NULL, "title" TEXT NOT NULL, "content" TEXT NOT NULL, "reportedBy" TEXT NOT NULL DEFAULT 'Lojman Amirliği', "status" TEXT NOT NULL DEFAULT 'GÖRÜŞÜLDÜ', "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP, CONSTRAINT "DisciplinaryNote_pkey" PRIMARY KEY ("id"));
+CREATE TABLE "MaintenanceLog" ("id" TEXT NOT NULL, "roomId" TEXT NOT NULL, "title" TEXT NOT NULL, "description" TEXT NOT NULL, "priority" "MaintenancePriority" NOT NULL DEFAULT 'MEDIUM', "status" "MaintenanceStatus" NOT NULL DEFAULT 'OPEN', "reportedBy" TEXT NOT NULL, "assignedTo" TEXT, "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP, "resolvedAt" TIMESTAMP(3), CONSTRAINT "MaintenanceLog_pkey" PRIMARY KEY ("id"));
+CREATE TABLE "FacilityLog" ("id" TEXT NOT NULL, "userId" TEXT NOT NULL, "category" TEXT NOT NULL, "content" TEXT NOT NULL, "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP, CONSTRAINT "FacilityLog_pkey" PRIMARY KEY ("id"));
+
+CREATE UNIQUE INDEX "User_username_key" ON "User"("username");
+CREATE UNIQUE INDEX "User_email_key" ON "User"("email");
+CREATE UNIQUE INDEX "Employee_tcNoHash_key" ON "Employee"("tcNoHash");
+CREATE UNIQUE INDEX "Employee_registrationNo_key" ON "Employee"("registrationNo");
+CREATE INDEX "Employee_status_idx" ON "Employee"("status");
+CREATE INDEX "Employee_department_idx" ON "Employee"("department");
+CREATE INDEX "Employee_lastName_firstName_idx" ON "Employee"("lastName", "firstName");
+CREATE UNIQUE INDEX "Block_name_key" ON "Block"("name");
+CREATE UNIQUE INDEX "Room_blockId_roomNumber_key" ON "Room"("blockId", "roomNumber");
+CREATE INDEX "Bed_currentEmployeeId_idx" ON "Bed"("currentEmployeeId");
+CREATE UNIQUE INDEX "Bed_roomId_bedLabel_key" ON "Bed"("roomId", "bedLabel");
+CREATE INDEX "OccupancyLog_employeeId_checkInDate_idx" ON "OccupancyLog"("employeeId", "checkInDate");
+CREATE INDEX "OccupancyLog_bedId_checkOutDate_idx" ON "OccupancyLog"("bedId", "checkOutDate");
+CREATE INDEX "InventoryItem_employeeId_idx" ON "InventoryItem"("employeeId");
+CREATE INDEX "DisciplinaryNote_employeeId_idx" ON "DisciplinaryNote"("employeeId");
+CREATE INDEX "MaintenanceLog_roomId_status_idx" ON "MaintenanceLog"("roomId", "status");
+CREATE INDEX "FacilityLog_userId_createdAt_idx" ON "FacilityLog"("userId", "createdAt");
+
+ALTER TABLE "Room" ADD CONSTRAINT "Room_blockId_fkey" FOREIGN KEY ("blockId") REFERENCES "Block"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "Bed" ADD CONSTRAINT "Bed_roomId_fkey" FOREIGN KEY ("roomId") REFERENCES "Room"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "Bed" ADD CONSTRAINT "Bed_currentEmployeeId_fkey" FOREIGN KEY ("currentEmployeeId") REFERENCES "Employee"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+ALTER TABLE "OccupancyLog" ADD CONSTRAINT "OccupancyLog_employeeId_fkey" FOREIGN KEY ("employeeId") REFERENCES "Employee"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "OccupancyLog" ADD CONSTRAINT "OccupancyLog_bedId_fkey" FOREIGN KEY ("bedId") REFERENCES "Bed"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "InventoryItem" ADD CONSTRAINT "InventoryItem_employeeId_fkey" FOREIGN KEY ("employeeId") REFERENCES "Employee"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "DisciplinaryNote" ADD CONSTRAINT "DisciplinaryNote_employeeId_fkey" FOREIGN KEY ("employeeId") REFERENCES "Employee"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "MaintenanceLog" ADD CONSTRAINT "MaintenanceLog_roomId_fkey" FOREIGN KEY ("roomId") REFERENCES "Room"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "FacilityLog" ADD CONSTRAINT "FacilityLog_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;

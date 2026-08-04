@@ -1,0 +1,187 @@
+import axios from 'axios';
+import { appConfig } from '../config/appConfig';
+
+export type RoomStatusType = 'READY' | 'NEEDS_CLEANING' | 'OUT_OF_ORDER';
+
+export interface RoomEmployee {
+  id: string;
+  registrationNo?: string;
+  firstName: string;
+  lastName: string;
+  gender: string;
+  department: string;
+  title?: string;
+  company?: string;
+  isSmoker?: boolean;
+  hasSnoring?: boolean;
+  phone?: string;
+  photoUrl?: string;
+  status: string;
+  shiftType?: string;
+  createdAt: string;
+  checkInDate?: string | null;
+  checkOutDate?: string | null;
+}
+
+export interface RoomBed {
+  id: string;
+  bedLabel: string;
+  isOccupied: boolean;
+  currentEmployee?: RoomEmployee | null;
+}
+
+export interface RoomMaintenance {
+  id: string;
+  title: string;
+  description?: string;
+  priority: string;
+  status: string;
+  category?: string | null;
+  location?: string | null;
+  reportedBy: string;
+  assignedTo?: string | null;
+  createdAt: string;
+  updatedAt: string;
+  resolvedAt?: string | null;
+  resolutionNote?: string | null;
+}
+
+export type RoomInventoryStatus = 'HEALTHY' | 'MAINTENANCE_REQUIRED' | 'DAMAGED' | 'LOST' | 'IN_SERVICE' | 'REPLACEMENT_REQUIRED' | 'RETIRED';
+export interface RoomInventory {
+  id: string;
+  roomId: string;
+  itemName: string;
+  location: string;
+  quantity: number;
+  installedAt: string;
+  status: RoomInventoryStatus;
+  notes?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface RoomOccupancyHistory {
+  id: string;
+  bedId: string;
+  bedLabel: string;
+  employee: RoomEmployee;
+  checkInDate: string;
+  checkOutDate?: string | null;
+  transferReason?: string | null;
+}
+
+export interface RoomBlockInfo {
+  id: string;
+  name: string;
+  genderPolicy: string;
+}
+
+export interface Room {
+  id: string;
+  blockId: string;
+  block: RoomBlockInfo;
+  floor: number;
+  roomNumber: string;
+  capacity: number;
+  status: RoomStatusType;
+  beds: RoomBed[];
+  maintenances?: RoomMaintenance[];
+  inventories?: RoomInventory[];
+  occupancyHistory?: RoomOccupancyHistory[];
+}
+
+export interface BlockSummary {
+  id: string;
+  name: string;
+  genderPolicy: string;
+  roomCount: number;
+  totalCapacity: number;
+  occupiedBeds: number;
+  vacantBeds: number;
+  outOfOrderRooms: number;
+  occupancyRate: number;
+}
+
+export interface RoomStats {
+  totalRooms: number;
+  readyRooms: number;
+  cleaningRooms: number;
+  outOfOrderRooms: number;
+  totalBeds: number;
+  occupiedBeds: number;
+  vacantBeds: number;
+  occupancyRate: number;
+}
+
+export interface MaintenanceCreatePayload {
+  title: string;
+  description: string;
+  priority: string;
+  category?: string;
+  location?: string;
+}
+
+const api = axios.create({
+  baseURL: `${appConfig.apiBaseUrl}/rooms`,
+  withCredentials: true,
+  headers: {
+    'Content-Type': 'application/json',
+  },
+  timeout: 15000,
+});
+
+export const roomApi = {
+  getRooms: async (params?: { blockId?: string; floor?: number; status?: string; search?: string }): Promise<Room[]> => {
+    const response = await api.get<{ success: boolean; data: Room[] }>('/', { params });
+    return response.data.data;
+  },
+
+  getBlocks: async (): Promise<BlockSummary[]> => {
+    const response = await api.get<{ success: boolean; data: BlockSummary[] }>('/blocks');
+    return response.data.data;
+  },
+
+  getRoomById: async (roomId: string): Promise<Room> => {
+    const response = await api.get<{ success: boolean; data: Room }>(`/${roomId}`);
+    return response.data.data;
+  },
+
+  getRoomStats: async (): Promise<RoomStats> => {
+    const response = await api.get<{ success: boolean; data: RoomStats }>('/stats');
+    return response.data.data;
+  },
+
+  updateRoomStatus: async (roomId: string, status: RoomStatusType): Promise<Room> => {
+    const response = await api.patch<{ success: boolean; data: Room; message: string }>(`/${roomId}/status`, { status });
+    return response.data.data;
+  },
+
+  createRoom: async (payload: { blockId: string; floor: number; roomNumber: string; capacity?: number }): Promise<Room> => {
+    const response = await api.post<{ success: boolean; data: Room; message: string }>('/', payload);
+    return response.data.data;
+  },
+
+  createBlock: async (payload: { name: string; genderPolicy: string }): Promise<BlockSummary> => {
+    const response = await api.post<{ success: boolean; data: BlockSummary; message: string }>('/blocks', payload);
+    return response.data.data;
+  },
+
+  createMaintenance: async (roomId: string, payload: MaintenanceCreatePayload): Promise<RoomMaintenance> => {
+    const response = await api.post<{ success: boolean; data: RoomMaintenance; message: string }>(`/${roomId}/maintenance`, payload);
+    return response.data.data;
+  },
+
+  updateMaintenance: async (maintenanceId: string, payload: { title?: string; description?: string; priority?: string; status?: string; assignedTo?: string | null; category?: string | null; location?: string | null; resolutionNote?: string | null }): Promise<RoomMaintenance> => {
+    const response = await api.patch<{ success: boolean; data: RoomMaintenance; message: string }>(`/maintenance/${maintenanceId}`, payload);
+    return response.data.data;
+  },
+
+  deleteMaintenance: async (maintenanceId: string): Promise<void> => {
+    await api.delete(`/maintenance/${maintenanceId}`);
+  },
+
+  updateInventory: async (inventoryId: string, payload: { status?: RoomInventoryStatus; notes?: string | null }): Promise<RoomInventory> => {
+    const response = await api.patch<{ success: boolean; data: RoomInventory; message: string }>(`/inventories/${inventoryId}`, payload);
+    return response.data.data;
+  },
+};

@@ -1,0 +1,164 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply bg-slate-50 text-slate-800 font-sans antialiased min-h-screen;
+  }
+}
+
+@layer components {
+  .room-data-table thead tr {
+    @apply bg-slate-100/80 border-b border-slate-300 text-slate-800 font-extrabold;
+  }
+
+  .room-data-table th {
+    @apply px-3 py-2 border-r border-slate-200 text-xs normal-case tracking-normal;
+  }
+
+  .room-data-table th:last-child,
+  .room-data-table td:last-child {
+    @apply border-r-0;
+  }
+
+  .room-data-table tbody {
+    @apply divide-y divide-slate-200;
+  }
+
+  .room-data-table tbody tr {
+    @apply hover:bg-slate-50/80 transition-colors;
+  }
+
+  .room-data-table td {
+    @apply px-3 py-2 border-r border-slate-200 align-top text-xs font-semibold text-slate-700;
+  }
+
+  .room-table-shell {
+    @apply border border-slate-300 rounded-2xl overflow-x-auto shadow-sm bg-white;
+  }
+}
+
+/* Printable Official Document Styles */
+@media print {
+  @page {
+    size: A4 portrait;
+    margin: 15mm;
+  }
+
+  body {
+    background-color: #ffffff !important;
+    color: #000000 !important;
+    font-size: 12pt !important;
+  }
+
+  /* Hide Web Navigations and Non-Printable Buttons */
+  nav,
+  aside,
+  button,
+  .no-print,
+  .sidebar-container {
+    display: none !important;
+  }
+
+  /* Ensure main content takes 100% width on A4 page */
+  .flex-1,
+  .ml-20 {
+    margin-left: 0 !important;
+    padding: 0 !important;
+    width: 100% !important;
+  }
+
+  .official-print-document {
+    width: 100% !important;
+    max-width: 100% !important;
+  }
+
+  .official-print-document table {
+    table-layout: fixed !important;
+    width: 100% !important;
+  }
+
+  .official-print-document th,
+  .official-print-document td {
+    overflow-wrap: anywhere;
+    word-break: normal;
+    vertical-align: top;
+    line-height: 1.25 !important;
+  }
+
+  .official-print-document tr {
+    break-inside: avoid;
+  }
+
+  .room-detail-page > *:not(.official-print-document) {
+    display: none !important;
+  }
+
+  .print-section-title {
+    background: #e2e8f0 !important;
+    border: 1px solid #0f172a;
+    color: #0f172a !important;
+    font-size: 9px;
+    font-weight: 800;
+    padding: 5px 7px;
+    letter-spacing: .04em;
+  }
+
+  .print-table {
+    border-collapse: collapse;
+    table-layout: fixed;
+    width: 100%;
+  }
+
+  .print-table th,
+  .print-table td {
+    border: 1px solid #64748b !important;
+    font-size: 8px;
+    line-height: 1.25;
+    padding: 5px 6px;
+    overflow-wrap: anywhere;
+    vertical-align: top;
+  }
+
+  .print-table th {
+    background: #f1f5f9 !important;
+    color: #0f172a !important;
+    font-weight: 800;
+  }
+
+  /* High Contrast Black Borders for Printing */
+  .border,
+  .border-slate-200,
+  .border-slate-300 {
+    border-color: #000000 !important;
+  }
+
+  .bg-slate-50,
+  .bg-slate-100,
+  .bg-blue-50\/70,
+  .bg-emerald-50\/70,
+  .bg-amber-50\/60,
+  .bg-rose-50\/70 {
+    background-color: #ffffff !important;
+  }
+}
+
+/* Custom scrollbars for clean UI */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: #f1f5f9;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
