@@ -239,4 +239,43 @@ export const roomController = {
       res.status(200).json({ success: true, data: updated, message: 'Oda zimmet durumu güncellendi.' });
     } catch (error) { next(error); }
   },
+
+  createCleaningLog: async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { id } = req.params;
+      const { requestedBy, cleanedBy, notes, status } = req.body;
+      if (!isUuid(id)) return res.status(400).json({ success: false, message: 'Geçersiz oda kimliği.' });
+      const updatedRoom = await roomService.createCleaningLog(id, {
+        requestedBy: cleanString(requestedBy, 100) || undefined,
+        cleanedBy: cleanString(cleanedBy, 100) || undefined,
+        notes: cleanString(notes, 1000) || undefined,
+        status: status ? cleanString(status, 30) : undefined,
+      });
+      res.status(201).json({ success: true, data: updatedRoom, message: 'Temizlik kaydı oluşturuldu.' });
+    } catch (error) { next(error); }
+  },
+
+  updateCleaningLog: async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { cleaningId } = req.params;
+      const { status, cleanedBy, notes, requestedBy } = req.body;
+      if (!isUuid(cleaningId)) return res.status(400).json({ success: false, message: 'Geçersiz temizlik kaydı kimliği.' });
+      const updatedRoom = await roomService.updateCleaningLog(cleaningId, {
+        status: status ? cleanString(status, 30) : undefined,
+        cleanedBy: cleanedBy !== undefined ? (cleanString(cleanedBy, 100) || undefined) : undefined,
+        notes: notes !== undefined ? (cleanString(notes, 1000) || undefined) : undefined,
+        requestedBy: requestedBy !== undefined ? (cleanString(requestedBy, 100) || undefined) : undefined,
+      });
+      res.status(200).json({ success: true, data: updatedRoom, message: 'Temizlik kaydı güncellendi.' });
+    } catch (error) { next(error); }
+  },
+
+  deleteCleaningLog: async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { cleaningId } = req.params;
+      if (!isUuid(cleaningId)) return res.status(400).json({ success: false, message: 'Geçersiz temizlik kaydı kimliği.' });
+      const updatedRoom = await roomService.deleteCleaningLog(cleaningId);
+      res.status(200).json({ success: true, data: updatedRoom, message: 'Temizlik kaydı silindi.' });
+    } catch (error) { next(error); }
+  },
 };

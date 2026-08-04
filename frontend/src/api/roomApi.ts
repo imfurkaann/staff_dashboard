@@ -76,6 +76,19 @@ export interface RoomBlockInfo {
   genderPolicy: string;
 }
 
+export interface RoomCleaningLog {
+  id: string;
+  roomId: string;
+  status: 'NEEDS_CLEANING' | 'IN_PROGRESS' | 'CLEANED' | 'OUT_OF_ORDER' | string;
+  requestedBy?: string | null;
+  cleanedBy?: string | null;
+  notes?: string | null;
+  requestedAt: string;
+  cleanedAt?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface Room {
   id: string;
   blockId: string;
@@ -88,6 +101,7 @@ export interface Room {
   maintenances?: RoomMaintenance[];
   inventories?: RoomInventory[];
   occupancyHistory?: RoomOccupancyHistory[];
+  cleaningLogs?: RoomCleaningLog[];
 }
 
 export interface BlockSummary {
@@ -182,6 +196,21 @@ export const roomApi = {
 
   updateInventory: async (inventoryId: string, payload: { status?: RoomInventoryStatus; notes?: string | null }): Promise<RoomInventory> => {
     const response = await api.patch<{ success: boolean; data: RoomInventory; message: string }>(`/inventories/${inventoryId}`, payload);
+    return response.data.data;
+  },
+
+  createCleaningLog: async (roomId: string, payload: { requestedBy?: string; cleanedBy?: string; notes?: string; status?: string }): Promise<Room> => {
+    const response = await api.post<{ success: boolean; data: Room; message: string }>(`/${roomId}/cleaning`, payload);
+    return response.data.data;
+  },
+
+  updateCleaningLog: async (cleaningId: string, payload: { status?: string; cleanedBy?: string; notes?: string; requestedBy?: string }): Promise<Room> => {
+    const response = await api.patch<{ success: boolean; data: Room; message: string }>(`/cleaning/${cleaningId}`, payload);
+    return response.data.data;
+  },
+
+  deleteCleaningLog: async (cleaningId: string): Promise<Room> => {
+    const response = await api.delete<{ success: boolean; data: Room; message: string }>(`/cleaning/${cleaningId}`);
     return response.data.data;
   },
 };

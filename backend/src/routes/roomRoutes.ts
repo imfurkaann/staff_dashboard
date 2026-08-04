@@ -40,4 +40,13 @@ router.delete('/maintenance/:maintenanceId', authorizeRoles('ADMIN'), roomContro
 // PATCH /api/rooms/inventories/:inventoryId - Persist room fixture status/notes
 router.patch('/inventories/:inventoryId', authorizeRoles('ADMIN', 'HOUSING_MANAGER'), roomController.updateInventory);
 
+// POST /api/rooms/:id/cleaning - Create new cleaning log
+router.post('/:id/cleaning', authorizeRoles('ADMIN', 'HOUSING_MANAGER', 'SECURITY'), roomController.createCleaningLog);
+
+// PATCH /api/rooms/cleaning/:cleaningId - Update cleaning log
+router.patch('/cleaning/:cleaningId', authorizeRoles('ADMIN', 'HOUSING_MANAGER', 'SECURITY'), roomController.updateCleaningLog);
+
+// DELETE /api/rooms/cleaning/:cleaningId - Delete cleaning log
+router.delete('/cleaning/:cleaningId', authorizeRoles('ADMIN', 'HOUSING_MANAGER'), roomController.deleteCleaningLog);
+
 export default router;

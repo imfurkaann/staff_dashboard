@@ -4,7 +4,6 @@ import {
   Building2,
   Layers,
   Printer,
-  ArrowLeft,
   UserCheck,
   UserX,
   Briefcase,
@@ -27,8 +26,9 @@ import {
   Search,
   Edit,
   Trash2,
+  Sparkles,
 } from 'lucide-react';
-import { Room, RoomBed, RoomInventoryStatus, RoomMaintenance, RoomStatusType, roomApi } from '../api/roomApi';
+import { Room, RoomBed, RoomInventoryStatus, RoomMaintenance, RoomStatusType, RoomCleaningLog, roomApi } from '../api/roomApi';
 
 interface RoomDetailViewProps {
   room: Room;
@@ -37,7 +37,7 @@ interface RoomDetailViewProps {
   onNavigateToEmployee?: (employeeId: string) => void;
 }
 
-type RoomTabType = 'overview' | 'inventory' | 'maintenance' | 'history';
+type RoomTabType = 'overview' | 'inventory' | 'maintenance' | 'cleaning' | 'history';
 type RoomPrintType = 'maintenance' | 'history' | 'inventory' | 'all';
 
 export const RoomDetailView: React.FC<RoomDetailViewProps> = ({
@@ -55,6 +55,19 @@ export const RoomDetailView: React.FC<RoomDetailViewProps> = ({
   const [updatingInventoryId, setUpdatingInventoryId] = useState<string | null>(null);
   const [showPrintModal, setShowPrintModal] = useState(false);
   const [printType, setPrintType] = useState<RoomPrintType>('all');
+
+  // Cleaning Log Modal & Action State
+  const [showCleaningModal, setShowCleaningModal] = useState(false);
+  const [cleaningSubmitting, setCleaningSubmitting] = useState(false);
+  const [cleaningError, setCleaningError] = useState<string | null>(null);
+  const [updatingCleaningId, setUpdatingCleaningId] = useState<string | null>(null);
+  const [cleaningToDelete, setCleaningToDelete] = useState<RoomCleaningLog | null>(null);
+  const [cleaningToEdit, setCleaningToEdit] = useState<RoomCleaningLog | null>(null);
+  const [selectedCleaningNote, setSelectedCleaningNote] = useState<{ title: string; content: string } | null>(null);
+  const [cleaningForm, setCleaningForm] = useState({
+    requestedBy: 'Lojman Yönetimi',
+    notes: '',
+  });
 
   // Maintenance Report Modal State
   const [showMaintenanceModal, setShowMaintenanceModal] = useState(false);
@@ -226,6 +239,87 @@ export const RoomDetailView: React.FC<RoomDetailViewProps> = ({
     }
   };
 
+  // Cleaning Log Handlers
+  const handleCleaningSubmit = async () => {
+    setCleaningSubmitting(true);
+    setCleaningError(null);
+    try {
+      let updated: Room;
+      if (cleaningToEdit) {
+        updated = await roomApi.updateCleaningLog(cleaningToEdit.id, {
+          requestedBy: cleaningForm.requestedBy || 'Lojman Yönetimi',
+          notes: cleaningForm.notes.trim() || undefined,
+        });
+      } else {
+        updated = await roomApi.createCleaningLog(currentRoom.id, {
+          requestedBy: cleaningForm.requestedBy || 'Lojman Yönetimi',
+          notes: cleaningForm.notes.trim() || undefined,
+          status: 'NEEDS_CLEANING',
+        });
+      }
+      setCurrentRoom(updated);
+      if (onRoomUpdated) onRoomUpdated(updated);
+      setShowCleaningModal(false);
+      setCleaningToEdit(null);
+      setCleaningForm({
+        requestedBy: 'Lojman Yönetimi',
+        notes: '',
+      });
+    } catch (err: any) {
+      setCleaningError(err.response?.data?.message || 'Temizlik kaydı işlenirken bir hata oluştu.');
+    } finally {
+      setCleaningSubmitting(false);
+    }
+  };
+
+  const handleQuickMarkCleaned = async (log: RoomCleaningLog) => {
+    setUpdatingCleaningId(log.id);
+    try {
+      const updated = await roomApi.updateCleaningLog(log.id, {
+        status: 'CLEANED',
+        cleanedBy: 'Lojman Yönetimi',
+        notes: log.notes ? `${log.notes} (Temizlendi olarak işaretlendi)` : 'Oda temizlendi ve hazır hale getirildi.',
+      });
+      setCurrentRoom(updated);
+      if (onRoomUpdated) onRoomUpdated(updated);
+    } catch (err: any) {
+      setRoomError(err.response?.data?.message || 'Temizlik durumu güncellenirken hata oluştu.');
+    } finally {
+      setUpdatingCleaningId(null);
+    }
+  };
+
+  const handleQuickStartCleaning = async (log: RoomCleaningLog) => {
+    setUpdatingCleaningId(log.id);
+    try {
+      const updated = await roomApi.updateCleaningLog(log.id, {
+        status: 'IN_PROGRESS',
+        notes: log.notes ? `${log.notes} (Temizliğe başlandı)` : 'Temizlik işlemi başlatıldı.',
+      });
+      setCurrentRoom(updated);
+      if (onRoomUpdated) onRoomUpdated(updated);
+    } catch (err: any) {
+      setRoomError(err.response?.data?.message || 'Temizlik durumu güncellenirken hata oluştu.');
+    } finally {
+      setUpdatingCleaningId(null);
+    }
+  };
+
+  const handleDeleteCleaningSubmit = async () => {
+    if (!cleaningToDelete) return;
+    setUpdatingCleaningId(cleaningToDelete.id);
+    try {
+      const updated = await roomApi.deleteCleaningLog(cleaningToDelete.id);
+      setCurrentRoom(updated);
+      if (onRoomUpdated) onRoomUpdated(updated);
+      setCleaningToDelete(null);
+    } catch (err: any) {
+      setRoomError(err.response?.data?.message || 'Temizlik kaydı silinirken bir hata oluştu.');
+    } finally {
+      setUpdatingCleaningId(null);
+    }
+  };
+
   // Calculations
   const occupiedBeds = currentRoom.beds ? currentRoom.beds.filter((b) => b.isOccupied) : [];
   const occupiedCount = occupiedBeds.length;
@@ -252,8 +346,31 @@ export const RoomDetailView: React.FC<RoomDetailViewProps> = ({
   const roomOccupancyHistory = currentRoom.occupancyHistory || [];
   const inventoryStatusLabels: Record<RoomInventoryStatus, string> = { HEALTHY: '🟢 Sağlam & Çalışır', MAINTENANCE_REQUIRED: '🟡 Arızalı / Bakım Bekliyor', DAMAGED: '🔴 Kırık / Hasarlı', LOST: '❓ Kayıp / Zayi', IN_SERVICE: '🛠️ Tamirde / Serviste', REPLACEMENT_REQUIRED: '🔄 Değişim Bekliyor', RETIRED: '⚪ İade Edildi / Düşüm Yapıldı' };
 
-  // Maintenance logs for room
   const roomMaintenances = currentRoom.maintenances || [];
+  const openMaintenances = roomMaintenances.filter((m) => m.status !== 'RESOLVED' && m.status !== 'CLOSED' && !m.resolvedAt);
+  const resolvedMaintenances = roomMaintenances.filter((m) => m.status === 'RESOLVED' || m.status === 'CLOSED' || !!m.resolvedAt);
+
+  // Cleaning logs for room
+  const roomCleaningLogs = currentRoom.cleaningLogs || [];
+  const roomResidents = (currentRoom.beds || [])
+    .filter((b) => b.isOccupied && b.currentEmployee)
+    .map((b) => ({
+      id: b.currentEmployee!.id,
+      name: `${b.currentEmployee!.firstName} ${b.currentEmployee!.lastName} (${b.bedLabel})`,
+      cleanName: `${b.currentEmployee!.firstName} ${b.currentEmployee!.lastName}`,
+    }));
+  const formatDuration = (startStr?: string | null, endStr?: string | null) => {
+    if (!startStr || !endStr) return null;
+    const start = new Date(startStr).getTime();
+    const end = new Date(endStr).getTime();
+    const diffMs = end - start;
+    if (diffMs <= 0) return '0 dk';
+    const diffMins = Math.floor(diffMs / (1000 * 60));
+    if (diffMins < 60) return `${diffMins} dk`;
+    const hours = Math.floor(diffMins / 60);
+    const mins = diffMins % 60;
+    return `${hours} sa ${mins > 0 ? `${mins} dk` : ''}`;
+  };
   const formatDateTime = (value?: string | null) => value ? new Date(value).toLocaleString('tr-TR', { dateStyle: 'short', timeStyle: 'short' }) : '-';
   const printTitle: Record<RoomPrintType, string> = { maintenance: 'ODA ARIZA VE BAKIM DÖKÜMÜ', history: 'ODA KONAKLAMA GEÇMİŞİ DÖKÜMÜ', inventory: 'ODA ZİMMET VE DEMİRBAŞ DÖKÜMÜ', all: 'GENEL ODA DETAY DÖKÜMÜ' };
 
@@ -266,20 +383,79 @@ export const RoomDetailView: React.FC<RoomDetailViewProps> = ({
         </header>
         <section className="mb-3"><h2 className="print-section-title">1. ODA GENEL BİLGİLERİ</h2><table className="print-table"><tbody><tr><th>Oda / Blok</th><td>{currentRoom.roomNumber} / {currentRoom.block?.name}</td><th>Kapasite</th><td>{currentRoom.capacity} Kişi</td></tr><tr><th>Doluluk</th><td>{occupiedCount} Dolu / {vacantCount} Boş</td><th>Oda Durumu</th><td>{currentRoom.status}</td></tr></tbody></table></section>
         {(printType === 'inventory' || printType === 'all') && <section className="mb-3"><h2 className="print-section-title">2. ODA ZİMMET VE DEMİRBAŞLARI</h2><table className="print-table"><thead><tr><th>Demirbaş</th><th>Konum</th><th>Adet</th><th>Tesis Tarihi</th><th>Durum</th></tr></thead><tbody>{roomInventories.map((item) => <tr key={item.id}><td>{item.itemName}</td><td>{item.location}</td><td>{item.quantity}</td><td>{formatDateTime(item.installedAt)}</td><td>{inventoryStatusLabels[item.status]}</td></tr>)}</tbody></table></section>}
-        {(printType === 'maintenance' || printType === 'all') && <section className="mb-3"><h2 className="print-section-title">{printType === 'all' ? '3.' : '2.'} ARIZA VE BAKIM KAYITLARI</h2><table className="print-table"><thead><tr><th>Kategori</th><th>Konum</th><th>Açıklama</th><th>Öncelik</th><th>Kayıt Tarihi</th><th>Çözülme Tarihi</th></tr></thead><tbody>{roomMaintenances.length ? roomMaintenances.map((item) => <tr key={item.id}><td>{item.category || item.title}</td><td>{item.location || 'ODA GENELİ'}</td><td>{item.description}</td><td>{item.priority}</td><td>{formatDateTime(item.createdAt)}</td><td>{formatDateTime(item.resolvedAt)}</td></tr>) : <tr><td colSpan={6}>Kayıt bulunmamaktadır.</td></tr>}</tbody></table></section>}
-        {(printType === 'history' || printType === 'all') && <section className="mb-3"><h2 className="print-section-title">{printType === 'all' ? '4.' : '2.'} KONAKLAMA GEÇMİŞİ</h2><table className="print-table"><thead><tr><th>Personel</th><th>Departman / Unvan</th><th>Yatak</th><th>Giriş Tarihi</th><th>Çıkış Tarihi</th></tr></thead><tbody>{roomOccupancyHistory.length ? roomOccupancyHistory.map((item) => <tr key={item.id}><td>{item.employee.firstName} {item.employee.lastName}</td><td>{item.employee.department}{item.employee.title ? ` / ${item.employee.title}` : ''}</td><td>{item.bedLabel}</td><td>{formatDateTime(item.checkInDate)}</td><td>{formatDateTime(item.checkOutDate)}</td></tr>) : <tr><td colSpan={5}>Konaklama kaydı bulunmamaktadır.</td></tr>}</tbody></table></section>}
-        <footer className="mt-6 pt-3 border-t border-slate-500"><p className="text-[8px] italic text-slate-600">İşbu belge, belirtilen odaya ait lojman kayıtlarının kurumsal dökümüdür.</p><div className="grid grid-cols-3 gap-10 mt-8 text-center font-bold"><div><p>LOJMAN YÖNETİMİ</p><div className="border-b border-black mt-8"></div><small>İmza / Kaşe</small></div><div><p>İNSAN KAYNAKLARI</p><div className="border-b border-black mt-8"></div><small>İmza / Kaşe</small></div><div><p>TESLİM ALAN / PERSONEL</p><div className="border-b border-black mt-8"></div><small>İmza</small></div></div></footer>
-      </div>
-      {/* Top Navigation & Back Button */}
-      <div className="flex items-center justify-between no-print">
-        <button
-          onClick={onBack}
-          className="flex items-center gap-2 px-4 py-2 rounded-xl bg-white border border-slate-300 text-slate-700 hover:bg-slate-50 font-bold text-xs shadow-sm transition-all cursor-pointer active:scale-95"
-        >
-          <ArrowLeft className="w-4 h-4 text-[#1e3a8a]" />
-          <span>Odalar Listesine Dön</span>
-        </button>
+        {(printType === 'maintenance' || printType === 'all') && (
+          <section className="mb-3 space-y-2">
+            <h2 className="print-section-title">{printType === 'all' ? '3.' : '2.'} ARIZA VE BAKIM KAYITLARI</h2>
+            <div>
+              <p className="font-bold text-[9.5px] text-rose-900 border-b border-rose-300 pb-0.5 mb-1 uppercase tracking-wide">
+                {printType === 'all' ? '3.1.' : '2.1.'} DEVAM EDEN (ÇÖZÜLMEMİŞ) ARIZALAR ({openMaintenances.length})
+              </p>
+              <table className="print-table">
+                <thead>
+                  <tr>
+                    <th>Kategori</th>
+                    <th>Konum</th>
+                    <th>Açıklama</th>
+                    <th>Öncelik</th>
+                    <th>Kayıt Tarihi</th>
+                    <th>Durum</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {openMaintenances.length ? openMaintenances.map((item) => (
+                    <tr key={item.id}>
+                      <td>{item.category || item.title}</td>
+                      <td>{item.location || 'ODA GENELİ'}</td>
+                      <td>{item.description}</td>
+                      <td>{item.priority}</td>
+                      <td>{formatDateTime(item.createdAt)}</td>
+                      <td className="font-bold text-rose-700">Devam Ediyor / Çözülmedi</td>
+                    </tr>
+                  )) : (
+                    <tr><td colSpan={6} className="text-slate-500 italic">Devam eden arıza kaydı bulunmamaktadır.</td></tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
 
+            <div>
+              <p className="font-bold text-[9.5px] text-emerald-900 border-b border-emerald-300 pb-0.5 mb-1 uppercase tracking-wide">
+                {printType === 'all' ? '3.2.' : '2.2.'} ÇÖZÜLMÜŞ ARIZA VE BAKIM GEÇMİŞİ ({resolvedMaintenances.length})
+              </p>
+              <table className="print-table">
+                <thead>
+                  <tr>
+                    <th>Kategori</th>
+                    <th>Konum</th>
+                    <th>Açıklama</th>
+                    <th>Öncelik</th>
+                    <th>Kayıt Tarihi</th>
+                    <th>Çözülme Tarihi</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {resolvedMaintenances.length ? resolvedMaintenances.map((item) => (
+                    <tr key={item.id}>
+                      <td>{item.category || item.title}</td>
+                      <td>{item.location || 'ODA GENELİ'}</td>
+                      <td>{item.description}</td>
+                      <td>{item.priority}</td>
+                      <td>{formatDateTime(item.createdAt)}</td>
+                      <td>{formatDateTime(item.resolvedAt)} {item.resolutionNote ? `(${item.resolutionNote})` : ''}</td>
+                    </tr>
+                  )) : (
+                    <tr><td colSpan={6} className="text-slate-500 italic">Çözülmüş arıza kaydı bulunmamaktadır.</td></tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        )}
+        {(printType === 'history' || printType === 'all') && <section className="mb-3"><h2 className="print-section-title">{printType === 'all' ? '4.' : '2.'} KONAKLAMA GEÇMİŞİ</h2><table className="print-table"><thead><tr><th>Personel</th><th>Departman / Unvan</th><th>Yatak</th><th>Giriş Tarihi</th><th>Çıkış Tarihi</th></tr></thead><tbody>{roomOccupancyHistory.length ? roomOccupancyHistory.map((item) => <tr key={item.id}><td>{item.employee.firstName} {item.employee.lastName}</td><td>{item.employee.department}{item.employee.title ? ` / ${item.employee.title}` : ''}</td><td>{item.bedLabel}</td><td>{formatDateTime(item.checkInDate)}</td><td>{formatDateTime(item.checkOutDate)}</td></tr>) : <tr><td colSpan={5}>Konaklama kaydı bulunmamaktadır.</td></tr>}</tbody></table></section>}
+        <footer className="mt-6 pt-3 border-t border-slate-500"><p className="text-[8px] italic text-slate-600">İşbu belge, belirtilen odaya ait lojman kayıtlarının kurumsal dökümüdür.</p></footer>
+      </div>
+      {/* Top Action Bar */}
+      <div className="flex items-center justify-end no-print">
         <button
           onClick={() => setShowPrintModal(true)}
           className="flex items-center gap-2 px-4 py-2 rounded-xl bg-[#1e3a8a] text-white font-bold text-xs shadow-md shadow-blue-950/20 hover:bg-blue-900 transition-all cursor-pointer active:scale-95"
@@ -391,6 +567,18 @@ export const RoomDetailView: React.FC<RoomDetailViewProps> = ({
           >
             <Wrench className="w-4 h-4" />
             <span>Arıza & Bakım Kayıtları ({roomMaintenances.length})</span>
+          </button>
+
+          <button
+            onClick={() => handleTabChange('cleaning')}
+            className={`px-4 py-2.5 rounded-2xl text-xs font-extrabold flex items-center gap-2 transition-all cursor-pointer whitespace-nowrap ${
+              activeTab === 'cleaning'
+                ? 'bg-[#1e3a8a] text-white shadow-md shadow-blue-950/20'
+                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
+            }`}
+          >
+            <Sparkles className="w-4 h-4" />
+            <span>Temizlik Kayıtları ({roomCleaningLogs.length})</span>
           </button>
 
           <button
@@ -703,6 +891,222 @@ export const RoomDetailView: React.FC<RoomDetailViewProps> = ({
                         <button type="button" aria-label={`${maintenance.title} kaydını sil`} title="Sil" disabled={updatingMaintenanceId === maintenance.id} onClick={() => setMaintenanceToDelete(maintenance)} className="group relative inline-flex items-center justify-center h-7 px-2 rounded-lg bg-red-50 text-red-700 hover:bg-red-600 hover:text-white border border-red-200/80 hover:border-red-600 transition-all duration-500 ease-out shadow-2xs hover:shadow-md cursor-pointer overflow-hidden disabled:opacity-50"><Trash2 className="w-3.5 h-3.5 shrink-0 transition-transform duration-500 group-hover:scale-110"/><span className="max-w-0 opacity-0 group-hover:max-w-[60px] group-hover:opacity-100 group-hover:ml-1.5 transition-all duration-500 ease-out text-[11px] font-extrabold whitespace-nowrap overflow-hidden">Sil</span></button>
                       </div></td>
                     </tr>;
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* TAB: CLEANING LOGS (TEMİZLİK KAYITLARI) */}
+      {activeTab === 'cleaning' && (
+        <div className="bg-white border border-slate-300 rounded-3xl shadow-sm overflow-hidden">
+          <div className="p-5 border-b border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div>
+              <h2 className="text-base font-black text-slate-900 flex items-center gap-2">
+                <span className="w-9 h-9 rounded-xl bg-amber-50 border border-amber-100 flex items-center justify-center">
+                  <Sparkles className="w-4.5 h-4.5 text-amber-700" />
+                </span>
+                <span>Oda Temizlik & Hijyen Takip Geçmişi</span>
+              </h2>
+              <p className="text-xs text-slate-500 font-semibold mt-1">
+                Toplam {roomCleaningLogs.length} kayıt · Odanın 3 temel durumu (Temizlik Bekliyor, Temizleniyor, Temizlendi & Hazır) ve durum değişiklikleri aynı veri üzerinde takip edilir.
+              </p>
+            </div>
+            <button
+              onClick={() => {
+                setCleaningError(null);
+                setCleaningToEdit(null);
+                setCleaningForm({
+                  requestedBy: 'Lojman Yönetimi',
+                  notes: '',
+                });
+                setShowCleaningModal(true);
+              }}
+              className="flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-xl bg-[#1e3a8a] hover:bg-blue-900 text-white font-bold text-xs shadow-sm transition-all cursor-pointer"
+            >
+              <Plus className="w-4 h-4" />
+              <span>Yeni Temizlik Talebi</span>
+            </button>
+          </div>
+
+          {cleaningError && (
+            <div role="alert" className="m-4 p-3 rounded-xl bg-rose-50 border border-rose-200 text-xs font-bold text-rose-800 flex items-center justify-between gap-3">
+              <span>{cleaningError}</span>
+              <button aria-label="Hata mesajını kapat" onClick={() => setCleaningError(null)}><X className="w-4 h-4"/></button>
+            </div>
+          )}
+
+          {roomCleaningLogs.length === 0 ? (
+            <div className="m-5 p-10 text-center bg-slate-50 rounded-2xl border border-dashed border-slate-300">
+              <Sparkles className="w-11 h-11 text-amber-600 mx-auto mb-3" />
+              <p className="font-extrabold text-sm text-slate-800">Henüz temizlik kaydı oluşturulmadı</p>
+              <p className="text-xs text-slate-500 mt-1 max-w-md mx-auto">
+                Oda durumu "Temizlik Bekliyor" yapıldığında sistem otomatik kayıt açar veya "Yeni Temizlik Talebi" butonu ile talep ekleyebilirsiniz.
+              </p>
+            </div>
+          ) : (
+            <div className="room-table-shell m-5 mt-4">
+              <table className="room-data-table w-full min-w-[960px] text-left text-xs border-collapse">
+                <thead>
+                  <tr>
+                    <th className="w-36">Durum</th>
+                    <th className="w-44">Talep Eden / Bildiren</th>
+                    <th className="w-40">Talep Açılış Tarihi</th>
+                    <th className="w-44">Temizlenme Tarihi & Süre</th>
+                    <th className="w-44">Temizleyen Personel</th>
+                    <th className="min-w-[180px]">Temizlik Notları</th>
+                    <th className="w-48 text-center">İşlemler</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {roomCleaningLogs.map((log) => {
+                    const isCleaned = log.status === 'CLEANED';
+                    const isInProgress = log.status === 'IN_PROGRESS';
+                    const isNeedsCleaning = log.status === 'NEEDS_CLEANING';
+                    const durationText = formatDuration(log.requestedAt, log.cleanedAt);
+
+                    const statusClasses: Record<string, string> = {
+                      NEEDS_CLEANING: 'bg-amber-50 text-amber-800 border-amber-200',
+                      IN_PROGRESS: 'bg-blue-50 text-blue-800 border-blue-200',
+                      CLEANED: 'bg-emerald-50 text-emerald-800 border-emerald-200',
+                      OUT_OF_ORDER: 'bg-rose-50 text-rose-800 border-rose-200',
+                    };
+
+                    const statusLabels: Record<string, string> = {
+                      NEEDS_CLEANING: '🟡 Temizlik Bekliyor',
+                      IN_PROGRESS: '🔵 Temizlik Yapılıyor',
+                      CLEANED: '🟢 Temizlendi & Hazır',
+                      OUT_OF_ORDER: '🔴 Kullanım Dışı / Bakımda',
+                    };
+
+                    return (
+                      <tr key={log.id}>
+                        <td className="font-extrabold text-slate-900">
+                          <span className={`inline-flex px-2.5 py-0.5 rounded-md border text-[10px] font-extrabold ${statusClasses[log.status] || statusClasses.NEEDS_CLEANING}`}>
+                            {statusLabels[log.status] || log.status}
+                          </span>
+                        </td>
+                        <td className="font-bold text-slate-700">
+                          <div className="flex items-center gap-1.5">
+                            <UserIcon className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                            <span>{log.requestedBy || 'Lojman Yönetimi'}</span>
+                          </div>
+                        </td>
+                        <td className="font-bold text-slate-600 whitespace-nowrap">
+                          {formatDateTime(log.requestedAt)}
+                        </td>
+                        <td className="font-bold text-slate-600 whitespace-nowrap">
+                          {isCleaned && log.cleanedAt ? (
+                            <div className="space-y-0.5">
+                              <p className="text-emerald-800 font-extrabold">{formatDateTime(log.cleanedAt)}</p>
+                              {durationText && (
+                                <span className="inline-flex items-center gap-1 px-1.5 py-0.2 bg-emerald-100/70 text-emerald-900 rounded text-[10px] font-extrabold">
+                                  <Clock className="w-3 h-3 text-emerald-700" />
+                                  <span>{durationText} tamamlandı</span>
+                                </span>
+                              )}
+                            </div>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-amber-50 text-amber-800 border border-amber-200 text-[10px] font-extrabold">
+                              <Clock className="w-3 h-3 text-amber-600" />
+                              <span>Süreç Devam Ediyor</span>
+                            </span>
+                          )}
+                        </td>
+                        <td className="font-bold text-slate-700 whitespace-nowrap">
+                          {log.cleanedBy ? (
+                            <div className="flex items-center gap-1.5">
+                              <UserIcon className="w-3.5 h-3.5 text-[#1e3a8a] shrink-0" />
+                              <span className="text-[#1e3a8a] font-extrabold">{log.cleanedBy}</span>
+                            </div>
+                          ) : (
+                            <span className="text-slate-400 italic font-semibold text-[11px]">-</span>
+                          )}
+                        </td>
+                        <td>
+                          <div
+                            onClick={() => log.notes && setSelectedCleaningNote({ title: `Oda ${currentRoom.roomNumber} — Temizlik Notu`, content: log.notes })}
+                            className={`max-w-[180px] truncate text-[11px] p-1.5 rounded-xl transition-all whitespace-nowrap overflow-hidden ${
+                              log.notes
+                                ? 'cursor-pointer bg-slate-50 hover:bg-blue-50 text-slate-800 hover:text-blue-900 border border-slate-200/80 hover:border-blue-300 font-extrabold shadow-2xs'
+                                : 'text-slate-400 italic font-normal'
+                            }`}
+                            title={log.notes ? "Notun tamamını pop-up olarak okumak için tıklayın" : undefined}
+                          >
+                            {log.notes ? log.notes : 'Not eklenmemiş'}
+                          </div>
+                        </td>
+                        <td>
+                          <div className="flex items-center justify-center gap-1 min-h-[28px]">
+                            {isNeedsCleaning && (
+                              <button
+                                type="button"
+                                title="Temizliğe Başla"
+                                disabled={updatingCleaningId === log.id}
+                                onClick={() => handleQuickStartCleaning(log)}
+                                className="group relative inline-flex items-center justify-center h-7 px-2 rounded-lg bg-blue-50 text-blue-700 hover:bg-blue-600 hover:text-white border border-blue-200/80 hover:border-blue-600 transition-all duration-500 ease-out shadow-2xs hover:shadow-md cursor-pointer overflow-hidden disabled:opacity-50"
+                              >
+                                <Clock className="w-3.5 h-3.5 shrink-0 transition-transform duration-500 group-hover:scale-110" />
+                                <span className="max-w-0 opacity-0 group-hover:max-w-[70px] group-hover:opacity-100 group-hover:ml-1.5 transition-all duration-500 ease-out text-[11px] font-extrabold whitespace-nowrap overflow-hidden">
+                                  Başlat
+                                </span>
+                              </button>
+                            )}
+
+                            {!isCleaned && (
+                              <button
+                                type="button"
+                                title="Temizlendi Olarak İşaretle"
+                                disabled={updatingCleaningId === log.id}
+                                onClick={() => handleQuickMarkCleaned(log)}
+                                className="group relative inline-flex items-center justify-center h-7 px-2 rounded-lg bg-emerald-50 text-emerald-700 hover:bg-emerald-600 hover:text-white border border-emerald-200/80 hover:border-emerald-600 transition-all duration-500 ease-out shadow-2xs hover:shadow-md cursor-pointer overflow-hidden disabled:opacity-50"
+                              >
+                                <CheckCircle2 className="w-3.5 h-3.5 shrink-0 transition-transform duration-500 group-hover:scale-110" />
+                                <span className="max-w-0 opacity-0 group-hover:max-w-[80px] group-hover:opacity-100 group-hover:ml-1.5 transition-all duration-500 ease-out text-[11px] font-extrabold whitespace-nowrap overflow-hidden">
+                                  Temizlendi
+                                </span>
+                              </button>
+                            )}
+
+                            <button
+                              type="button"
+                              title="Düzenle"
+                              disabled={updatingCleaningId === log.id}
+                              onClick={() => {
+                                setCleaningToEdit(log);
+                                setCleaningForm({
+                                  requestedBy: log.requestedBy || 'Lojman Yönetimi',
+                                  notes: log.notes || '',
+                                });
+                                setCleaningError(null);
+                                setShowCleaningModal(true);
+                              }}
+                              className="group relative inline-flex items-center justify-center h-7 px-2 rounded-lg bg-slate-100 text-slate-700 hover:bg-slate-800 hover:text-white border border-slate-300 hover:border-slate-800 transition-all duration-500 ease-out shadow-2xs hover:shadow-md cursor-pointer overflow-hidden disabled:opacity-50"
+                            >
+                              <Edit className="w-3.5 h-3.5 shrink-0 transition-transform duration-500 group-hover:scale-110" />
+                              <span className="max-w-0 opacity-0 group-hover:max-w-[60px] group-hover:opacity-100 group-hover:ml-1.5 transition-all duration-500 ease-out text-[11px] font-extrabold whitespace-nowrap overflow-hidden">
+                                Düzenle
+                              </span>
+                            </button>
+
+                            <button
+                              type="button"
+                              title="Sil"
+                              disabled={updatingCleaningId === log.id}
+                              onClick={() => setCleaningToDelete(log)}
+                              className="group relative inline-flex items-center justify-center h-7 px-2 rounded-lg bg-red-50 text-red-700 hover:bg-red-600 hover:text-white border border-red-200/80 hover:border-red-600 transition-all duration-500 ease-out shadow-2xs hover:shadow-md cursor-pointer overflow-hidden disabled:opacity-50"
+                            >
+                              <Trash2 className="w-3.5 h-3.5 shrink-0 transition-transform duration-500 group-hover:scale-110" />
+                              <span className="max-w-0 opacity-0 group-hover:max-w-[50px] group-hover:opacity-100 group-hover:ml-1.5 transition-all duration-500 ease-out text-[11px] font-extrabold whitespace-nowrap overflow-hidden">
+                                Sil
+                              </span>
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
                   })}
                 </tbody>
               </table>
@@ -1038,6 +1442,191 @@ export const RoomDetailView: React.FC<RoomDetailViewProps> = ({
                     <span>Arızayı Bildir</span>
                   </>
                 )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* CLEANING LOG CREATE / EDIT MODAL */}
+      {showCleaningModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm overflow-y-auto">
+          <div className="bg-white border border-slate-300 rounded-3xl w-full max-w-lg max-h-[90vh] overflow-y-auto shadow-2xl my-auto">
+            {/* Modal Header */}
+            <div className="p-6 border-b border-slate-200 flex justify-between items-center bg-slate-50 rounded-t-3xl sticky top-0 z-20">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-amber-600 text-white flex items-center justify-center shadow-md">
+                  <Sparkles className="w-5 h-5" />
+                </div>
+                <div>
+                  <h2 className="text-lg font-extrabold text-slate-900">
+                    {cleaningToEdit ? 'Temizlik Kaydını Düzenle' : 'Yeni Temizlik Talebi'}
+                  </h2>
+                  <p className="text-xs font-semibold text-slate-500">
+                    Oda {currentRoom.roomNumber} — {currentRoom.block?.name} Bloğu
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => { setShowCleaningModal(false); setCleaningToEdit(null); }}
+                className="w-9 h-9 rounded-xl bg-slate-200 hover:bg-slate-300 text-slate-700 flex items-center justify-center transition-colors cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Modal Form Content */}
+            <div className="p-6 space-y-5">
+              {cleaningError && (
+                <div role="alert" className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-xs font-bold text-rose-800">
+                  {cleaningError}
+                </div>
+              )}
+
+              {/* Form Section */}
+              <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200 space-y-4">
+                <div className="flex items-center justify-between border-b border-slate-200/80 pb-2">
+                  <h3 className="text-xs font-extrabold text-slate-700 uppercase tracking-wider flex items-center gap-1.5">
+                    <span className="w-2.5 h-2.5 rounded-full bg-amber-600"></span>
+                    <span>Talep Bilgileri</span>
+                  </h3>
+                </div>
+
+                {/* Bildiren / Talep Eden (Dropdown) */}
+                <div>
+                  <label className="block text-xs font-bold text-slate-800 mb-1">
+                    Talep Eden Kişi <span className="text-red-500 font-black">*</span>
+                  </label>
+                  <select
+                    value={cleaningForm.requestedBy}
+                    onChange={(e) => setCleaningForm((prev) => ({ ...prev, requestedBy: e.target.value }))}
+                    className="w-full px-3.5 py-2.5 bg-white border border-slate-300 rounded-xl text-xs font-bold text-slate-900 focus:border-[#1e3a8a] focus:ring-1 focus:ring-[#1e3a8a] outline-none cursor-pointer"
+                  >
+                    <option value="Lojman Yönetimi">🏢 Lojman Yönetimi</option>
+                    {roomResidents.length > 0 && (
+                      <optgroup label="Odada İkamet Eden Sakinler">
+                        {roomResidents.map((res) => (
+                          <option key={res.id} value={res.cleanName}>
+                            👤 {res.name}
+                          </option>
+                        ))}
+                      </optgroup>
+                    )}
+                  </select>
+                </div>
+
+                {/* Notlar */}
+                <div>
+                  <label className="block text-xs font-bold text-slate-800 mb-1">
+                    Temizlik Notları / Açıklama <span className="text-slate-400 font-semibold text-[10px]">(İsteğe Bağlı)</span>
+                  </label>
+                  <textarea
+                    placeholder="Temizlik talebine ilişkin detaylı açıklama veya not yazabilirsiniz..."
+                    value={cleaningForm.notes}
+                    onChange={(e) => setCleaningForm((prev) => ({ ...prev, notes: e.target.value }))}
+                    rows={4}
+                    className="w-full px-3.5 py-2.5 bg-white border border-slate-300 rounded-xl text-xs font-bold text-slate-900 placeholder:text-slate-400 focus:border-[#1e3a8a] focus:ring-1 focus:ring-[#1e3a8a] outline-none resize-none"
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Modal Footer */}
+            <div className="p-6 pt-4 border-t border-slate-200 flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => { setShowCleaningModal(false); setCleaningToEdit(null); }}
+                className="py-2.5 px-4 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl transition-all cursor-pointer"
+              >
+                İptal
+              </button>
+              <button
+                onClick={handleCleaningSubmit}
+                disabled={cleaningSubmitting}
+                className="py-2.5 px-6 bg-[#1e3a8a] hover:bg-[#1e293b] text-white text-xs font-bold rounded-xl shadow-md transition-all flex items-center gap-2 disabled:opacity-50 cursor-pointer"
+              >
+                {cleaningSubmitting ? (
+                  <>
+                    <div className="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin" />
+                    <span>Kaydediliyor...</span>
+                  </>
+                ) : (
+                  <>
+                    <Check className="w-4 h-4 text-white" />
+                    <span>{cleaningToEdit ? 'Güncelle' : 'Kaydet'}</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* DELETE CLEANING CONFIRMATION MODAL */}
+      {cleaningToDelete && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-sm">
+          <div className="bg-white border border-slate-300 rounded-3xl w-full max-w-sm p-6 text-center shadow-2xl space-y-4">
+            <div className="w-12 h-12 rounded-2xl bg-rose-100 text-rose-700 flex items-center justify-center mx-auto">
+              <Trash2 className="w-6 h-6" />
+            </div>
+            <div>
+              <h3 className="text-base font-extrabold text-slate-900">Temizlik Kaydını Sil</h3>
+              <p className="text-xs text-slate-500 mt-1 font-semibold">
+                Bu temizlik kaydı kalıcı olarak silinecektir. Devam etmek istiyor musunuz?
+              </p>
+            </div>
+            <div className="flex items-center justify-center gap-2 pt-2">
+              <button
+                onClick={() => setCleaningToDelete(null)}
+                className="py-2 px-4 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl"
+              >
+                Vazgeç
+              </button>
+              <button
+                onClick={handleDeleteCleaningSubmit}
+                className="py-2 px-4 bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs rounded-xl shadow-sm"
+              >
+                Evet, Sil
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* NOTE DETAILS POPUP MODAL */}
+      {selectedCleaningNote && (
+        <div
+          onClick={() => setSelectedCleaningNote(null)}
+          className="fixed inset-0 z-[350] bg-slate-950/70 backdrop-blur-sm flex items-center justify-center p-4"
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="bg-white border border-slate-300 rounded-3xl p-6 max-w-lg w-full shadow-2xl space-y-4 text-slate-900"
+          >
+            <div className="flex items-center justify-between border-b border-slate-200 pb-3">
+              <div className="flex items-center gap-2 text-[#1e3a8a]">
+                <FileText className="w-5 h-5" />
+                <h3 className="font-extrabold text-sm text-slate-950">{selectedCleaningNote.title}</h3>
+              </div>
+              <button
+                onClick={() => setSelectedCleaningNote(null)}
+                className="w-8 h-8 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-600 flex items-center justify-center cursor-pointer transition-colors"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 text-xs font-semibold text-slate-800 leading-relaxed max-h-[300px] overflow-y-auto whitespace-pre-wrap">
+              {selectedCleaningNote.content}
+            </div>
+
+            <div className="text-right pt-2">
+              <button
+                type="button"
+                onClick={() => setSelectedCleaningNote(null)}
+                className="py-2 px-5 bg-[#1e3a8a] hover:bg-[#172554] text-white text-xs font-extrabold rounded-xl cursor-pointer transition-colors shadow-xs"
+              >
+                Kapat
               </button>
             </div>
           </div>

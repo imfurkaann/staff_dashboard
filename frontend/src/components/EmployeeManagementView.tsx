@@ -273,7 +273,7 @@ export const EmployeeManagementView: React.FC = () => {
           <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-2xl border border-slate-200 w-full lg:w-auto overflow-x-auto">
             <button
               onClick={() => setStatusFilter('ALL')}
-              className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+              className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap shrink-0 ${
                 statusFilter === 'ALL' ? 'bg-[#1e3a8a] text-white shadow-sm' : 'text-slate-700 hover:text-slate-900'
               }`}
             >
@@ -281,7 +281,7 @@ export const EmployeeManagementView: React.FC = () => {
             </button>
             <button
               onClick={() => setStatusFilter('RESIDENT')}
-              className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+              className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap shrink-0 ${
                 statusFilter === 'RESIDENT' ? 'bg-emerald-700 text-white shadow-sm' : 'text-slate-700 hover:text-slate-900'
               }`}
             >
@@ -289,7 +289,7 @@ export const EmployeeManagementView: React.FC = () => {
             </button>
             <button
               onClick={() => setStatusFilter('PENDING_ASSIGNMENT')}
-              className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+              className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap shrink-0 ${
                 statusFilter === 'PENDING_ASSIGNMENT' ? 'bg-amber-600 text-white shadow-sm' : 'text-slate-700 hover:text-slate-900'
               }`}
             >
@@ -398,15 +398,15 @@ export const EmployeeManagementView: React.FC = () => {
         </div>
       ) : (
         <div className="bg-white border border-slate-300 rounded-3xl overflow-hidden shadow-sm">
-          <div className="w-full overflow-hidden">
+          <div className="w-full overflow-x-auto">
             <table className="w-full text-left border-collapse">
               <thead>
                 <tr className="bg-slate-50 border-b border-slate-200 text-xs font-extrabold text-slate-600 uppercase tracking-wider">
-                  <th className="py-3.5 px-4 w-[26%]">
+                  <th className="py-3.5 px-4 whitespace-nowrap">
                     <button
                       type="button"
                       onClick={() => handleSort('name')}
-                      className="inline-flex items-center gap-1.5 hover:text-slate-900 transition-colors cursor-pointer select-none"
+                      className="inline-flex items-center gap-1.5 hover:text-slate-900 transition-colors cursor-pointer select-none whitespace-nowrap"
                     >
                       <span>Personel Bilgisi</span>
                       {sortField === 'name' ? (
@@ -416,13 +416,13 @@ export const EmployeeManagementView: React.FC = () => {
                       )}
                     </button>
                   </th>
-                  <th className="py-3.5 px-4 w-[25%]">Departman / Unvan / Firma</th>
-                  <th className="py-3.5 px-4 w-[16%]">Kimlik & Sicil</th>
-                  <th className="py-3.5 px-4 w-[18%]">
+                  <th className="py-3.5 px-4 whitespace-nowrap">Departman / Unvan / Firma</th>
+                  <th className="py-3.5 px-4 whitespace-nowrap">Kimlik & Sicil</th>
+                  <th className="py-3.5 px-4 whitespace-nowrap">
                     <button
                       type="button"
                       onClick={() => handleSort('room')}
-                      className="inline-flex items-center gap-1.5 hover:text-slate-900 transition-colors cursor-pointer select-none"
+                      className="inline-flex items-center gap-1.5 hover:text-slate-900 transition-colors cursor-pointer select-none whitespace-nowrap"
                     >
                       <span>Lojman / Oda Konumu</span>
                       {sortField === 'room' ? (
@@ -432,11 +432,11 @@ export const EmployeeManagementView: React.FC = () => {
                       )}
                     </button>
                   </th>
-                  <th className="py-3.5 px-4 w-[15%]">
+                  <th className="py-3.5 px-4 whitespace-nowrap">
                     <button
                       type="button"
                       onClick={() => handleSort('date')}
-                      className="inline-flex items-center gap-1.5 hover:text-slate-900 transition-colors cursor-pointer select-none"
+                      className="inline-flex items-center gap-1.5 hover:text-slate-900 transition-colors cursor-pointer select-none whitespace-nowrap"
                     >
                       <span>Kayıt Tarihi & Saati</span>
                       {sortField === 'date' ? (
@@ -446,7 +446,7 @@ export const EmployeeManagementView: React.FC = () => {
                       )}
                     </button>
                   </th>
-                  <th className="py-3.5 px-4 text-right w-[110px]">İşlem</th>
+                  <th className="py-3.5 px-4 text-right whitespace-nowrap w-[110px]">İşlem</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-200 text-xs font-semibold text-slate-800">
@@ -461,7 +461,7 @@ export const EmployeeManagementView: React.FC = () => {
                       className="hover:bg-slate-100/80 transition-colors cursor-pointer"
                     >
                       {/* 1. Personel Avatar & Ad Soyad */}
-                      <td className="py-3.5 px-4">
+                      <td className="py-3.5 px-4 whitespace-nowrap">
                         <div className="flex items-center gap-3">
                           <div className="w-9 h-9 rounded-xl bg-slate-100 border border-slate-300 overflow-hidden flex items-center justify-center shrink-0 shadow-inner">
                             {emp.photoUrl ? (
@@ -472,17 +472,17 @@ export const EmployeeManagementView: React.FC = () => {
                               </span>
                             )}
                           </div>
-                          <div>
-                            <div className="font-extrabold text-slate-900 text-sm flex items-center gap-1.5">
-                              <span>{emp.firstName} {emp.lastName}</span>
-                              <span className={`px-1.5 py-0.2 rounded text-[10px] font-extrabold ${
+                          <div className="min-w-0">
+                            <div className="font-extrabold text-slate-900 text-sm flex items-center gap-1.5 whitespace-nowrap">
+                              <span className="truncate max-w-[200px]" title={`${emp.firstName} ${emp.lastName}`}>{emp.firstName} {emp.lastName}</span>
+                              <span className={`px-1.5 py-0.2 rounded text-[10px] font-extrabold shrink-0 ${
                                 emp.gender === 'Male' ? 'bg-blue-100 text-blue-800' : 'bg-teal-100 text-teal-800'
                               }`}>
                                 {emp.gender === 'Male' ? 'Erkek' : 'Kadın'}
                               </span>
                             </div>
-                            <span className="inline-flex items-center gap-1 text-[11px] font-bold text-slate-600 mt-0.5 font-mono">
-                              <Phone className="w-3.5 h-3.5 text-[#1e3a8a]" />
+                            <span className="inline-flex items-center gap-1 text-[11px] font-bold text-slate-600 mt-0.5 font-mono whitespace-nowrap">
+                              <Phone className="w-3.5 h-3.5 text-[#1e3a8a] shrink-0" />
                               <span>{formatPhone(emp.phone)}</span>
                             </span>
                           </div>
@@ -490,12 +490,12 @@ export const EmployeeManagementView: React.FC = () => {
                       </td>
 
                       {/* 2. Departman / Unvan / Şirket */}
-                      <td className="py-3.5 px-4">
-                        <div className="font-bold text-slate-900 text-xs">{emp.department}</div>
-                        <div className="text-[11px] text-slate-500 font-semibold flex items-center gap-1.5 flex-wrap">
-                          <span>{emp.title || 'Unvan Belirtilmedi'}</span>
+                      <td className="py-3.5 px-4 whitespace-nowrap">
+                        <div className="font-bold text-slate-900 text-xs truncate max-w-[220px]" title={emp.department}>{emp.department}</div>
+                        <div className="text-[11px] text-slate-500 font-semibold flex items-center gap-1.5 whitespace-nowrap">
+                          <span className="truncate max-w-[150px]" title={emp.title || 'Unvan Belirtilmedi'}>{emp.title || 'Unvan Belirtilmedi'}</span>
                           {emp.company && (
-                            <span className="text-slate-700 font-bold bg-slate-100 px-1.5 py-0.2 rounded border border-slate-200">
+                            <span className="text-slate-700 font-bold bg-slate-100 px-1.5 py-0.2 rounded border border-slate-200 shrink-0 max-w-[120px] truncate" title={emp.company}>
                               {emp.company}
                             </span>
                           )}
@@ -503,42 +503,44 @@ export const EmployeeManagementView: React.FC = () => {
                       </td>
 
                       {/* 3. Kimlik & Sicil No */}
-                      <td className="py-3.5 px-4">
-                        <div className="font-bold text-slate-900 text-xs flex items-center gap-1">
-                          <Lock className="w-3.5 h-3.5 text-slate-400" />
+                      <td className="py-3.5 px-4 whitespace-nowrap">
+                        <div className="font-bold text-slate-900 text-xs flex items-center gap-1 whitespace-nowrap">
+                          <Lock className="w-3.5 h-3.5 text-slate-400 shrink-0" />
                           <span>{emp.tcNoMasked || '-'}</span>
                         </div>
-                        <div className="text-[11px] text-slate-500 font-semibold">
+                        <div className="text-[11px] text-slate-500 font-semibold whitespace-nowrap">
                           Sicil: <strong className="text-slate-800">{emp.registrationNo || '-'}</strong>
                         </div>
                       </td>
 
                       {/* 4. Lojman / Oda Konumu */}
-                      <td className="py-3.5 px-4">
+                      <td className="py-3.5 px-4 whitespace-nowrap">
                         {currentBed ? (
-                          <span className="px-2.5 py-1 rounded-xl bg-emerald-50 text-emerald-900 border border-emerald-200 font-extrabold text-xs inline-flex items-center gap-1.5">
-                            <BedDouble className="w-4 h-4 text-emerald-700" />
-                            <span>{currentBed.room.block.name} • Oda {currentBed.room.roomNumber} ({currentBed.bedLabel})</span>
+                          <span className="px-2.5 py-1 rounded-xl bg-emerald-50 text-emerald-900 border border-emerald-200 font-extrabold text-xs inline-flex items-center gap-1.5 whitespace-nowrap">
+                            <BedDouble className="w-4 h-4 text-emerald-700 shrink-0" />
+                            <span className="truncate max-w-[240px]" title={`${currentBed.room.block.name} • Oda ${currentBed.room.roomNumber} (${currentBed.bedLabel})`}>
+                              {currentBed.room.block.name} • Oda {currentBed.room.roomNumber} ({currentBed.bedLabel})
+                            </span>
                           </span>
                         ) : (
-                          <span className="px-2.5 py-1 rounded-xl bg-amber-50 text-amber-900 border border-amber-200 font-extrabold text-xs inline-flex items-center gap-1.5">
-                            <Clock className="w-4 h-4 text-amber-600" />
+                          <span className="px-2.5 py-1 rounded-xl bg-amber-50 text-amber-900 border border-amber-200 font-extrabold text-xs inline-flex items-center gap-1.5 whitespace-nowrap">
+                            <Clock className="w-4 h-4 text-amber-600 shrink-0" />
                             <span>Atama Bekliyor</span>
                           </span>
                         )}
                       </td>
 
                       {/* 5. Ayrı Kolon: Lojmana Kayıt Tarihi & Saati */}
-                      <td className="py-3.5 px-4">
-                        <div className="font-extrabold text-slate-900 flex items-center gap-1.5 text-xs">
-                          <Calendar className="w-3.5 h-3.5 text-[#1e3a8a]" />
+                      <td className="py-3.5 px-4 whitespace-nowrap">
+                        <div className="font-extrabold text-slate-900 flex items-center gap-1.5 text-xs whitespace-nowrap">
+                          <Calendar className="w-3.5 h-3.5 text-[#1e3a8a] shrink-0" />
                           <span>{formatDateTime(emp.checkInDate || emp.createdAt)}</span>
                         </div>
                       </td>
 
                       {/* 6. Aksiyonlar — tooltip açılır butonlar */}
-                      <td className="py-3.5 px-4 text-right">
-                        <div className="flex items-center justify-end gap-1.5 min-h-[32px]">
+                      <td className="py-3.5 px-4 text-right whitespace-nowrap">
+                        <div className="flex items-center justify-end gap-1.5 min-h-[32px] whitespace-nowrap shrink-0">
                           {/* Personele Oda Ata */}
                           <button
                             type="button"

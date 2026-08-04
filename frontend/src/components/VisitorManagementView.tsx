@@ -80,36 +80,69 @@ export const VisitorManagementView: React.FC<Props> = ({ currentUser }) => {
 
   if (view === 'history') return <VisitorHistoryView currentUser={currentUser} onBack={() => setView('list')} />;
 
-  return <div className="space-y-4 animate-fadeIn">
-    {/* Action Buttons Header Bar */}
-    <div className="flex items-center justify-between gap-3">
-      {/* Compact Status Tabs */}
-      <div className="flex flex-wrap items-center gap-1 bg-slate-100 p-1 rounded-2xl border border-slate-200">
-        <button type="button" onClick={() => setStatus('ALL')} className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${status === 'ALL' ? 'bg-[#1e3a8a] text-white shadow-xs' : 'text-slate-700 hover:text-slate-900'}`}>
-          Tüm Kayıtlar
-        </button>
-        <button type="button" onClick={() => setStatus('INSIDE')} className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${status === 'INSIDE' ? 'bg-emerald-700 text-white shadow-xs' : 'text-slate-700 hover:text-slate-900'}`}>
-          Şu An İçeride ({summary.inside})
-        </button>
-        <button type="button" onClick={() => setStatus('EXITED')} className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${status === 'EXITED' ? 'bg-slate-700 text-white shadow-xs' : 'text-slate-700 hover:text-slate-900'}`}>
-          Çıkış Yapanlar ({summary.exited})
-        </button>
-        <button type="button" onClick={() => setStatus('DELETED')} className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${status === 'DELETED' ? 'bg-rose-700 text-white shadow-xs' : 'text-slate-700 hover:text-slate-900'}`}>
-          Silinen Kayıtlar {summary.deleted !== undefined ? `(${summary.deleted})` : ''}
-        </button>
-      </div>
+  return (
+    <div className="space-y-4 animate-fadeIn w-full max-w-full overflow-hidden">
+      {/* Action Buttons Header Bar */}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        {/* Compact Status Tabs */}
+        <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-2xl border border-slate-200 overflow-x-auto max-w-full">
+          <button
+            type="button"
+            onClick={() => setStatus('ALL')}
+            className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap shrink-0 ${
+              status === 'ALL' ? 'bg-[#1e3a8a] text-white shadow-xs' : 'text-slate-700 hover:text-slate-900 hover:bg-slate-200/60'
+            }`}
+          >
+            Tüm Kayıtlar
+          </button>
+          <button
+            type="button"
+            onClick={() => setStatus('INSIDE')}
+            className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap shrink-0 ${
+              status === 'INSIDE' ? 'bg-emerald-700 text-white shadow-xs' : 'text-slate-700 hover:text-slate-900 hover:bg-slate-200/60'
+            }`}
+          >
+            Şu An İçeride ({summary.inside})
+          </button>
+          <button
+            type="button"
+            onClick={() => setStatus('EXITED')}
+            className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap shrink-0 ${
+              status === 'EXITED' ? 'bg-slate-700 text-white shadow-xs' : 'text-slate-700 hover:text-slate-900 hover:bg-slate-200/60'
+            }`}
+          >
+            Çıkış Yapanlar ({summary.exited})
+          </button>
+          <button
+            type="button"
+            onClick={() => setStatus('DELETED')}
+            className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap shrink-0 ${
+              status === 'DELETED' ? 'bg-rose-700 text-white shadow-xs' : 'text-slate-700 hover:text-slate-900 hover:bg-slate-200/60'
+            }`}
+          >
+            Silinen Kayıtlar {summary.deleted !== undefined ? `(${summary.deleted})` : ''}
+          </button>
+        </div>
 
-      <div className="flex items-center gap-2">
-        <button type="button" onClick={() => setView('history')} className="inline-flex items-center gap-1.5 h-9 px-3.5 rounded-xl bg-violet-50 text-violet-700 hover:bg-violet-600 hover:text-white border border-violet-200 hover:border-violet-600 font-extrabold text-xs transition-all cursor-pointer shadow-xs">
-          <History className="w-4 h-4" />
-          <span>Geçmiş Kayıtlar</span>
-        </button>
-        <button type="button" onClick={() => setEditing(null)} className="inline-flex items-center gap-1.5 h-9 px-3.5 rounded-xl bg-[#1e3a8a] text-white hover:bg-[#172554] border border-[#1e3a8a] font-extrabold text-xs transition-all cursor-pointer shadow-xs">
-          <Plus className="w-4 h-4" />
-          <span>Yeni Ziyaretçi</span>
-        </button>
+        <div className="flex items-center gap-2 shrink-0">
+          <button
+            type="button"
+            onClick={() => setView('history')}
+            className="inline-flex items-center gap-1.5 h-9 px-3.5 rounded-xl bg-violet-50 text-violet-700 hover:bg-violet-600 hover:text-white border border-violet-200 hover:border-violet-600 font-extrabold text-xs transition-all cursor-pointer shadow-xs whitespace-nowrap"
+          >
+            <History className="w-4 h-4" />
+            <span>Geçmiş Kayıtlar</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setEditing(null)}
+            className="inline-flex items-center gap-1.5 h-9 px-3.5 rounded-xl bg-[#1e3a8a] text-white hover:bg-[#172554] border border-[#1e3a8a] font-extrabold text-xs transition-all cursor-pointer shadow-xs whitespace-nowrap"
+          >
+            <Plus className="w-4 h-4" />
+            <span>Yeni Ziyaretçi</span>
+          </button>
+        </div>
       </div>
-    </div>
 
     {notice && <div className="flex justify-between rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-xs font-bold text-emerald-800"><span>{notice}</span><button onClick={() => setNotice(null)}><X className="w-4 h-4" /></button></div>}
     {error && <div className="flex justify-between rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-xs font-bold text-rose-800"><span>{error}</span><button onClick={() => setError(null)}><X className="w-4 h-4" /></button></div>}
@@ -125,5 +158,6 @@ export const VisitorManagementView: React.FC<Props> = ({ currentUser }) => {
     <VisitorRecordsTable visitors={visitors} loading={isInitialLoading} busyId={busyId} canManageArchive={canManageArchive} onCheckOut={(visitor) => run(visitor, () => visitorApi.checkOutVisitor(visitor.id), 'Ziyaretçi çıkışı kaydedildi.')} onUndoCheckOut={(visitor) => run(visitor, () => visitorApi.undoCheckOutVisitor(visitor.id), 'Çıkış işlemi geri alındı.')} onEdit={(visitor) => setEditing(visitor)} onDelete={setDeleteTarget} onRestore={(visitor) => run(visitor, () => visitorApi.restoreVisitor(visitor.id), 'Kayıt geri yüklendi.')} />
     <AddVisitorModal isOpen={editing !== undefined} visitor={editing || null} onClose={() => setEditing(undefined)} onSuccess={() => { setNotice(editing ? 'Ziyaretçi kaydı güncellendi.' : 'Ziyaretçi girişi kaydedildi.'); load(); }} />
     {deleteTarget && <div className="fixed inset-0 z-[350] bg-slate-950/70 backdrop-blur-sm flex items-center justify-center p-4" onMouseDown={() => setDeleteTarget(null)}><div className="w-full max-w-sm rounded-3xl bg-white border border-slate-300 p-6 shadow-2xl text-center" onMouseDown={(event) => event.stopPropagation()}><div className="w-12 h-12 mx-auto rounded-2xl bg-rose-100 text-rose-700 flex items-center justify-center"><ShieldCheck className="w-6 h-6" /></div><h3 className="mt-3 font-extrabold text-slate-950">Ziyaretçi Kaydını Sil</h3><p className="mt-1 text-xs font-semibold text-slate-600"><strong>{deleteTarget.fullName}</strong> kaydı denetim geçmişi korunarak arşivlenecektir.</p><div className="flex justify-center gap-2 mt-5"><button onClick={() => setDeleteTarget(null)} className="px-4 py-2.5 rounded-xl bg-slate-100 text-xs font-bold text-slate-700">Vazgeç</button><button onClick={() => { const target = deleteTarget; setDeleteTarget(null); run(target, () => visitorApi.deleteVisitor(target.id), 'Kayıt arşivlendi.'); }} className="px-4 py-2.5 rounded-xl bg-rose-600 text-xs font-bold text-white">Evet, Sil</button></div></div></div>}
-  </div>;
+    </div>
+  );
 };

@@ -47,7 +47,7 @@ export const VisitorHistoryView: React.FC<Props> = ({ currentUser, onBack }) => 
 
   return <div className="space-y-5 animate-fadeIn">
     {error && <div className="rounded-2xl border border-rose-200 bg-rose-50 p-3 text-xs font-bold text-rose-800">{error}</div>}
-    
+
     <section className="rounded-3xl border border-slate-300 bg-white p-5 shadow-sm space-y-4">
       <div className="flex items-center gap-2 border-b border-slate-200 pb-3">
         <span className="w-8 h-8 rounded-xl bg-blue-50 text-[#1e3a8a] flex items-center justify-center">
@@ -184,11 +184,10 @@ export const VisitorHistoryView: React.FC<Props> = ({ currentUser, onBack }) => 
                 if (!hasDateRange) return;
                 visitorApi.exportExcel(query).catch((caught) => setError(caught.message));
               }}
-              className={`inline-flex items-center justify-center gap-1.5 h-10 px-4 rounded-xl text-xs font-extrabold transition-all shadow-xs ${
-                hasDateRange
+              className={`inline-flex items-center justify-center gap-1.5 h-10 px-4 rounded-xl text-xs font-extrabold transition-all shadow-xs ${hasDateRange
                   ? 'bg-emerald-50 text-emerald-700 hover:bg-emerald-600 hover:text-white border border-emerald-200 hover:border-emerald-600 cursor-pointer'
                   : 'bg-slate-100 text-slate-400 border border-slate-200 cursor-not-allowed'
-              }`}
+                }`}
               title={!hasDateRange ? 'Doküman indirmek için tarih aralığı seçmeniz gereklidir' : 'Seçili tarih aralığındaki kayıtları indir'}
             >
               <Download className="w-4 h-4" />

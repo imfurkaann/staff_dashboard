@@ -199,8 +199,8 @@ export const RoomManagementView: React.FC<RoomManagementViewProps> = ({ onNaviga
               room.block.genderPolicy === 'Male'
                 ? 'Erkek Lojman Bloğu'
                 : room.block.genderPolicy === 'Female'
-                ? 'Kadın Lojman Bloğu'
-                : 'Karma Lojman Bloğu',
+                  ? 'Kadın Lojman Bloğu'
+                  : 'Karma Lojman Bloğu',
             rooms: [],
           };
         }
@@ -250,44 +250,40 @@ export const RoomManagementView: React.FC<RoomManagementViewProps> = ({ onNaviga
   }
 
   return (
-    <div className="space-y-5 w-full max-w-full overflow-x-hidden">
-      {/* Top Filter & Grouping Control Bar - Spreads Full Width */}
-      <div className="bg-white border border-slate-300 rounded-3xl p-4 shadow-sm">
-        <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-3">
-          {/* Left Side: Grouping Switcher + Filter Dropdowns */}
-          <div className="flex items-center gap-2 overflow-x-auto pb-1 xl:pb-0 no-scrollbar min-w-0 flex-1">
-            <span className="text-[11px] font-extrabold text-slate-500 uppercase tracking-wider whitespace-nowrap shrink-0">
-              Sıralama:
-            </span>
+    <div className="space-y-5">
+      {/* Top Filter & Grouping Control Bar */}
+      <div className="bg-white border border-slate-300 rounded-3xl p-4 shadow-sm space-y-3">
+        <div className="flex flex-col lg:flex-row items-center justify-between gap-3">
+          {/* Grouping Switcher */}
+          <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-2xl border border-slate-200 w-full lg:w-auto overflow-x-auto shrink-0">
+            <button
+              onClick={() => setGroupBy('block')}
+              className={`px-3.5 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 cursor-pointer transition-all whitespace-nowrap ${
+                groupBy === 'block'
+                  ? 'bg-[#1e3a8a] text-white shadow-sm'
+                  : 'text-slate-700 hover:text-slate-900'
+              }`}
+            >
+              <Building2 className="w-3.5 h-3.5" />
+              <span>Blok Blok Sırala</span>
+            </button>
+            <button
+              onClick={() => setGroupBy('floor')}
+              className={`px-3.5 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 cursor-pointer transition-all whitespace-nowrap ${
+                groupBy === 'floor'
+                  ? 'bg-[#1e3a8a] text-white shadow-sm'
+                  : 'text-slate-700 hover:text-slate-900'
+              }`}
+            >
+              <Layers className="w-3.5 h-3.5" />
+              <span>Kat Kat Sırala</span>
+            </button>
+          </div>
 
-            {/* Grouping Toggle */}
-            <div className="flex items-center bg-slate-100 p-1 rounded-2xl border border-slate-200 shrink-0">
-              <button
-                onClick={() => setGroupBy('block')}
-                className={`px-3.5 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 cursor-pointer transition-all whitespace-nowrap ${
-                  groupBy === 'block'
-                    ? 'bg-[#1e3a8a] text-white shadow-md shadow-blue-950/20'
-                    : 'text-slate-600 hover:text-slate-900'
-                }`}
-              >
-                <Building2 className="w-3.5 h-3.5" />
-                <span>Blok Blok Sırala</span>
-              </button>
-              <button
-                onClick={() => setGroupBy('floor')}
-                className={`px-3.5 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 cursor-pointer transition-all whitespace-nowrap ${
-                  groupBy === 'floor'
-                    ? 'bg-[#1e3a8a] text-white shadow-md shadow-blue-950/20'
-                    : 'text-slate-600 hover:text-slate-900'
-                }`}
-              >
-                <Layers className="w-3.5 h-3.5" />
-                <span>Kat Kat Sırala</span>
-              </button>
-            </div>
-
+          {/* Filter Dropdowns, Action Buttons & Search Box */}
+          <div className="flex flex-wrap items-center gap-2 w-full lg:w-auto justify-end">
             {/* 1. Block Filter Dropdown */}
-            <div className="flex items-center gap-1.5 border border-slate-200 rounded-xl px-3 py-1.5 bg-slate-50/70 text-xs font-semibold text-slate-700 shrink-0">
+            <div className="flex items-center gap-1.5 border border-slate-200 rounded-xl px-3 py-2 bg-slate-50 text-xs font-semibold text-slate-700">
               <Building className="w-3.5 h-3.5 text-slate-500 shrink-0" />
               <select
                 value={selectedBlockId}
@@ -304,7 +300,7 @@ export const RoomManagementView: React.FC<RoomManagementViewProps> = ({ onNaviga
             </div>
 
             {/* 2. Floor Filter Dropdown */}
-            <div className="flex items-center gap-1.5 border border-slate-200 rounded-xl px-3 py-1.5 bg-slate-50/70 text-xs font-semibold text-slate-700 shrink-0">
+            <div className="flex items-center gap-1.5 border border-slate-200 rounded-xl px-3 py-2 bg-slate-50 text-xs font-semibold text-slate-700">
               <Layers className="w-3.5 h-3.5 text-slate-500 shrink-0" />
               <select
                 value={selectedFloor}
@@ -321,48 +317,44 @@ export const RoomManagementView: React.FC<RoomManagementViewProps> = ({ onNaviga
             </div>
 
             {/* 3. Occupancy Filter Dropdown */}
-            <div className="flex items-center gap-1.5 border border-slate-200 rounded-xl px-3 py-1.5 bg-slate-50/70 text-xs font-semibold text-slate-700 shrink-0">
+            <div className="flex items-center gap-1.5 border border-slate-200 rounded-xl px-3 py-2 bg-slate-50 text-xs font-semibold text-slate-700">
               <UserCheck className="w-3.5 h-3.5 text-slate-500 shrink-0" />
               <select
                 value={selectedOccupancy}
                 onChange={(e) => setSelectedOccupancy(e.target.value)}
                 className="bg-transparent focus:outline-none cursor-pointer text-slate-800 font-bold"
               >
-                <option value="ALL">Tüm Doluluk Durumları</option>
-                <option value="EMPTY">🟢 Boş Odalar (Tümü Boş)</option>
-                <option value="PARTIAL">🟡 Yarı Dolu Odalar</option>
-                <option value="FULL">🔴 Tam Dolu Odalar</option>
+                <option value="ALL">Tüm Doluluklar</option>
+                <option value="EMPTY">🟢 Boş Odalar</option>
+                <option value="PARTIAL">🟡 Yarı Dolu</option>
+                <option value="FULL">🔴 Tam Dolu</option>
               </select>
             </div>
 
             {/* 4. Room Status Filter Dropdown */}
-            <div className="flex items-center gap-1.5 border border-slate-200 rounded-xl px-3 py-1.5 bg-slate-50/70 text-xs font-semibold text-slate-700 shrink-0">
+            <div className="flex items-center gap-1.5 border border-slate-200 rounded-xl px-3 py-2 bg-slate-50 text-xs font-semibold text-slate-700">
               <Filter className="w-3.5 h-3.5 text-slate-500 shrink-0" />
               <select
                 value={selectedStatus}
                 onChange={(e) => setSelectedStatus(e.target.value)}
                 className="bg-transparent focus:outline-none cursor-pointer text-slate-800 font-bold"
               >
-                <option value="ALL">Tüm Oda Durumları</option>
-                <option value="READY">🟢 Hazır (Müsait)</option>
-                <option value="NEEDS_CLEANING">🟡 Temizlik Bekliyor</option>
-                <option value="OUT_OF_ORDER">🔴 Arızalı / Bakımda</option>
+                <option value="ALL">Tüm Durumlar</option>
+                <option value="READY">🟢 Hazır</option>
+                <option value="NEEDS_CLEANING">🟡 Temizlik</option>
+                <option value="OUT_OF_ORDER">🔴 Arızalı</option>
               </select>
             </div>
-          </div>
 
-          {/* Right Side: Oda No / Personel Adı Search Input & Refresh Button */}
-          <div className="flex items-center gap-2 shrink-0 justify-end">
-            <button onClick={() => openCreateModal('block')} className="h-9 px-3 rounded-xl border border-slate-300 bg-white text-slate-700 hover:border-[#1e3a8a] hover:text-[#1e3a8a] text-xs font-extrabold inline-flex items-center gap-1.5 transition-colors"><Building2 className="w-3.5 h-3.5"/>Yeni Blok</button>
-            <button onClick={() => openCreateModal('room')} disabled={availableBlocks.length === 0} className="h-9 px-3 rounded-xl border border-[#1e3a8a] bg-[#1e3a8a] text-white hover:bg-blue-900 text-xs font-extrabold inline-flex items-center gap-1.5 transition-colors disabled:opacity-50"><Plus className="w-3.5 h-3.5"/>Yeni Oda</button>
-            <div className="relative w-full sm:w-72">
+            {/* Search Input */}
+            <div className="relative flex-1 min-w-[180px] lg:w-60">
               <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
               <input
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Oda No veya Personel Adı ile Ara..."
-                className="w-full pl-9 pr-8 py-2 rounded-xl border border-slate-200 text-xs font-semibold text-slate-900 placeholder:text-slate-400 focus:outline-none focus:border-[#1e3a8a] focus:ring-1 focus:ring-[#1e3a8a]"
+                placeholder="Oda No veya Personel..."
+                className="w-full pl-9 pr-8 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs font-bold text-slate-900 placeholder:text-slate-400 focus:bg-white focus:border-[#1e3a8a] outline-none"
               />
               {searchQuery && (
                 <button
@@ -374,10 +366,26 @@ export const RoomManagementView: React.FC<RoomManagementViewProps> = ({ onNaviga
               )}
             </div>
 
+            {/* Action Buttons */}
+            <button
+              onClick={() => openCreateModal('block')}
+              className="px-3.5 py-2 rounded-xl border border-slate-300 bg-white text-slate-700 hover:border-[#1e3a8a] hover:text-[#1e3a8a] text-xs font-bold inline-flex items-center gap-1.5 transition-colors cursor-pointer"
+            >
+              <Building2 className="w-3.5 h-3.5" />
+              Yeni Blok
+            </button>
+            <button
+              onClick={() => openCreateModal('room')}
+              disabled={availableBlocks.length === 0}
+              className="px-3.5 py-2 rounded-xl border border-[#1e3a8a] bg-[#1e3a8a] text-white hover:bg-blue-900 text-xs font-bold inline-flex items-center gap-1.5 transition-colors disabled:opacity-50 cursor-pointer"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              Yeni Oda
+            </button>
             <button
               onClick={() => fetchRooms(true)}
               disabled={refreshing}
-              className="p-2.5 rounded-xl border border-slate-200 text-slate-600 hover:bg-slate-50 active:scale-95 transition-all cursor-pointer shrink-0"
+              className="p-2 rounded-xl border border-slate-300 text-slate-600 hover:bg-slate-50 active:scale-95 transition-all cursor-pointer"
               title="Yenile"
             >
               <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin text-[#1e3a8a]' : ''}`} />
@@ -478,7 +486,7 @@ export const RoomManagementView: React.FC<RoomManagementViewProps> = ({ onNaviga
                               </div>
                               <div>
                                 <h3 className="font-extrabold text-slate-900 text-sm group-hover/title:text-[#1e3a8a] transition-colors flex items-center gap-1.5">
-                                  Oda {room.roomNumber}{detailLoadingId === room.id && <Loader2 className="w-3.5 h-3.5 animate-spin text-[#1e3a8a]"/>}
+                                  Oda {room.roomNumber}{detailLoadingId === room.id && <Loader2 className="w-3.5 h-3.5 animate-spin text-[#1e3a8a]" />}
                                 </h3>
                                 <p className="text-[11px] font-semibold text-slate-500">
                                   {room.block.name} • {room.floor === 0 ? 'Zemin Kat' : `${room.floor}. Kat`} • <span className="font-extrabold text-[#1e3a8a]">{occupiedCount}/{room.capacity} Yatak</span>
@@ -490,13 +498,12 @@ export const RoomManagementView: React.FC<RoomManagementViewProps> = ({ onNaviga
                             <select
                               value={room.status}
                               onChange={(e) => handleStatusChange(room.id, e.target.value as RoomStatusType)}
-                              className={`text-[11px] font-extrabold px-2.5 py-1 rounded-xl cursor-pointer focus:outline-none border ${
-                                room.status === 'READY'
+                              className={`text-[11px] font-extrabold px-2.5 py-1 rounded-xl cursor-pointer focus:outline-none border ${room.status === 'READY'
                                   ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
                                   : room.status === 'NEEDS_CLEANING'
-                                  ? 'bg-amber-50 text-amber-800 border-amber-200'
-                                  : 'bg-rose-50 text-rose-800 border-rose-200'
-                              }`}
+                                    ? 'bg-amber-50 text-amber-800 border-amber-200'
+                                    : 'bg-rose-50 text-rose-800 border-rose-200'
+                                }`}
                             >
                               <option value="READY">🟢 Hazır</option>
                               <option value="NEEDS_CLEANING">🟡 Temizlik</option>
@@ -508,110 +515,108 @@ export const RoomManagementView: React.FC<RoomManagementViewProps> = ({ onNaviga
                           <div className="space-y-2">
                             <div className={`space-y-2 ${room.beds.length > 2 ? 'max-h-[135px] overflow-y-auto pr-1' : ''}`}>
                               {room.beds.map((bed) => {
-                              const emp = bed.currentEmployee;
+                                const emp = bed.currentEmployee;
 
-                              return (
-                                <div
-                                  key={bed.id}
-                                  onClick={(e) => {
-                                    if (bed.isOccupied && emp) {
-                                      handleSelectEmployee(e, emp.id);
-                                    }
-                                  }}
-                                  title={bed.isOccupied && emp ? `${emp.firstName} ${emp.lastName} personel detayını görüntülemek için tıklayın` : ''}
-                                  className={`p-2.5 rounded-2xl border transition-all ${
-                                    bed.isOccupied && emp
-                                      ? 'bg-slate-50/90 hover:bg-blue-50/90 border-slate-200 hover:border-[#1e3a8a] cursor-pointer shadow-2xs hover:shadow-xs group/resident'
-                                      : 'bg-emerald-50/30 border-emerald-200 border-dashed flex items-center justify-between text-emerald-800'
-                                  }`}
-                                >
-                                  {bed.isOccupied && emp ? (
-                                    /* Resident Details - 2 Line Spacious Clean Layout */
-                                    <div className="space-y-1">
-                                      {/* Row 1: Avatar, Name & Badges */}
-                                      <div className="flex items-center justify-between gap-2">
-                                        <div className="flex items-center gap-2 min-w-0">
-                                          {emp.photoUrl ? (
-                                            <img
-                                              src={emp.photoUrl}
-                                              alt={emp.firstName}
-                                              className="w-7 h-7 rounded-lg object-cover border border-slate-300 shrink-0"
-                                            />
-                                          ) : (
-                                            <div className="w-7 h-7 rounded-lg bg-[#1e3a8a] text-white font-black text-[11px] flex items-center justify-center shrink-0 shadow-xs">
-                                              {emp.firstName.charAt(0)}
-                                              {emp.lastName.charAt(0)}
-                                            </div>
-                                          )}
-                                          <span className="text-xs font-black text-slate-900 truncate">
-                                            {emp.firstName} {emp.lastName}
-                                          </span>
+                                return (
+                                  <div
+                                    key={bed.id}
+                                    onClick={(e) => {
+                                      if (bed.isOccupied && emp) {
+                                        handleSelectEmployee(e, emp.id);
+                                      }
+                                    }}
+                                    title={bed.isOccupied && emp ? `${emp.firstName} ${emp.lastName} personel detayını görüntülemek için tıklayın` : ''}
+                                    className={`p-2.5 rounded-2xl border transition-all ${bed.isOccupied && emp
+                                        ? 'bg-slate-50/90 hover:bg-blue-50/90 border-slate-200 hover:border-[#1e3a8a] cursor-pointer shadow-2xs hover:shadow-xs group/resident'
+                                        : 'bg-emerald-50/30 border-emerald-200 border-dashed flex items-center justify-between text-emerald-800'
+                                      }`}
+                                  >
+                                    {bed.isOccupied && emp ? (
+                                      /* Resident Details - 2 Line Spacious Clean Layout */
+                                      <div className="space-y-1">
+                                        {/* Row 1: Avatar, Name & Badges */}
+                                        <div className="flex items-center justify-between gap-2">
+                                          <div className="flex items-center gap-2 min-w-0">
+                                            {emp.photoUrl ? (
+                                              <img
+                                                src={emp.photoUrl}
+                                                alt={emp.firstName}
+                                                className="w-7 h-7 rounded-lg object-cover border border-slate-300 shrink-0"
+                                              />
+                                            ) : (
+                                              <div className="w-7 h-7 rounded-lg bg-[#1e3a8a] text-white font-black text-[11px] flex items-center justify-center shrink-0 shadow-xs">
+                                                {emp.firstName.charAt(0)}
+                                                {emp.lastName.charAt(0)}
+                                              </div>
+                                            )}
+                                            <span className="text-xs font-black text-slate-900 truncate">
+                                              {emp.firstName} {emp.lastName}
+                                            </span>
+                                          </div>
+
+                                          {/* Room Compatibility Badges */}
+                                          <div className="flex items-center gap-1 shrink-0">
+                                            <span
+                                              className={`px-1.5 py-0.5 rounded-md text-[9px] font-extrabold flex items-center gap-0.5 border ${emp.isSmoker ? 'bg-amber-50 text-amber-900 border-amber-200' : 'bg-emerald-50 text-emerald-900 border-emerald-200'
+                                                }`}
+                                              title={emp.isSmoker ? 'Sigara Kullanıyor' : 'Sigara Kullanmıyor'}
+                                            >
+                                              {emp.isSmoker ? <Cigarette className="w-3 h-3 text-amber-700" /> : <CigaretteOff className="w-3 h-3 text-emerald-700" />}
+                                              <span>{emp.isSmoker ? 'Sigaralı' : 'Sigarasız'}</span>
+                                            </span>
+
+                                            {emp.hasSnoring && (
+                                              <span
+                                                className="px-1.5 py-0.5 rounded-md text-[9px] font-extrabold bg-indigo-50 text-indigo-900 border border-indigo-200 flex items-center gap-0.5"
+                                                title="Horlama Durumu Var"
+                                              >
+                                                <Moon className="w-3 h-3 text-indigo-700" />
+                                                <span>Horlama</span>
+                                              </span>
+                                            )}
+
+                                            {emp.shiftType && (
+                                              <span
+                                                className="px-1.5 py-0.5 rounded-md text-[9px] font-bold bg-slate-100 text-slate-700 border border-slate-200"
+                                                title="Vardiya Düzeni"
+                                              >
+                                                {emp.shiftType}
+                                              </span>
+                                            )}
+                                          </div>
                                         </div>
 
-                                        {/* Room Compatibility Badges */}
-                                        <div className="flex items-center gap-1 shrink-0">
-                                          <span
-                                            className={`px-1.5 py-0.5 rounded-md text-[9px] font-extrabold flex items-center gap-0.5 border ${
-                                              emp.isSmoker ? 'bg-amber-50 text-amber-900 border-amber-200' : 'bg-emerald-50 text-emerald-900 border-emerald-200'
-                                            }`}
-                                            title={emp.isSmoker ? 'Sigara Kullanıyor' : 'Sigara Kullanmıyor'}
-                                          >
-                                            {emp.isSmoker ? <Cigarette className="w-3 h-3 text-amber-700" /> : <CigaretteOff className="w-3 h-3 text-emerald-700" />}
-                                            <span>{emp.isSmoker ? 'Sigaralı' : 'Sigarasız'}</span>
+                                        {/* Row 2: Department, Title & Company (Strict 1-line Truncate, No Wrap) */}
+                                        <div className="flex items-center gap-1.5 text-[11px] font-semibold text-slate-600 pl-9 min-w-0 overflow-hidden whitespace-nowrap">
+                                          <Briefcase className="w-3 h-3 text-slate-400 shrink-0" />
+                                          <span className="truncate min-w-0 flex-1">
+                                            {emp.department}{emp.title ? ` • ${emp.title}` : ''}
                                           </span>
-
-                                          {emp.hasSnoring && (
+                                          {emp.company && (
                                             <span
-                                              className="px-1.5 py-0.5 rounded-md text-[9px] font-extrabold bg-indigo-50 text-indigo-900 border border-indigo-200 flex items-center gap-0.5"
-                                              title="Horlama Durumu Var"
+                                              className="text-slate-700 font-extrabold bg-slate-100 px-1.5 py-0.2 rounded border border-slate-200 text-[10px] shrink-0 truncate max-w-[85px]"
+                                              title={emp.company}
                                             >
-                                              <Moon className="w-3 h-3 text-indigo-700" />
-                                              <span>Horlama</span>
-                                            </span>
-                                          )}
-
-                                          {emp.shiftType && (
-                                            <span
-                                              className="px-1.5 py-0.5 rounded-md text-[9px] font-bold bg-slate-100 text-slate-700 border border-slate-200"
-                                              title="Vardiya Düzeni"
-                                            >
-                                              {emp.shiftType}
+                                              {emp.company}
                                             </span>
                                           )}
                                         </div>
                                       </div>
-
-                                      {/* Row 2: Department, Title & Company (Strict 1-line Truncate, No Wrap) */}
-                                      <div className="flex items-center gap-1.5 text-[11px] font-semibold text-slate-600 pl-9 min-w-0 overflow-hidden whitespace-nowrap">
-                                        <Briefcase className="w-3 h-3 text-slate-400 shrink-0" />
-                                        <span className="truncate min-w-0 flex-1">
-                                          {emp.department}{emp.title ? ` • ${emp.title}` : ''}
+                                    ) : (
+                                      /* Vacant Bed */
+                                      <>
+                                        <div className="flex items-center gap-2 text-xs font-bold">
+                                          <BedDouble className="w-3.5 h-3.5 text-emerald-600" />
+                                          <span>{bed.bedLabel}</span>
+                                        </div>
+                                        <span className="text-[10px] font-extrabold px-2 py-0.5 rounded-lg bg-emerald-100 text-emerald-800">
+                                          Boş Yatak (Müsait)
                                         </span>
-                                        {emp.company && (
-                                          <span
-                                            className="text-slate-700 font-extrabold bg-slate-100 px-1.5 py-0.2 rounded border border-slate-200 text-[10px] shrink-0 truncate max-w-[85px]"
-                                            title={emp.company}
-                                          >
-                                            {emp.company}
-                                          </span>
-                                        )}
-                                      </div>
-                                    </div>
-                                  ) : (
-                                    /* Vacant Bed */
-                                    <>
-                                      <div className="flex items-center gap-2 text-xs font-bold">
-                                        <BedDouble className="w-3.5 h-3.5 text-emerald-600" />
-                                        <span>{bed.bedLabel}</span>
-                                      </div>
-                                      <span className="text-[10px] font-extrabold px-2 py-0.5 rounded-lg bg-emerald-100 text-emerald-800">
-                                        Boş Yatak (Müsait)
-                                      </span>
-                                    </>
-                                  )}
-                                </div>
-                              );
-                            })}
+                                      </>
+                                    )}
+                                  </div>
+                                );
+                              })}
                             </div>
                           </div>
                         </div>
@@ -628,18 +633,18 @@ export const RoomManagementView: React.FC<RoomManagementViewProps> = ({ onNaviga
       {createModal && (
         <div className="fixed inset-0 z-[200] bg-slate-950/60 backdrop-blur-sm flex items-center justify-center p-4" onClick={() => !createSubmitting && setCreateModal(null)}>
           <div role="dialog" aria-modal="true" aria-labelledby="create-room-entity-title" onClick={(event) => event.stopPropagation()} className="bg-white border border-slate-300 rounded-3xl w-full max-w-md shadow-2xl overflow-hidden">
-            <div className="p-5 border-b border-slate-200 bg-slate-50 flex items-center justify-between"><div className="flex items-center gap-3"><div className="w-10 h-10 rounded-xl bg-[#1e3a8a] text-white flex items-center justify-center">{createModal === 'room' ? <BedDouble className="w-5 h-5"/> : <Building2 className="w-5 h-5"/>}</div><div><h2 id="create-room-entity-title" className="text-base font-extrabold text-slate-900">{createModal === 'room' ? 'Yeni Oda Oluştur' : 'Yeni Blok Oluştur'}</h2><p className="text-xs text-slate-500 font-semibold">{createModal === 'room' ? 'Oda ve yatak kayıtları birlikte oluşturulur.' : 'Oda yerleşimleri için yeni blok tanımlayın.'}</p></div></div><button type="button" onClick={() => setCreateModal(null)} disabled={createSubmitting} className="w-9 h-9 rounded-xl bg-slate-200 hover:bg-slate-300 flex items-center justify-center"><X className="w-4 h-4"/></button></div>
+            <div className="p-5 border-b border-slate-200 bg-slate-50 flex items-center justify-between"><div className="flex items-center gap-3"><div className="w-10 h-10 rounded-xl bg-[#1e3a8a] text-white flex items-center justify-center">{createModal === 'room' ? <BedDouble className="w-5 h-5" /> : <Building2 className="w-5 h-5" />}</div><div><h2 id="create-room-entity-title" className="text-base font-extrabold text-slate-900">{createModal === 'room' ? 'Yeni Oda Oluştur' : 'Yeni Blok Oluştur'}</h2><p className="text-xs text-slate-500 font-semibold">{createModal === 'room' ? 'Oda ve yatak kayıtları birlikte oluşturulur.' : 'Oda yerleşimleri için yeni blok tanımlayın.'}</p></div></div><button type="button" onClick={() => setCreateModal(null)} disabled={createSubmitting} className="w-9 h-9 rounded-xl bg-slate-200 hover:bg-slate-300 flex items-center justify-center"><X className="w-4 h-4" /></button></div>
             <form onSubmit={handleCreateSubmit} className="p-5 space-y-4">
               {createError && <div role="alert" className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-xs font-bold text-rose-800">{createError}</div>}
               {createModal === 'room' ? <>
                 <label className="block text-xs font-bold text-slate-700">Blok<select required value={roomForm.blockId} onChange={(e) => setRoomForm((prev) => ({ ...prev, blockId: e.target.value }))} className="mt-1.5 w-full px-3 py-2.5 rounded-xl border border-slate-300 bg-white font-bold outline-none focus:border-[#1e3a8a]">{availableBlocks.map((block) => <option key={block.id} value={block.id}>{block.name}</option>)}</select></label>
-                <div className="grid grid-cols-2 gap-3"><label className="block text-xs font-bold text-slate-700">Oda Numarası<input required maxLength={20} value={roomForm.roomNumber} onChange={(e) => setRoomForm((prev) => ({ ...prev, roomNumber: e.target.value.toLocaleUpperCase('tr-TR') }))} className="mt-1.5 w-full px-3 py-2.5 rounded-xl border border-slate-300 font-bold outline-none focus:border-[#1e3a8a]" placeholder="Ör. 218"/></label><label className="block text-xs font-bold text-slate-700">Kat<input required type="number" min={-5} max={200} value={roomForm.floor} onChange={(e) => setRoomForm((prev) => ({ ...prev, floor: e.target.value }))} className="mt-1.5 w-full px-3 py-2.5 rounded-xl border border-slate-300 font-bold outline-none focus:border-[#1e3a8a]"/></label></div>
-                <label className="block text-xs font-bold text-slate-700">Yatak Kapasitesi<input required type="number" min={1} max={26} value={roomForm.capacity} onChange={(e) => setRoomForm((prev) => ({ ...prev, capacity: e.target.value }))} className="mt-1.5 w-full px-3 py-2.5 rounded-xl border border-slate-300 font-bold outline-none focus:border-[#1e3a8a]"/></label>
+                <div className="grid grid-cols-2 gap-3"><label className="block text-xs font-bold text-slate-700">Oda Numarası<input required maxLength={20} value={roomForm.roomNumber} onChange={(e) => setRoomForm((prev) => ({ ...prev, roomNumber: e.target.value.toLocaleUpperCase('tr-TR') }))} className="mt-1.5 w-full px-3 py-2.5 rounded-xl border border-slate-300 font-bold outline-none focus:border-[#1e3a8a]" placeholder="Ör. 218" /></label><label className="block text-xs font-bold text-slate-700">Kat<input required type="number" min={-5} max={200} value={roomForm.floor} onChange={(e) => setRoomForm((prev) => ({ ...prev, floor: e.target.value }))} className="mt-1.5 w-full px-3 py-2.5 rounded-xl border border-slate-300 font-bold outline-none focus:border-[#1e3a8a]" /></label></div>
+                <label className="block text-xs font-bold text-slate-700">Yatak Kapasitesi<input required type="number" min={1} max={26} value={roomForm.capacity} onChange={(e) => setRoomForm((prev) => ({ ...prev, capacity: e.target.value }))} className="mt-1.5 w-full px-3 py-2.5 rounded-xl border border-slate-300 font-bold outline-none focus:border-[#1e3a8a]" /></label>
               </> : <>
-                <label className="block text-xs font-bold text-slate-700">Blok Adı<input required maxLength={50} value={blockForm.name} onChange={(e) => setBlockForm((prev) => ({ ...prev, name: e.target.value.toLocaleUpperCase('tr-TR') }))} className="mt-1.5 w-full px-3 py-2.5 rounded-xl border border-slate-300 font-bold outline-none focus:border-[#1e3a8a]" placeholder="Ör. B BLOK"/></label>
+                <label className="block text-xs font-bold text-slate-700">Blok Adı<input required maxLength={50} value={blockForm.name} onChange={(e) => setBlockForm((prev) => ({ ...prev, name: e.target.value.toLocaleUpperCase('tr-TR') }))} className="mt-1.5 w-full px-3 py-2.5 rounded-xl border border-slate-300 font-bold outline-none focus:border-[#1e3a8a]" placeholder="Ör. B BLOK" /></label>
                 <label className="block text-xs font-bold text-slate-700">Yerleşim Politikası<select value={blockForm.genderPolicy} onChange={(e) => setBlockForm((prev) => ({ ...prev, genderPolicy: e.target.value }))} className="mt-1.5 w-full px-3 py-2.5 rounded-xl border border-slate-300 bg-white font-bold outline-none focus:border-[#1e3a8a]"><option value="Mixed">Karma</option><option value="Male">Erkek</option><option value="Female">Kadın</option></select></label>
               </>}
-              <div className="pt-3 border-t border-slate-200 flex justify-end gap-2"><button type="button" onClick={() => setCreateModal(null)} disabled={createSubmitting} className="px-4 py-2.5 rounded-xl bg-slate-100 text-slate-700 text-xs font-bold">İptal</button><button type="submit" disabled={createSubmitting || (createModal === 'room' && !roomForm.blockId)} className="px-5 py-2.5 rounded-xl bg-[#1e3a8a] text-white text-xs font-bold inline-flex items-center gap-1.5 disabled:opacity-50">{createSubmitting ? <Loader2 className="w-3.5 h-3.5 animate-spin"/> : <Plus className="w-3.5 h-3.5"/>}{createSubmitting ? 'Kaydediliyor...' : 'Kaydı Oluştur'}</button></div>
+              <div className="pt-3 border-t border-slate-200 flex justify-end gap-2"><button type="button" onClick={() => setCreateModal(null)} disabled={createSubmitting} className="px-4 py-2.5 rounded-xl bg-slate-100 text-slate-700 text-xs font-bold">İptal</button><button type="submit" disabled={createSubmitting || (createModal === 'room' && !roomForm.blockId)} className="px-5 py-2.5 rounded-xl bg-[#1e3a8a] text-white text-xs font-bold inline-flex items-center gap-1.5 disabled:opacity-50">{createSubmitting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />}{createSubmitting ? 'Kaydediliyor...' : 'Kaydı Oluştur'}</button></div>
             </form>
           </div>
         </div>
