@@ -286,7 +286,7 @@ export const roomService = {
   /**
    * Update room status (READY, NEEDS_CLEANING, OUT_OF_ORDER)
    */
-  async updateRoomStatus(roomId: string, status: RoomStatus) {
+  async updateRoomStatus(roomId: string, status: RoomStatus, userFullName: string = 'Lojman Yönetimi') {
     const room = await prisma.room.findUnique({ where: { id: roomId } });
     if (!room) {
       throw new AppError('Oda bulunamadı.', 404);
@@ -299,7 +299,7 @@ export const roomService = {
           data: {
             roomId,
             status: 'NEEDS_CLEANING',
-            requestedBy: 'Lojman Yönetimi',
+            requestedBy: userFullName,
             notes: 'Oda durumu Temizlik Bekliyor olarak güncellendi.',
             requestedAt: new Date(),
           },
@@ -316,7 +316,7 @@ export const roomService = {
             data: {
               status: 'CLEANED',
               cleanedAt: new Date(),
-              cleanedBy: 'Lojman Yönetimi',
+              cleanedBy: userFullName,
             },
           });
         } else {
@@ -325,8 +325,8 @@ export const roomService = {
             data: {
               roomId,
               status: 'CLEANED',
-              requestedBy: 'Lojman Yönetimi',
-              cleanedBy: 'Lojman Yönetimi',
+              requestedBy: userFullName,
+              cleanedBy: userFullName,
               notes: 'Oda durumu Hazır olarak güncellendi.',
               requestedAt: new Date(),
               cleanedAt: new Date(),

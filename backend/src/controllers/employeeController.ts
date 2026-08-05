@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import { EmployeeService } from '../services/employeeService';
 import { AuthenticatedRequest } from '../middleware/authMiddleware';
+import { createEmployeeWorkbook } from '../services/employeeExportService';
 
 export class EmployeeController {
   public static async remove(req: AuthenticatedRequest, res: Response, next: NextFunction) {
@@ -26,6 +27,29 @@ export class EmployeeController {
         success: true,
         data: employees,
       });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * GET /api/employees/export.xlsx
+   */
+  public static async exportExcel(req: AuthenticatedRequest, res: Response, next: NextFunction) {
+    try {
+      const search = req.query.search as string;
+      const status = req.query.status as string;
+      const department = req.query.department as string;
+      const gender = req.query.gender as string;
+
+      const employees = await EmployeeService.getExportEmployees(search, status, department, gender);
+      const generatedBy = req.user?.fullName || 'Lojman Yönetimi';
+
+      const buffer = await createEmployeeWorkbook(employees, generatedBy);
+
+      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+      res.setHeader('Content-Disposition', `attachment; filename=Personel_Listesi_${new Date().toISOString().split('T')[0]}.xlsx`);
+      res.status(200).send(buffer);
     } catch (error) {
       next(error);
     }
@@ -166,6 +190,24 @@ export class EmployeeController {
       res.status(200).json({
         success: true,
         message: 'Zimmet/Eşya kaydı silindi.',
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * PATCH /api/employees/:id/checkout
+   */
+  public static async checkoutRoom(req: AuthenticatedRequest, res: Response, next: NextFunction) {
+    try {
+      const { id } = req.params;
+      const employee = await EmployeeService.checkoutEmployeeFromRoom(id);
+
+      res.status(200).json({
+        success: true,
+        message: 'Personel odadan çıkış yaptı.',
+        data: employee,
       });
     } catch (error) {
       next(error);

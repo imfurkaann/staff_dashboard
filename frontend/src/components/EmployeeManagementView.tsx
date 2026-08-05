@@ -29,11 +29,14 @@ import {
   ArrowUpDown,
   ArrowUp,
   ArrowDown,
-  Trash2
+  Trash2,
+  FileSpreadsheet,
+  DoorOpen
 } from 'lucide-react';
 import { employeeApi, Employee } from '../api/employeeApi';
 import { AddEmployeeModal } from './AddEmployeeModal';
 import { EmployeeDetailView } from './EmployeeDetailView';
+import { EmployeeExportModal } from './EmployeeExportModal';
 import { AssignRoomModal } from './AssignRoomModal';
 import { DateRangePicker } from './DateRangePicker';
 
@@ -81,6 +84,21 @@ export const EmployeeManagementView: React.FC = () => {
   const [statusFilter, setStatusFilter] = useState('ALL');
   const [departmentFilter, setDepartmentFilter] = useState('ALL');
   const [genderFilter, setGenderFilter] = useState('ALL');
+  const [isExporting, setIsExporting] = useState(false);
+  const [isExportModalOpen, setIsExportModalOpen] = useState(false);
+
+  const handleExportExcel = async (exportStatus: string) => {
+    setIsExporting(true);
+    setLoadError(null);
+    setIsExportModalOpen(false);
+    try {
+      await employeeApi.exportExcel(search, exportStatus, departmentFilter, genderFilter);
+    } catch (err: any) {
+      setLoadError(err.message || 'Excel çıktısı alınırken hata oluştu.');
+    } finally {
+      setIsExporting(false);
+    }
+  };
 
   // Single Lojmana Kayıt Tarih Aralığı Date Range Picker
   const [dateRangeStart, setDateRangeStart] = useState('');
@@ -127,6 +145,7 @@ export const EmployeeManagementView: React.FC = () => {
   const closeEmployeeDetail = () => {
     setActiveEmployeeDetail(null);
     localStorage.removeItem('staff_app_active_emp_id');
+    fetchEmployees();
   };
 
   // Modals state
@@ -134,6 +153,7 @@ export const EmployeeManagementView: React.FC = () => {
 
   // Delete Employee Confirmation state
   const [deleteConfirmModal, setDeleteConfirmModal] = useState<{ id: string; name: string } | null>(null);
+  const [checkoutConfirmModal, setCheckoutConfirmModal] = useState<{ id: string; name: string } | null>(null);
 
   const handleDeleteEmployee = (id: string, name: string) => {
     setDeleteConfirmModal({ id, name });
@@ -357,6 +377,15 @@ export const EmployeeManagementView: React.FC = () => {
             )}
 
             <button
+              onClick={() => setIsExportModalOpen(true)}
+              disabled={isExporting || isLoading}
+              className="py-2 px-3.5 bg-emerald-700 hover:bg-emerald-800 disabled:bg-emerald-800/50 text-white font-bold text-xs rounded-xl shadow-sm flex items-center gap-1.5 transition-all cursor-pointer shrink-0"
+            >
+              <FileSpreadsheet className="w-4 h-4 text-white" />
+              <span>{isExporting ? 'Aktarılıyor...' : 'Excel Listesini İndir'}</span>
+            </button>
+
+            <button
               onClick={() => setIsAddModalOpen(true)}
               className="py-2 px-4 bg-[#1e3a8a] hover:bg-[#1e293b] text-white font-bold text-xs rounded-xl shadow-sm flex items-center gap-1.5 transition-all cursor-pointer shrink-0 ml-auto lg:ml-0"
             >
@@ -541,39 +570,40 @@ export const EmployeeManagementView: React.FC = () => {
                       {/* 6. Aksiyonlar — tooltip açılır butonlar */}
                       <td className="py-3.5 px-4 text-right whitespace-nowrap">
                         <div className="flex items-center justify-end gap-1.5 min-h-[32px] whitespace-nowrap shrink-0">
-                          {/* Personele Oda Ata */}
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setAssignRoomEmployee(emp);
-                            }}
-                            title="Personele Oda Ata"
-                            className="group relative inline-flex items-center justify-center h-8 px-2.5 rounded-xl bg-emerald-50 text-emerald-700 hover:bg-emerald-600 hover:text-white border border-emerald-200/80 hover:border-emerald-600 transition-all duration-500 ease-out shadow-xs hover:shadow-md cursor-pointer overflow-hidden"
-                          >
-                            <BedDouble className="w-4 h-4 shrink-0 transition-transform duration-500 group-hover:scale-110" />
-                            <span className="max-w-0 opacity-0 group-hover:max-w-[70px] group-hover:opacity-100 group-hover:ml-1.5 transition-all duration-500 ease-out text-xs font-extrabold whitespace-nowrap overflow-hidden">
-                              Oda Ata
-                            </span>
-                          </button>
+                          {/* Personele Oda Ata / Odadan Çıkış Yap */}
+                          {hasBed ? (
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setCheckoutConfirmModal({ id: emp.id, name: `${emp.firstName} ${emp.lastName}` });
+                              }}
+                              title="Odadan Çıkış Yap"
+                              className="group relative inline-flex items-center justify-center h-8 px-2.5 rounded-xl bg-amber-50 text-amber-700 hover:bg-amber-600 hover:text-white border border-amber-200/80 hover:border-amber-600 transition-all duration-500 ease-out shadow-xs hover:shadow-md cursor-pointer overflow-hidden"
+                            >
+                              <DoorOpen className="w-4 h-4 shrink-0 transition-transform duration-500 group-hover:scale-110" />
+                              <span className="max-w-0 opacity-0 group-hover:max-w-[70px] group-hover:opacity-100 group-hover:ml-1.5 transition-all duration-500 ease-out text-xs font-extrabold whitespace-nowrap overflow-hidden">
+                                Çıkış Yap
+                              </span>
+                            </button>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setAssignRoomEmployee(emp);
+                              }}
+                              title="Personele Oda Ata"
+                              className="group relative inline-flex items-center justify-center h-8 px-2.5 rounded-xl bg-emerald-50 text-emerald-700 hover:bg-emerald-600 hover:text-white border border-emerald-200/80 hover:border-emerald-600 transition-all duration-500 ease-out shadow-xs hover:shadow-md cursor-pointer overflow-hidden"
+                            >
+                              <BedDouble className="w-4 h-4 shrink-0 transition-transform duration-500 group-hover:scale-110" />
+                              <span className="max-w-0 opacity-0 group-hover:max-w-[70px] group-hover:opacity-100 group-hover:ml-1.5 transition-all duration-500 ease-out text-xs font-extrabold whitespace-nowrap overflow-hidden">
+                                Oda Ata
+                              </span>
+                            </button>
+                          )}
 
-                          {/* Detay Gör */}
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              openEmployeeDetail(emp);
-                            }}
-                            title="Detay Gör"
-                            className="group relative inline-flex items-center justify-center h-8 px-2.5 rounded-xl bg-blue-50 text-[#1e3a8a] hover:bg-[#1e3a8a] hover:text-white border border-blue-200/80 hover:border-[#1e3a8a] transition-all duration-500 ease-out shadow-xs hover:shadow-md cursor-pointer overflow-hidden"
-                          >
-                            <Eye className="w-4 h-4 shrink-0 transition-transform duration-500 group-hover:scale-110" />
-                            <span className="max-w-0 opacity-0 group-hover:max-w-[80px] group-hover:opacity-100 group-hover:ml-1.5 transition-all duration-500 ease-out text-xs font-extrabold whitespace-nowrap overflow-hidden">
-                              Detay Gör
-                            </span>
-                          </button>
-
-                          {/* Sil */}
+                           {/* Sil */}
                           <button
                             type="button"
                             onClick={(e) => {
@@ -652,6 +682,62 @@ export const EmployeeManagementView: React.FC = () => {
                 className="py-2.5 px-4 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-extrabold shadow-md cursor-pointer transition-colors"
               >
                 Evet, Personeli Sil
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Employee Export Modal */}
+      <EmployeeExportModal
+        isOpen={isExportModalOpen}
+        onClose={() => setIsExportModalOpen(false)}
+        onExport={handleExportExcel}
+        isExporting={isExporting}
+      />
+
+      {/* Checkout Employee Confirmation Modal */}
+      {checkoutConfirmModal && (
+        <div
+          onClick={() => setCheckoutConfirmModal(null)}
+          className="fixed inset-0 z-[200] bg-slate-950/70 backdrop-blur-sm flex items-center justify-center p-4 animate-fadeIn"
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="bg-white border border-slate-300 rounded-3xl p-6 max-w-sm w-full shadow-2xl space-y-4 text-center"
+          >
+            <div className="w-12 h-12 rounded-2xl bg-amber-100 text-amber-700 flex items-center justify-center mx-auto shadow-inner">
+              <DoorOpen className="w-6 h-6" />
+            </div>
+            <div>
+              <h3 className="font-extrabold text-slate-900 text-base">Odadan Çıkış Yap</h3>
+              <p className="text-xs text-slate-600 font-semibold mt-1">
+                <strong className="text-slate-900">{checkoutConfirmModal.name}</strong> isimli personeli odasından çıkarmak istediğinize emin misiniz?
+              </p>
+            </div>
+            <div className="flex items-center justify-center gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setCheckoutConfirmModal(null)}
+                className="py-2.5 px-4 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold cursor-pointer transition-colors"
+              >
+                İptal
+              </button>
+              <button
+                type="button"
+                onClick={async () => {
+                  const targetId = checkoutConfirmModal.id;
+                  setCheckoutConfirmModal(null);
+                  try {
+                    const updatedEmp = await employeeApi.checkoutRoom(targetId);
+                    setEmployees(prev => prev.map(p => p.id === targetId ? updatedEmp : p));
+                  } catch (err: any) {
+                    alert(err.message || 'Çıkış yapılırken bir hata oluştu.');
+                  }
+                }}
+                className="py-2.5 px-4 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-extrabold shadow-md cursor-pointer transition-colors"
+              >
+                Evet, Çıkış Yap
               </button>
             </div>
           </div>

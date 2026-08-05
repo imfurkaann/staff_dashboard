@@ -88,7 +88,6 @@ model Employee {
   isSmoker              Boolean        @default(false) // Sigara Kullanımı (Sigarasız/Sigaralı Oda)
   hasSnoring            Boolean        @default(false) // Horlama Durumu (Uyku Uyumluluğu)
   vehiclePlate          String? // Otopark araç plakası
-  contractEndDate       DateTime? // Tahmini Görev Bitiş Tarihi
   ageGroup              String? // Yaş Grubu (18-25, 26-40, 41-55, 56+)
   languageNationality   String? // Konuşulan Dil / Uyruk (Türkçe, İngilizce, Rusça, Arapça vb.)
   emergencyContactName  String? // Acil Durum Yakını Adı Soyadı

@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { ArchiveRestore, Car, FilePenLine, FileText, LogOut, Phone, RotateCcw, Trash2, UserCheck, Users, X } from 'lucide-react';
 import { Visitor } from '../api/visitorApi';
+import { VisitorDetailModal } from './VisitorDetailModal';
 
 interface Props {
   visitors: Visitor[];
@@ -71,6 +72,7 @@ export const VisitorRecordsTable: React.FC<Props> = ({
   onRestore,
 }) => {
   const [selectedNote, setSelectedNote] = useState<{ title: string; content: string } | null>(null);
+  const [selectedDetailVisitor, setSelectedDetailVisitor] = useState<Visitor | null>(null);
 
   return (
     <div className="bg-white border border-slate-300 rounded-3xl overflow-hidden shadow-sm w-full">
@@ -112,7 +114,8 @@ export const VisitorRecordsTable: React.FC<Props> = ({
                 return (
                   <tr
                     key={visitor.id}
-                    className={`hover:bg-slate-50/80 transition-colors ${
+                    onClick={() => setSelectedDetailVisitor(visitor)}
+                    className={`hover:bg-slate-50/80 cursor-pointer transition-colors ${
                       visitor.isDeleted ? 'bg-rose-50/40 opacity-75' : ''
                     }`}
                   >
@@ -229,7 +232,10 @@ export const VisitorRecordsTable: React.FC<Props> = ({
                       {visitor.notes ? (
                         <button
                           type="button"
-                          onClick={() => setSelectedNote({ title: `${visitor.fullName} — Ziyaretçi Notu`, content: visitor.notes! })}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setSelectedNote({ title: `${visitor.fullName} — Ziyaretçi Notu`, content: visitor.notes! });
+                          }}
                           className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-blue-50 hover:bg-blue-100 text-blue-900 border border-blue-200/80 font-extrabold text-[10px] cursor-pointer transition-colors shadow-2xs"
                           title="Notu okumak için tıklayın"
                         >
@@ -248,7 +254,10 @@ export const VisitorRecordsTable: React.FC<Props> = ({
                           {visitor.isDeleted ? (
                             <button
                               disabled={busyId === visitor.id}
-                              onClick={() => onRestore && onRestore(visitor)}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                onRestore && onRestore(visitor);
+                              }}
                               className={`${buttonBase} bg-violet-50 text-violet-700 hover:bg-violet-600 hover:text-white border-violet-200/80 hover:border-violet-600`}
                               title="Geri Yükle"
                             >
@@ -260,7 +269,10 @@ export const VisitorRecordsTable: React.FC<Props> = ({
                               {isInside ? (
                                 <button
                                   disabled={busyId === visitor.id}
-                                  onClick={() => onCheckOut && onCheckOut(visitor)}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    onCheckOut && onCheckOut(visitor);
+                                  }}
                                   className={`${buttonBase} bg-emerald-50 text-emerald-700 hover:bg-emerald-600 hover:text-white border-emerald-200/80 hover:border-emerald-600`}
                                   title="Çıkış Yap"
                                 >
@@ -270,7 +282,10 @@ export const VisitorRecordsTable: React.FC<Props> = ({
                               ) : (
                                 <button
                                   disabled={busyId === visitor.id}
-                                  onClick={() => onUndoCheckOut && onUndoCheckOut(visitor)}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    onUndoCheckOut && onUndoCheckOut(visitor);
+                                  }}
                                   className={`${buttonBase} bg-amber-50 text-amber-700 hover:bg-amber-600 hover:text-white border-amber-200/80 hover:border-amber-600`}
                                   title="Geri Al"
                                 >
@@ -279,7 +294,10 @@ export const VisitorRecordsTable: React.FC<Props> = ({
                                 </button>
                               )}
                               <button
-                                onClick={() => onEdit && onEdit(visitor)}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  onEdit && onEdit(visitor);
+                                }}
                                 className={`${buttonBase} bg-blue-50 text-[#1e3a8a] hover:bg-[#1e3a8a] hover:text-white border-blue-200/80 hover:border-[#1e3a8a]`}
                                 title="Düzenle"
                               >
@@ -288,7 +306,10 @@ export const VisitorRecordsTable: React.FC<Props> = ({
                               </button>
                               {canManageArchive && (
                                 <button
-                                  onClick={() => onDelete && onDelete(visitor)}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    onDelete && onDelete(visitor);
+                                  }}
                                   className={`${buttonBase} bg-rose-50 text-rose-600 hover:bg-rose-600 hover:text-white border-rose-200/80 hover:border-rose-600`}
                                   title="Sil"
                                 >
@@ -332,7 +353,7 @@ export const VisitorRecordsTable: React.FC<Props> = ({
               </button>
             </div>
 
-            <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 text-xs font-semibold text-slate-800 leading-relaxed max-h-[300px] overflow-y-auto whitespace-pre-wrap">
+            <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 text-xs font-semibold text-slate-800 leading-relaxed max-h-[300px] overflow-y-auto whitespace-pre-wrap break-words">
               {selectedNote.content}
             </div>
 
@@ -348,6 +369,16 @@ export const VisitorRecordsTable: React.FC<Props> = ({
           </div>
         </div>
       )}
+
+      {/* VISITOR DETAILS POPUP MODAL */}
+      <VisitorDetailModal
+        visitor={selectedDetailVisitor}
+        isOpen={selectedDetailVisitor !== null}
+        onClose={() => setSelectedDetailVisitor(null)}
+        onEdit={!readOnly ? onEdit : undefined}
+        onCheckOut={!readOnly ? onCheckOut : undefined}
+        onUndoCheckOut={!readOnly ? onUndoCheckOut : undefined}
+      />
     </div>
   );
 };

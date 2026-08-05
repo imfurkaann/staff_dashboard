@@ -872,7 +872,7 @@ export const RoomDetailView: React.FC<RoomDetailViewProps> = ({
             <div className="room-table-shell m-5 mt-4">
               <table className="room-data-table w-full min-w-[960px] text-left text-xs border-collapse">
                 <thead><tr>
-                  <th className="w-40">Kategori / Arıza</th><th className="w-28">Konum</th><th>Açıklama</th><th className="w-24 text-center">Öncelik</th><th className="w-36">Kayıt Tarihi</th><th className="w-40">Çözülme Tarihi</th><th className="w-44 text-center">İşlemler</th>
+                  <th className="w-40">Kategori / Arıza</th><th className="w-28">Konum</th><th>Açıklama</th><th className="w-24 text-center">Öncelik</th><th className="w-32">Bildiren</th><th className="w-36">Çözümleyen</th><th className="w-36">Kayıt Tarihi</th><th className="w-40">Çözülme Tarihi</th><th className="w-44 text-center">İşlemler</th>
                 </tr></thead>
                 <tbody>
                   {roomMaintenances.map((maintenance) => {
@@ -883,6 +883,16 @@ export const RoomDetailView: React.FC<RoomDetailViewProps> = ({
                       <td>{maintenance.location || 'ODA GENELİ'}</td>
                       <td className="leading-relaxed max-w-sm">{maintenance.description}</td>
                       <td className="text-center"><span className={`inline-flex px-2 py-0.5 rounded-md border text-[10px] font-extrabold ${priorityClasses[maintenance.priority] || priorityClasses.MEDIUM}`}>{priorityLabels[maintenance.priority] || maintenance.priority}</span></td>
+                      <td className="font-bold text-slate-700 whitespace-nowrap">{maintenance.reportedBy && maintenance.reportedBy !== 'Sistem Kullanıcısı' ? maintenance.reportedBy : 'Lojman Yönetimi'}</td>
+                      <td className="font-bold text-slate-700 whitespace-nowrap">
+                        {maintenance.assignedTo ? (
+                          maintenance.assignedTo
+                        ) : maintenance.status === 'RESOLVED' || maintenance.status === 'CLOSED' ? (
+                          'Lojman Yönetimi'
+                        ) : (
+                          <span className="text-slate-400 italic font-semibold text-[11px]">Çözülmedi</span>
+                        )}
+                      </td>
                       <td className="font-bold text-slate-600 whitespace-nowrap">{formatDateTime(maintenance.createdAt)}</td>
                       <td className="font-bold text-slate-600 whitespace-nowrap">{maintenance.resolvedAt ? <><p>{formatDateTime(maintenance.resolvedAt)}</p>{maintenance.resolutionNote && <p className="mt-1 text-[10px] leading-relaxed text-emerald-700 whitespace-normal">{maintenance.resolutionNote}</p>}</> : <span className="text-slate-500 italic font-semibold">Henüz çözülmedi</span>}</td>
                       <td><div className="flex items-center justify-center gap-1 min-h-[28px]">
@@ -1616,7 +1626,7 @@ export const RoomDetailView: React.FC<RoomDetailViewProps> = ({
               </button>
             </div>
 
-            <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 text-xs font-semibold text-slate-800 leading-relaxed max-h-[300px] overflow-y-auto whitespace-pre-wrap">
+            <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 text-xs font-semibold text-slate-800 leading-relaxed max-h-[300px] overflow-y-auto whitespace-pre-wrap break-words">
               {selectedCleaningNote.content}
             </div>
 

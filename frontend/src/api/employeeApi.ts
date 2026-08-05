@@ -34,7 +34,6 @@ export interface Employee {
   vehiclePlate?: string;
   ageGroup?: string;
   languageNationality?: string;
-  contractEndDate?: string;
   emergencyContactName?: string;
   emergencyRelation?: string;
   emergencyContactPhone?: string;
@@ -47,6 +46,7 @@ export interface Employee {
   beds?: Bed[];
   inventories?: any[];
   disciplinaryNotes?: any[];
+  occupancies?: any[];
 }
 
 export interface CreateEmployeePayload {
@@ -64,7 +64,6 @@ export interface CreateEmployeePayload {
   vehiclePlate?: string;
   ageGroup?: string;
   languageNationality?: string;
-  contractEndDate?: string;
   emergencyContactName?: string;
   emergencyRelation?: string;
   emergencyContactPhone?: string;
@@ -156,5 +155,39 @@ export const employeeApi = {
   deleteEmployee: async (id: string): Promise<boolean> => {
     await api.delete(`/${id}`);
     return true;
+  },
+
+  checkoutRoom: async (id: string): Promise<Employee> => {
+    try {
+      const response = await api.patch<{ success: boolean; data: Employee }>(`/${id}/checkout`);
+      return response.data.data;
+    } catch (error: any) {
+      if (error.response?.data?.message) {
+        throw new Error(error.response.data.message);
+      }
+      throw new Error(error.message || 'Personel odadan çıkarılırken sunucu hatası oluştu.');
+    }
+  },
+
+  exportExcel: async (search?: string, status?: string, department?: string, gender?: string): Promise<void> => {
+    try {
+      const response = await api.get<Blob>('/export.xlsx', {
+        params: { search, status, department, gender },
+        responseType: 'blob',
+      });
+      const disposition = response.headers['content-disposition'] || '';
+      const fileName = disposition.match(/filename="?([^";]+)"?/i)?.[1] || 'personel-listesi.xlsx';
+      const url = URL.createObjectURL(response.data);
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = fileName;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      URL.revokeObjectURL(url);
+    } catch (error: any) {
+      const msg = error.response?.data?.message || error.message || 'Excel dosyası oluşturulamadı.';
+      throw new Error(msg);
+    }
   },
 };

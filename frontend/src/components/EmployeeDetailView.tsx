@@ -36,7 +36,8 @@ import {
   ShieldCheck,
   Laptop,
   Pencil,
-  Trash2
+  Trash2,
+  DoorOpen
 } from 'lucide-react';
 import { Employee, employeeApi } from '../api/employeeApi';
 import { AddEmployeeModal } from './AddEmployeeModal';
@@ -49,7 +50,7 @@ interface EmployeeDetailViewProps {
   onBack: () => void;
 }
 
-type TabType = 'general' | 'inventory' | 'complaints' | 'transfers' | 'visitors';
+type TabType = 'general' | 'inventory' | 'complaints' | 'transfers' | 'visitors' | 'occupancyHistory';
 
 export function formatPhone(phone?: string | null): string {
   if (!phone) return 'Belirtilmedi';
@@ -305,6 +306,7 @@ export const EmployeeDetailView: React.FC<EmployeeDetailViewProps> = ({
   // Edit Employee Profile Modal State (uses AddEmployeeModal in edit mode)
   const [isEditProfileModalOpen, setIsEditProfileModalOpen] = useState(false);
   const [isAssignRoomOpen, setIsAssignRoomOpen] = useState(false);
+  const [isCheckoutConfirmOpen, setIsCheckoutConfirmOpen] = useState(false);
 
   // Refresh current employee profile after room assignment
   const refreshEmployeeData = async () => {
@@ -436,12 +438,21 @@ export const EmployeeDetailView: React.FC<EmployeeDetailViewProps> = ({
   const [unreturnedReason, setUnreturnedReason] = useState<string>('Kayıp / Kayboldu');
   const [unreturnedNote, setUnreturnedNote] = useState<string>('');
 
+  useEffect(() => {
+    if (unreturnedModalItem) {
+      setUnreturnedReason('Kayıp / Kayboldu');
+      setUnreturnedNote('');
+    }
+  }, [unreturnedModalItem]);
+
   const handleMarkUnreturnedSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!unreturnedModalItem) return;
 
     const currentTime = formatDateTime(new Date().toISOString());
-    const fullReason = unreturnedNote.trim() ? `${unreturnedReason} (${unreturnedNote.trim()})` : unreturnedReason;
+    const fullReason = unreturnedReason === 'Diğer (Açıklama Giriniz)'
+      ? (unreturnedNote.trim() ? `Diğer: ${unreturnedNote.trim()}` : 'Diğer Belirtilmedi')
+      : unreturnedReason;
 
     try {
       if (!unreturnedModalItem.id.startsWith('inv-') && !unreturnedModalItem.id.startsWith('pr-')) {
@@ -642,6 +653,53 @@ export const EmployeeDetailView: React.FC<EmployeeDetailViewProps> = ({
         employee={currentEmp}
         onSuccess={refreshEmployeeData}
       />
+
+      {/* ODADAN ÇIKIŞ ONAY MODALI */}
+      {isCheckoutConfirmOpen && (
+        <div
+          onClick={() => setIsCheckoutConfirmOpen(false)}
+          className="fixed inset-0 z-[200] bg-slate-950/70 backdrop-blur-sm flex items-center justify-center p-4 animate-fadeIn no-print"
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="bg-white border border-slate-300 rounded-3xl p-6 max-w-sm w-full shadow-2xl space-y-4 text-center text-slate-900"
+          >
+            <div className="w-12 h-12 rounded-2xl bg-amber-100 text-amber-700 flex items-center justify-center mx-auto shadow-inner">
+              <DoorOpen className="w-6 h-6" />
+            </div>
+            <div>
+              <h3 className="font-extrabold text-slate-900 text-base">Odadan Çıkış Yap</h3>
+              <p className="text-xs text-slate-600 font-semibold mt-1">
+                <strong className="text-slate-900">{currentEmp.firstName} {currentEmp.lastName}</strong> isimli personeli odasından çıkarmak istediğinize emin misiniz?
+              </p>
+            </div>
+            <div className="flex items-center justify-center gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setIsCheckoutConfirmOpen(false)}
+                className="py-2.5 px-4 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold cursor-pointer transition-colors"
+              >
+                İptal
+              </button>
+              <button
+                type="button"
+                onClick={async () => {
+                  setIsCheckoutConfirmOpen(false);
+                  try {
+                    const updated = await employeeApi.checkoutRoom(currentEmp.id);
+                    setCurrentEmp(updated);
+                  } catch (err: any) {
+                    alert(err.message || 'Odadan çıkış yapılırken bir hata oluştu.');
+                  }
+                }}
+                className="py-2.5 px-4 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-extrabold shadow-md cursor-pointer transition-colors"
+              >
+                Evet, Çıkış Yap
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* DÜZENLEME MODALI */}
       {editingItem && (
@@ -944,18 +1002,21 @@ export const EmployeeDetailView: React.FC<EmployeeDetailViewProps> = ({
                 </select>
               </div>
 
-              <div>
-                <label className="block font-extrabold text-slate-800 mb-1.5">
-                  Ek Açıklama / Notlar (Opsiyonel)
-                </label>
-                <textarea
-                  rows={2}
-                  value={unreturnedNote}
-                  onChange={(e) => setUnreturnedNote(e.target.value)}
-                  placeholder="Örn: Personel ayrılırken oda dolabında kırık vaziyette bıraktı..."
-                  className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl font-medium text-slate-900 outline-none focus:border-[#1e3a8a] focus:bg-white transition-colors text-xs resize-none"
-                />
-              </div>
+              {unreturnedReason === 'Diğer (Açıklama Giriniz)' && (
+                <div className="animate-fadeIn">
+                  <label className="block font-extrabold text-slate-800 mb-1.5">
+                    Ek Açıklama / Notlar *
+                  </label>
+                  <textarea
+                    rows={2}
+                    required
+                    value={unreturnedNote}
+                    onChange={(e) => setUnreturnedNote(e.target.value)}
+                    placeholder="Lütfen teslim alınamama nedenini detaylıca yazınız..."
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl font-medium text-slate-900 outline-none focus:border-[#1e3a8a] focus:bg-white transition-colors text-xs resize-none"
+                  />
+                </div>
+              )}
 
               <div className="pt-2 flex items-center justify-end gap-2">
                 <button
@@ -1298,7 +1359,7 @@ export const EmployeeDetailView: React.FC<EmployeeDetailViewProps> = ({
             1. PERSONEL KİMLİK, GÖREV VE LOJMAN İKAMET BİLGİLERİ
           </div>
           <table className="w-full table-fixed text-left border-collapse text-[10px]">
-            <colgroup><col className="w-[16%]"/><col className="w-[34%]"/><col className="w-[17%]"/><col className="w-[33%]"/></colgroup>
+            <colgroup><col className="w-[20%]"/><col className="w-[30%]"/><col className="w-[20%]"/><col className="w-[30%]" /></colgroup>
             <tbody>
               <tr className="border-b border-slate-400">
                 <td className="p-1.5 font-bold bg-slate-100 border-r border-slate-400 whitespace-nowrap">Adı Soyadı:</td>
@@ -1336,37 +1397,39 @@ export const EmployeeDetailView: React.FC<EmployeeDetailViewProps> = ({
           </table>
         </div>
 
-        {/* 2. ODA DEĞİŞTİRME & HAREKET GEÇMİŞİ */}
+        {/* 2. ODA DEĞİŞTİRME VE HAREKET GEÇMİŞİ */}
         <div className="border border-slate-500 overflow-hidden break-inside-avoid">
           <div className="bg-slate-200 font-black px-2 py-1 border-b border-slate-500 uppercase text-[10px] text-slate-900">
             2. ODA DEĞİŞTİRME VE HAREKET GEÇMİŞİ
           </div>
-          {transfers.length > 0 ? (
+          {currentEmp.occupancies && currentEmp.occupancies.length > 0 ? (
             <table className="w-full table-fixed text-left border-collapse text-[10px]">
-              <colgroup><col className="w-[16%]"/><col className="w-[15%]"/><col className="w-[25%]"/><col className="w-[20%]"/><col className="w-[24%]"/></colgroup>
+              <colgroup><col className="w-[40%]"/><col className="w-[30%]"/><col className="w-[30%]"/></colgroup>
               <thead>
                 <tr className="bg-slate-100 border-b border-slate-400 font-black text-slate-900">
-                  <th className="p-1.5 border-r border-slate-400">İşlem Adı</th>
-                  <th className="p-1.5 border-r border-slate-400">Eski Konum</th>
-                  <th className="p-1.5 border-r border-slate-400">Yeni Konum & Yatak</th>
-                  <th className="p-1.5 border-r border-slate-400">İşlem Tarihi</th>
-                  <th className="p-1.5">Açıklama / Neden</th>
+                  <th className="p-1.5 border-r border-slate-400">Oda & Yatak Konumu</th>
+                  <th className="p-1.5 border-r border-slate-400">Giriş Tarihi & Saati</th>
+                  <th className="p-1.5">Çıkış Tarihi & Saati</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-300">
-                {transfers.map(tr => (
-                  <tr key={tr.id} className="even:bg-slate-50">
-                    <td className="p-1.5 font-bold border-r border-slate-400">{tr.action}</td>
-                    <td className="p-1.5 border-r border-slate-400">{tr.fromRoom || '-'}</td>
-                    <td className="p-1.5 font-black text-slate-900 border-r border-slate-400">{tr.toRoom} ({tr.toBed || '-'})</td>
-                    <td className="p-1.5 border-r border-slate-400">{tr.date}</td>
-                    <td className="p-1.5">{tr.reason}</td>
-                  </tr>
-                ))}
+                {currentEmp.occupancies.map(log => {
+                  const blockName = log.bed?.room?.block?.name || '-';
+                  const roomNumber = log.bed?.room?.roomNumber || '-';
+                  const bedLabel = log.bed?.bedLabel || '-';
+
+                  return (
+                    <tr key={log.id} className="even:bg-slate-50">
+                      <td className="p-1.5 font-black text-slate-900 border-r border-slate-400">{blockName} • Oda {roomNumber} ({bedLabel})</td>
+                      <td className="p-1.5 border-r border-slate-400 font-semibold">{formatDateTime(log.checkInDate)}</td>
+                      <td className="p-1.5 font-semibold">{log.checkOutDate ? formatDateTime(log.checkOutDate) : 'Halen Odada Kalıyor'}</td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           ) : (
-            <div className="p-1.5 text-center text-slate-600 font-semibold italic">Kayıtlı oda değişiklik geçmişi bulunmamaktadır.</div>
+            <div className="p-1.5 text-center text-slate-600 font-semibold italic">Kayıtlı oda konaklama geçmişi bulunmamaktadır.</div>
           )}
         </div>
 
@@ -1423,12 +1486,14 @@ export const EmployeeDetailView: React.FC<EmployeeDetailViewProps> = ({
             <tbody className="divide-y divide-slate-300">
               {deliveredInventories.map(inv => {
                 const parsed = parseReturnDateAndReason(inv.returnedDate);
+                const showReturnDate = inv.status === 'Teslim Alınamadı' ? '-' : parsed.date;
+                const showReason = inv.status === 'Teslim Alınamadı' ? parsed.reason : '-';
                 return (
                   <tr key={inv.id} className="even:bg-slate-50">
                     <td className="p-1.5 font-semibold border-r border-slate-400">{inv.itemName}</td>
                     <td className="p-1.5 border-r border-slate-400">{inv.assignedDate}</td>
-                    <td className="p-1.5 border-r border-slate-400 font-bold text-slate-900">{parsed.date}</td>
-                    <td className="p-1.5 font-semibold text-slate-800">{parsed.reason}</td>
+                    <td className="p-1.5 border-r border-slate-400 font-bold text-slate-900">{showReturnDate}</td>
+                    <td className="p-1.5 font-semibold text-slate-800">{showReason}</td>
                   </tr>
                 );
               })}
@@ -1547,14 +1612,25 @@ export const EmployeeDetailView: React.FC<EmployeeDetailViewProps> = ({
           {/* Right Action Stack: Edit Profile & Print Buttons TOP, Status Badge BOTTOM */}
           <div className="shrink-0 text-center sm:text-right space-y-3">
             <div className="flex flex-col sm:flex-row items-center justify-center sm:justify-end gap-2">
-              <button
-                type="button"
-                onClick={() => setIsAssignRoomOpen(true)}
-                className="py-2.5 px-4 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-2xl border border-emerald-700 flex items-center justify-center gap-1.5 transition-all cursor-pointer shadow-md w-full sm:w-auto"
-              >
-                <BedDouble className="w-4 h-4 text-white" />
-                <span>Personele Oda Ata</span>
-              </button>
+              {currentBed ? (
+                <button
+                  type="button"
+                  onClick={() => setIsCheckoutConfirmOpen(true)}
+                  className="py-2.5 px-4 bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs rounded-2xl border border-rose-700 flex items-center justify-center gap-1.5 transition-all cursor-pointer shadow-md w-full sm:w-auto"
+                >
+                  <DoorOpen className="w-4 h-4 text-white" />
+                  <span>Odadan Çıkış Yap</span>
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setIsAssignRoomOpen(true)}
+                  className="py-2.5 px-4 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-2xl border border-emerald-700 flex items-center justify-center gap-1.5 transition-all cursor-pointer shadow-md w-full sm:w-auto"
+                >
+                  <BedDouble className="w-4 h-4 text-white" />
+                  <span>Personele Oda Ata</span>
+                </button>
+              )}
 
               <button
                 type="button"
@@ -1574,18 +1650,6 @@ export const EmployeeDetailView: React.FC<EmployeeDetailViewProps> = ({
                 <Printer className="w-4 h-4 text-white" />
                 <span>Yazdır / PDF Kaydet</span>
               </button>
-            </div>
-
-            <div>
-              {currentEmp.status === 'RESIDENT' ? (
-                <span className="px-3.5 py-2 rounded-2xl bg-emerald-50 border border-emerald-200 text-emerald-900 text-xs font-extrabold inline-flex items-center gap-1.5 shadow-sm">
-                  <CheckCircle2 className="w-4 h-4 text-emerald-600" /> Lojmanda İkamet Ediyor
-                </span>
-              ) : (
-                <span className="px-3.5 py-2 rounded-2xl bg-amber-50 border border-amber-200 text-amber-900 text-xs font-extrabold inline-flex items-center gap-1.5 shadow-sm">
-                  <Clock className="w-4 h-4 text-amber-600" /> Atama Bekliyor
-                </span>
-              )}
             </div>
           </div>
 
@@ -1637,6 +1701,17 @@ export const EmployeeDetailView: React.FC<EmployeeDetailViewProps> = ({
             <span>Ziyaretçi Kayıtları ({visitorRecords.length})</span>
           </button>
 
+          <button
+            onClick={() => handleTabSwitch('occupancyHistory')}
+            className={`px-4 py-2.5 rounded-2xl text-xs font-extrabold flex items-center gap-2 transition-all cursor-pointer ${activeTab === 'occupancyHistory'
+              ? 'bg-[#1e3a8a] text-white shadow-md'
+              : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+              }`}
+          >
+            <History className="w-4 h-4" />
+            <span>Konaklama Geçmişi ({currentEmp.occupancies?.length || 0})</span>
+          </button>
+
         </div>
 
         {operationError && <div role="alert" className="p-4 rounded-2xl bg-rose-50 border border-rose-200 text-sm font-bold text-rose-900 flex justify-between gap-3"><span>{operationError}</span><button aria-label="Hata mesajını kapat" onClick={() => setOperationError(null)}><X className="w-4 h-4"/></button></div>}
@@ -1657,9 +1732,15 @@ export const EmployeeDetailView: React.FC<EmployeeDetailViewProps> = ({
                   </h3>
 
                   <div className="space-y-3 text-xs font-semibold text-slate-800">
-                    <div className="flex justify-between items-center bg-white p-3 rounded-2xl border border-slate-200">
-                      <span className="text-slate-500 font-bold">TC Kimlik No</span>
-                      <span className="font-extrabold text-slate-900">{currentEmp.tcNoMasked || 'Belirtilmedi'}</span>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="flex justify-between items-center bg-white p-3 rounded-2xl border border-slate-200">
+                        <span className="text-slate-500 font-bold">TC Kimlik No</span>
+                        <span className="font-extrabold text-slate-900">{currentEmp.tcNoMasked || 'Belirtilmedi'}</span>
+                      </div>
+                      <div className="flex justify-between items-center bg-white p-3 rounded-2xl border border-slate-200">
+                        <span className="text-slate-500 font-bold">Sicil No</span>
+                        <span className="font-extrabold text-slate-900">{currentEmp.registrationNo || 'Belirtilmedi'}</span>
+                      </div>
                     </div>
 
                     <div className="flex justify-between items-center bg-white p-3 rounded-2xl border border-slate-200">
@@ -1882,9 +1963,13 @@ export const EmployeeDetailView: React.FC<EmployeeDetailViewProps> = ({
                             <span>{inv.itemName}</span>
                           </td>
                           <td className="py-1.5 px-3 font-semibold text-slate-700 border-r border-slate-200">{inv.assignedDate}</td>
-                          <td className="py-1.5 px-3 font-bold border-r border-slate-200">
-                            {inv.returnedDate ? (
-                              <span className={inv.status === 'Teslim Alınamadı' ? 'text-rose-800 font-extrabold text-[11px]' : 'text-emerald-800 font-bold'}>
+                           <td className="py-1.5 px-3 font-bold border-r border-slate-200">
+                            {inv.status === 'Teslim Alınamadı' ? (
+                              <span className="text-rose-800 font-extrabold text-[11px]">
+                                {parseReturnDateAndReason(inv.returnedDate).reason}
+                              </span>
+                            ) : inv.returnedDate ? (
+                              <span className="text-emerald-800 font-bold">
                                 {inv.returnedDate}
                               </span>
                             ) : (
@@ -2259,6 +2344,71 @@ export const EmployeeDetailView: React.FC<EmployeeDetailViewProps> = ({
                 </div>
               )}
               <AddVisitorModal isOpen={isVisitorModalOpen} fixedHostEmployeeId={employee.id} onClose={() => setIsVisitorModalOpen(false)} onSuccess={loadVisitorRecords} />
+            </div>
+          )}
+
+          {/* TAB 6: KONAKLAMA GEÇMİŞİ */}
+          {activeTab === 'occupancyHistory' && (
+            <div className="space-y-4 animate-fadeIn">
+              <div>
+                <h3 className="text-sm font-extrabold text-slate-900">Konaklama Geçmişi</h3>
+                <p className="text-xs text-slate-500 font-semibold mt-0.5">
+                  Personelin lojmanda kaldığı geçmiş odalar ile giriş ve çıkış tarihleri.
+                </p>
+              </div>
+
+              {currentEmp.occupancies && currentEmp.occupancies.length > 0 ? (
+                <div className="border border-slate-300 rounded-2xl overflow-hidden shadow-sm bg-white">
+                  <table className="w-full text-left border-collapse text-xs">
+                    <thead>
+                      <tr className="bg-slate-100/80 border-b border-slate-300 font-extrabold text-slate-800">
+                        <th className="py-2.5 px-3 border-r border-slate-200">Blok Adı</th>
+                        <th className="py-2.5 px-3 border-r border-slate-200">Oda Numarası</th>
+                        <th className="py-2.5 px-3 border-r border-slate-200">Yatak Konumu</th>
+                        <th className="py-2.5 px-3 border-r border-slate-200 w-44">Giriş Tarihi & Saati</th>
+                        <th className="py-2.5 px-3 w-44">Çıkış Tarihi & Saati</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-200">
+                      {currentEmp.occupancies.map((log: any) => {
+                        const blockName = log.bed?.room?.block?.name || '-';
+                        const roomNumber = log.bed?.room?.roomNumber || '-';
+                        const bedLabel = log.bed?.bedLabel || '-';
+
+                        return (
+                          <tr key={log.id} className="hover:bg-slate-50 transition-colors">
+                            <td className="py-2 px-3 font-extrabold text-[#1e3a8a] border-r border-slate-200">
+                              {blockName}
+                            </td>
+                            <td className="py-2 px-3 font-extrabold text-slate-900 border-r border-slate-200">
+                              {roomNumber}
+                            </td>
+                            <td className="py-2 px-3 font-extrabold text-slate-800 border-r border-slate-200">
+                              <span className="px-2 py-0.5 rounded-md bg-blue-50 text-blue-900 border border-blue-200 text-[11px]">
+                                {bedLabel}
+                              </span>
+                            </td>
+                            <td className="py-2 px-3 font-bold text-slate-700 border-r border-slate-200 whitespace-nowrap">
+                              {formatDateTime(log.checkInDate)}
+                            </td>
+                            <td className="py-2 px-3 font-bold text-slate-600 whitespace-nowrap">
+                              {log.checkOutDate ? formatDateTime(log.checkOutDate) : (
+                                <span className="px-2 py-0.5 rounded-md bg-emerald-50 text-emerald-800 border border-emerald-200 text-[10px] font-extrabold">
+                                  Halen Odada Kalıyor
+                                </span>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <div className="p-4 text-center bg-slate-50 rounded-2xl border border-slate-200 text-slate-500 text-xs font-bold">
+                  Bu personel için henüz bir konaklama geçmişi kaydı bulunmamaktadır.
+                </div>
+              )}
             </div>
           )}
 

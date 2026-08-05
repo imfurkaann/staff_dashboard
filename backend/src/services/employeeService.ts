@@ -34,7 +34,6 @@ export interface CreateEmployeeDTO {
   vehiclePlate?: string;         // Optional Araç Plakası
   ageGroup?: string;             // Optional Yaş Grubu
   languageNationality?: string;  // Optional Konuşulan Dil / Uyruk
-  contractEndDate?: string;      // Optional Tahmini Görev Bitiş Tarihi
   emergencyContactName?: string; // Optional
   emergencyRelation?: string;    // Optional Dropdown
   emergencyContactPhone?: string;// Optional
@@ -110,7 +109,17 @@ export class EmployeeService {
         },
         occupancies: {
           orderBy: { checkInDate: 'desc' },
-          take: 1,
+          include: {
+            bed: {
+              include: {
+                room: {
+                  include: {
+                    block: true,
+                  },
+                },
+              },
+            },
+          },
         },
       },
       orderBy: { createdAt: 'desc' },
@@ -147,7 +156,6 @@ export class EmployeeService {
       vehiclePlate,
       ageGroup,
       languageNationality,
-      contractEndDate,
       emergencyContactName,
       emergencyRelation,
       emergencyContactPhone,
@@ -240,7 +248,6 @@ export class EmployeeService {
           vehiclePlate: normalizedPlate,
           ageGroup: ageGroup || '26-40 Yaş (Orta Yaş)',
           languageNationality: languageNationality || 'Türkçe (T.C.)',
-          contractEndDate: contractEndDate ? new Date(contractEndDate) : null,
           emergencyContactName: normalizedEmergencyName,
           emergencyRelation: emergencyRelation || null,
           emergencyContactPhone: emergencyContactPhone?.trim() || null,
@@ -321,7 +328,17 @@ export class EmployeeService {
           },
           occupancies: {
             orderBy: { checkInDate: 'desc' },
-            take: 1,
+            include: {
+              bed: {
+                include: {
+                  room: {
+                    include: {
+                      block: true,
+                    },
+                  },
+                },
+              },
+            },
           },
         },
       });
@@ -451,7 +468,20 @@ export class EmployeeService {
           },
           inventories: { orderBy: { createdAt: 'desc' } },
           disciplinaryNotes: { orderBy: { createdAt: 'desc' } },
-          occupancies: { orderBy: { checkInDate: 'desc' }, take: 1 },
+          occupancies: {
+            orderBy: { checkInDate: 'desc' },
+            include: {
+              bed: {
+                include: {
+                  room: {
+                    include: {
+                      block: true,
+                    },
+                  },
+                },
+              },
+            },
+          },
         },
       });
 
@@ -581,6 +611,145 @@ export class EmployeeService {
         { room: { roomNumber: 'asc' } },
         { bedLabel: 'asc' },
       ],
+    });
+  }
+
+  /**
+   * Get all employee details including encrypted TC number for Excel export
+   */
+  public static async getExportEmployees(search?: string, status?: string, department?: string, gender?: string) {
+    const where: any = {};
+
+    if (status && status !== 'ALL') {
+      if (['PENDING_ASSIGNMENT', 'RESIDENT', 'ON_LEAVE', 'CHECKED_OUT'].includes(status)) {
+        where.status = status;
+      }
+    }
+
+    if (department && department !== 'ALL') {
+      where.department = department;
+    }
+
+    if (gender && gender !== 'ALL') {
+      if (['Male', 'Female'].includes(gender)) {
+        where.gender = gender;
+      }
+    }
+
+    if (search && search.trim() !== '') {
+      const query = search.trim();
+      where.OR = [
+        { firstName: { contains: query, mode: 'insensitive' } },
+        { lastName: { contains: query, mode: 'insensitive' } },
+        { registrationNo: { contains: query, mode: 'insensitive' } },
+        { department: { contains: query, mode: 'insensitive' } },
+        { company: { contains: query, mode: 'insensitive' } },
+        { title: { contains: query, mode: 'insensitive' } },
+        { vehiclePlate: { contains: query, mode: 'insensitive' } },
+      ];
+    }
+
+    return prisma.employee.findMany({
+      where,
+      include: {
+        beds: {
+          include: {
+            room: {
+              include: {
+                block: true,
+              },
+            },
+          },
+        },
+        occupancies: {
+          orderBy: { checkInDate: 'desc' },
+          include: {
+            bed: {
+              include: {
+                room: {
+                  include: {
+                    block: true,
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
+  /**
+   * Checkout employee from their assigned room/bed
+   */
+  public static async checkoutEmployeeFromRoom(employeeId: string) {
+    return prisma.$transaction(async (tx) => {
+      const employee = await tx.employee.findUnique({
+        where: { id: employeeId },
+        include: { beds: true },
+      });
+      if (!employee) throw new AppError('Personel bulunamadı.', 404);
+
+      const hasBed = employee.beds && employee.beds.length > 0;
+      if (!hasBed) {
+        throw new AppError('Personel zaten herhangi bir odaya yerleştirilmemiş.', 400);
+      }
+
+      const now = new Date();
+
+      // 1. Close active occupancy logs
+      await tx.occupancyLog.updateMany({
+        where: { employeeId, checkOutDate: null },
+        data: { checkOutDate: now },
+      });
+
+      // 2. Free all beds assigned to this employee
+      await tx.bed.updateMany({
+        where: { currentEmployeeId: employeeId },
+        data: { isOccupied: false, currentEmployeeId: null },
+      });
+
+      // 3. Update employee status to PENDING_ASSIGNMENT
+      const updated = await tx.employee.update({
+        where: { id: employeeId },
+        data: { status: 'PENDING_ASSIGNMENT' },
+        include: {
+          beds: {
+            include: {
+              room: {
+                include: { block: true },
+              },
+            },
+          },
+          inventories: { orderBy: { createdAt: 'desc' } },
+          disciplinaryNotes: { orderBy: { createdAt: 'desc' } },
+          occupancies: {
+            orderBy: { checkInDate: 'desc' },
+            include: {
+              bed: {
+                include: {
+                  room: {
+                    include: {
+                      block: true,
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      });
+
+      const latestOccupancy = updated.occupancies && updated.occupancies.length > 0 ? updated.occupancies[0] : null;
+      const { tcNo: storedTcNo, tcNoHash: _tcNoHash, ...safeEmployee } = updated;
+
+      return {
+        ...safeEmployee,
+        tcNoMasked: maskTcNo(storedTcNo),
+        checkInDate: latestOccupancy ? latestOccupancy.checkInDate : null,
+        checkOutDate: latestOccupancy ? latestOccupancy.checkOutDate : null,
+      };
     });
   }
 }

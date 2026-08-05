@@ -163,7 +163,7 @@ export const MaintenanceDetailModal: React.FC<MaintenanceDetailModalProps> = ({
             <h4 className="text-xs font-extrabold text-slate-900 uppercase tracking-wider flex items-center gap-1.5">
               <FileText className="w-4 h-4 text-[#1e3a8a]" /> Arıza Açıklaması & Sorun Detayı
             </h4>
-            <p className="text-slate-800 leading-relaxed font-semibold whitespace-pre-wrap">
+            <p className="text-slate-800 leading-relaxed font-semibold whitespace-pre-wrap break-words">
               {log.description}
             </p>
           </div>
@@ -185,7 +185,7 @@ export const MaintenanceDetailModal: React.FC<MaintenanceDetailModalProps> = ({
               <h4 className="text-xs font-extrabold uppercase tracking-wider flex items-center gap-1.5 text-emerald-800">
                 <CheckCircle2 className="w-4 h-4 text-emerald-600" /> Çözüm & Yapılan İşlem Notu
               </h4>
-              <p className="text-emerald-900 leading-relaxed font-semibold">
+              <p className="text-emerald-900 leading-relaxed font-semibold whitespace-pre-wrap break-words">
                 {log.resolutionNote}
               </p>
             </div>

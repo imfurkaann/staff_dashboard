@@ -10,11 +10,17 @@ router.use(authenticateToken);
 // GET /api/employees (List employees with search/filters)
 router.get('/', EmployeeController.getAll);
 
+// GET /api/employees/export.xlsx (Export filtered employees list)
+router.get('/export.xlsx', EmployeeController.exportExcel);
+
 // POST /api/employees (Create new employee)
 router.post('/', authorizeRoles('ADMIN', 'HOUSING_MANAGER'), EmployeeController.create);
 
 // PUT /api/employees/:id (Update employee profile)
 router.put('/:id', authorizeRoles('ADMIN', 'HOUSING_MANAGER'), EmployeeController.update);
+
+// PATCH /api/employees/:id/checkout (Check out employee from room)
+router.patch('/:id/checkout', authorizeRoles('ADMIN', 'HOUSING_MANAGER'), EmployeeController.checkoutRoom);
 
 router.delete('/:id', authorizeRoles('ADMIN', 'HOUSING_MANAGER'), EmployeeController.remove);
 
