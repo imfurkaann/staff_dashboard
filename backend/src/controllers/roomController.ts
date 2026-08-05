@@ -163,7 +163,7 @@ export const roomController = {
         title: cleanTitle,
         description: cleanDescription,
         priority,
-        reportedBy: req.user?.fullName || 'Sistem Kullanıcısı',
+        reportedBy: req.user?.fullName || 'Lojman Yönetimi',
         category: cleanCategory || undefined,
         location: cleanLocation || undefined,
       });

@@ -91,7 +91,9 @@
     break-inside: avoid;
   }
 
-  .room-detail-page > *:not(.official-print-document) {
+  .room-detail-page > *:not(.official-print-document),
+  .maintenance-management-page > *:not(.official-print-document),
+  main > div > *:not(.official-print-document) {
     display: none !important;
   }
 

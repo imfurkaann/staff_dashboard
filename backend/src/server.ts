@@ -9,6 +9,7 @@ import employeeRoutes from './routes/employeeRoutes';
 import dashboardRoutes from './routes/dashboardRoutes';
 import roomRoutes from './routes/roomRoutes';
 import visitorRoutes from './routes/visitorRoutes';
+import maintenanceRoutes from './routes/maintenanceRoutes';
 import { errorHandler } from './middleware/errorHandler';
 import { apiRateLimiter } from './middleware/rateLimiter';
 
@@ -46,6 +47,7 @@ app.use('/api/employees', employeeRoutes);
 app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/rooms', roomRoutes);
 app.use('/api/visitors', visitorRoutes);
+app.use('/api/maintenance', maintenanceRoutes);
 
 // Health check endpoint
 app.get('/api/health', async (_req, res) => {

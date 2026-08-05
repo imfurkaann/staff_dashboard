@@ -208,7 +208,7 @@ export const DateRangePicker: React.FC<DateRangePickerProps> = ({
 
       {/* Hotel Reservation Style Calendar Popover */}
       {isOpen && (
-        <div className="absolute right-0 sm:left-0 top-full mt-2 z-[100] bg-white border border-slate-300 rounded-3xl p-4 shadow-2xl space-y-3 w-80 animate-fadeIn">
+        <div className="absolute right-0 top-full mt-2 z-[250] bg-white border border-slate-300 rounded-3xl p-4 shadow-2xl space-y-3 w-80 animate-fadeIn">
           
           {/* Quick Presets */}
           <div className="flex items-center gap-1 overflow-x-auto pb-1 border-b border-slate-200">

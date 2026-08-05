@@ -6,13 +6,14 @@ import { DashboardView } from './components/DashboardView';
 import { EmployeeManagementView } from './components/EmployeeManagementView';
 import { RoomManagementView } from './components/RoomManagementView';
 import { VisitorManagementView } from './components/VisitorManagementView';
+import { MaintenanceManagementView } from './components/MaintenanceManagementView';
 
 export const App: React.FC = () => {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [isInitialChecking, setIsInitialChecking] = useState(true);
   const [activeTab, setActiveTab] = useState<string>(() => {
     const savedTab = localStorage.getItem('staff_app_active_tab');
-    return ['employees', 'rooms', 'visitors'].includes(savedTab || '') ? savedTab! : 'dashboard';
+    return ['employees', 'rooms', 'visitors', 'issues', 'maintenance'].includes(savedTab || '') ? savedTab! : 'dashboard';
   });
 
   const handleTabChange = (tab: string, empId?: string) => {
@@ -87,13 +88,8 @@ export const App: React.FC = () => {
           <VisitorManagementView currentUser={currentUser} />
         )}
 
-        {activeTab === 'maintenance' && (
-          <div className="bg-white border border-slate-300 rounded-3xl p-8 shadow-sm">
-            <h2 className="text-xl font-bold text-slate-900">Arıza & Bakım Modülü</h2>
-            <p className="text-xs text-slate-600 mt-1 font-semibold">
-              Teknik servis bildirimleri ve arızalı yatak kapatma.
-            </p>
-          </div>
+        {(activeTab === 'issues' || activeTab === 'maintenance') && (
+          <MaintenanceManagementView currentUser={currentUser} />
         )}
 
         {activeTab === 'inventory' && (
