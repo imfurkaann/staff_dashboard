@@ -48,7 +48,7 @@ export class EmployeeService {
     return prisma.$transaction(async (tx) => {
       const employee = await tx.employee.findUnique({
         where: { id: employeeId },
-        include: { beds: { select: { id: true } } },
+        include: { beds: { select: { id: true, roomId: true } } },
       });
       if (!employee || employee.isDeleted) throw new AppError('Personel bulunamadı.', 404);
       const now = new Date();
@@ -62,6 +62,15 @@ export class EmployeeService {
           data: { checkOutDate: now, checkedOutById: deletedById || null },
         });
       }
+      // Also close active inventories assigned to deleted employee
+      await tx.inventoryItem.updateMany({
+        where: { employeeId, returnedDate: null },
+        data: {
+          status: 'TAM_İADE_ALINDI',
+          returnedDate: now,
+          returnedById: deletedById || null,
+        },
+      });
       await tx.employee.update({
         where: { id: employeeId },
         data: {
@@ -72,6 +81,57 @@ export class EmployeeService {
         },
       });
     });
+  }
+
+  /**
+   * Get single employee by ID with full relations
+   */
+  public static async getEmployeeById(employeeId: string) {
+    const employee = await prisma.employee.findUnique({
+      where: { id: employeeId, isDeleted: false },
+      include: {
+        beds: {
+          include: {
+            room: {
+              include: {
+                block: true,
+              },
+            },
+          },
+        },
+        inventories: {
+          orderBy: { createdAt: 'desc' },
+        },
+        disciplinaryNotes: {
+          orderBy: { createdAt: 'desc' },
+        },
+        occupancies: {
+          orderBy: { checkInDate: 'desc' },
+          include: {
+            bed: {
+              include: {
+                room: {
+                  include: {
+                    block: true,
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    });
+
+    if (!employee) throw new AppError('Personel bulunamadı.', 404);
+
+    const latestOccupancy = employee.occupancies && employee.occupancies.length > 0 ? employee.occupancies[0] : null;
+    const { tcNo, tcNoHash: _tcNoHash, ...safeEmployee } = employee;
+    return {
+      ...safeEmployee,
+      tcNoMasked: maskTcNo(tcNo),
+      checkInDate: latestOccupancy ? latestOccupancy.checkInDate : null,
+      checkOutDate: latestOccupancy ? latestOccupancy.checkOutDate : null,
+    };
   }
   /**
    * Get list of employees with optional search & filters
@@ -553,16 +613,20 @@ export class EmployeeService {
   }
 
   /**
-   * Return / Receive back Inventory Item (Teslim Al / İade Al)
+   * Return / Receive back Inventory Item (Teslim Al / İade Al veya Teslim Alınamadı Kaydı)
    */
-  public static async returnInventoryItem(inventoryId: string, returnedById?: string) {
+  public static async returnInventoryItem(inventoryId: string, returnedById?: string, status?: string, notes?: string) {
+    const dataToUpdate: any = {
+      status: status || 'TAM_İADE_ALINDI',
+      returnedDate: new Date(),
+      returnedById: returnedById || null,
+    };
+    if (notes && notes.trim()) {
+      dataToUpdate.notes = notes.trim();
+    }
     return prisma.inventoryItem.update({
       where: { id: inventoryId },
-      data: {
-        status: 'TAM_İADE_ALINDI',
-        returnedDate: new Date(),
-        returnedById: returnedById || null,
-      },
+      data: dataToUpdate,
     });
   }
 
@@ -592,6 +656,34 @@ export class EmployeeService {
         status: 'GÖRÜŞÜLDÜ',
         createdById: data.createdById || null,
       },
+    });
+  }
+
+  /**
+   * Update Disiplin / Şikayet Notu
+   */
+  public static async updateDisciplinaryNote(noteId: string, data: { title?: string; content?: string }) {
+    const note = await prisma.disciplinaryNote.findUnique({ where: { id: noteId } });
+    if (!note) throw new AppError('Disiplin notu bulunamadı.', 404);
+
+    return prisma.disciplinaryNote.update({
+      where: { id: noteId },
+      data: {
+        ...(data.title && { title: data.title.trim() }),
+        ...(data.content && { content: data.content.trim() }),
+      },
+    });
+  }
+
+  /**
+   * Delete Disiplin / Şikayet Notu
+   */
+  public static async deleteDisciplinaryNote(noteId: string) {
+    const note = await prisma.disciplinaryNote.findUnique({ where: { id: noteId } });
+    if (!note) throw new AppError('Disiplin notu bulunamadı.', 404);
+
+    return prisma.disciplinaryNote.delete({
+      where: { id: noteId },
     });
   }
 

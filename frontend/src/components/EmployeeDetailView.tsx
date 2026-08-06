@@ -458,7 +458,10 @@ export const EmployeeDetailView: React.FC<EmployeeDetailViewProps> = ({
 
     try {
       if (!unreturnedModalItem.id.startsWith('inv-') && !unreturnedModalItem.id.startsWith('pr-')) {
-        await employeeApi.returnInventoryItem(unreturnedModalItem.id);
+        await employeeApi.returnInventoryItem(unreturnedModalItem.id, {
+          status: 'TESLİM_ALINAMADI',
+          notes: fullReason,
+        });
       }
     } catch (err) {
       setOperationError('İade işlemi kaydedilemedi. Lütfen tekrar deneyin.');
@@ -507,7 +510,11 @@ export const EmployeeDetailView: React.FC<EmployeeDetailViewProps> = ({
       confirmVariant: 'rose',
       onConfirm: async () => {
         try {
-          if (!id.startsWith('inv-') && !id.startsWith('pr-') && !id.startsWith('ret-') && !id.startsWith('cmp-') && !id.startsWith('vst-')) {
+          if (type === 'complaint') {
+            if (!id.startsWith('cmp-')) {
+              await employeeApi.deleteDisciplinaryNote(id);
+            }
+          } else if (!id.startsWith('inv-') && !id.startsWith('pr-') && !id.startsWith('ret-') && !id.startsWith('vst-')) {
             await employeeApi.deleteInventoryItem(id);
           }
         } catch (err) {
@@ -573,7 +580,14 @@ export const EmployeeDetailView: React.FC<EmployeeDetailViewProps> = ({
     if (!editingItem) return;
 
     try {
-      if (!editingItem.id.startsWith('inv-') && !editingItem.id.startsWith('pr-') && !editingItem.id.startsWith('ret-') && !editingItem.id.startsWith('vst-')) {
+      if (editingItem.type === 'complaint') {
+        if (!editingItem.id.startsWith('cmp-')) {
+          await employeeApi.updateDisciplinaryNote(editingItem.id, {
+            title: editingItem.itemName,
+            content: editingItem.content,
+          });
+        }
+      } else if (!editingItem.id.startsWith('inv-') && !editingItem.id.startsWith('pr-') && !editingItem.id.startsWith('ret-') && !editingItem.id.startsWith('vst-')) {
         await employeeApi.updateInventoryItem(editingItem.id, {
           itemName: editingItem.itemName,
           serialNo: editingItem.serialNo,
@@ -1391,6 +1405,14 @@ export const EmployeeDetailView: React.FC<EmployeeDetailViewProps> = ({
 
       {/* EXCLUSIVE OFFICIAL CORPORATE PRINT DOCUMENT */}
       <div className="official-print-document hidden print:block text-black font-sans text-[10px] leading-tight space-y-3">
+        <style>{`
+          @media print {
+            tr, table, .break-inside-avoid {
+              break-inside: avoid !important;
+              page-break-inside: avoid !important;
+            }
+          }
+        `}</style>
 
         {/* Corporate Header */}
         <div className="border-b-2 border-slate-900 pb-2">

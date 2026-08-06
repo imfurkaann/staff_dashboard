@@ -1,5 +1,5 @@
 import ExcelJS from 'exceljs';
-import { decryptSensitiveData } from '../utils/crypto';
+import { maskTcNo } from '../utils/crypto';
 
 interface ExportEmployee {
   status: string;
@@ -127,12 +127,12 @@ export async function createEmployeeWorkbook(rows: ExportEmployee[], generatedBy
 
   // 3. Populate Rows
   rows.forEach((emp, idx) => {
-    let decryptedTc = '-';
+    let maskedTc = '-';
     if (emp.tcNo) {
       try {
-        decryptedTc = decryptSensitiveData(emp.tcNo) || '-';
+        maskedTc = maskTcNo(emp.tcNo) || '-';
       } catch (err) {
-        decryptedTc = 'Şifreli / Hatalı';
+        maskedTc = 'Şifreli / Hatalı';
       }
     }
 
@@ -163,7 +163,7 @@ export async function createEmployeeWorkbook(rows: ExportEmployee[], generatedBy
     row.values = [
       statusLabels[emp.status] || emp.status,
       emp.registrationNo || '-',
-      decryptedTc,
+      maskedTc,
       firstName,
       lastName,
       genderStr,

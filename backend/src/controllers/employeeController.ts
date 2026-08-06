@@ -181,18 +181,71 @@ export class EmployeeController {
   }
 
   /**
+   * GET /api/employees/:id
+   */
+  public static async getById(req: AuthenticatedRequest, res: Response, next: NextFunction) {
+    try {
+      const { id } = req.params;
+      const employee = await EmployeeService.getEmployeeById(id);
+
+      res.status(200).json({
+        success: true,
+        data: employee,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
    * PATCH /api/employees/inventories/:inventoryId/return
    */
   public static async returnInventory(req: AuthenticatedRequest, res: Response, next: NextFunction) {
     try {
       const { inventoryId } = req.params;
       const returnedById = req.user?.id;
-      const item = await EmployeeService.returnInventoryItem(inventoryId, returnedById);
+      const { status, notes } = req.body || {};
+      const item = await EmployeeService.returnInventoryItem(inventoryId, returnedById, status, notes);
 
       res.status(200).json({
         success: true,
-        message: 'Zimmet/Eşya teslim alındı.',
+        message: status === 'TESLİM_ALINAMADI' ? 'Zimmet teslim alınamadı olarak kaydedildi.' : 'Zimmet/Eşya teslim alındı.',
         data: item,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * PUT /api/employees/disciplinary-notes/:noteId
+   */
+  public static async updateDisciplinaryNote(req: AuthenticatedRequest, res: Response, next: NextFunction) {
+    try {
+      const { noteId } = req.params;
+      const note = await EmployeeService.updateDisciplinaryNote(noteId, req.body);
+
+      res.status(200).json({
+        success: true,
+        message: 'Disiplin/Şikayet notu güncellendi.',
+        data: note,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * DELETE /api/employees/disciplinary-notes/:noteId
+   */
+  public static async deleteDisciplinaryNote(req: AuthenticatedRequest, res: Response, next: NextFunction) {
+    try {
+      const { noteId } = req.params;
+      await EmployeeService.deleteDisciplinaryNote(noteId);
+
+      res.status(200).json({
+        success: true,
+        message: 'Disiplin/Şikayet notu silindi.',
       });
     } catch (error) {
       next(error);

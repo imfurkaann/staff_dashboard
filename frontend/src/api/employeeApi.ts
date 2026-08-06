@@ -89,11 +89,12 @@ export const employeeApi = {
   },
 
   getEmployeeById: async (id: string): Promise<Employee | null> => {
-    const response = await api.get<{ success: boolean; data: Employee[] }>('/', {
-      params: { search: id },
-    });
-    const found = response.data.data.find(e => e.id === id);
-    return found || null;
+    try {
+      const response = await api.get<{ success: boolean; data: Employee }>(`/${id}`);
+      return response.data.data || null;
+    } catch (error) {
+      return null;
+    }
   },
 
   createEmployee: async (payload: CreateEmployeePayload): Promise<Employee> => {
@@ -137,8 +138,8 @@ export const employeeApi = {
     return response.data.data;
   },
 
-  returnInventoryItem: async (inventoryId: string) => {
-    const response = await api.patch<{ success: boolean; data: any }>(`/inventories/${inventoryId}/return`);
+  returnInventoryItem: async (inventoryId: string, payload?: { status?: string; notes?: string }) => {
+    const response = await api.patch<{ success: boolean; data: any }>(`/inventories/${inventoryId}/return`, payload);
     return response.data.data;
   },
 
@@ -150,6 +151,16 @@ export const employeeApi = {
   addDisciplinaryNote: async (employeeId: string, payload: { title: string; content: string; reportedBy?: string }) => {
     const response = await api.post<{ success: boolean; data: any }>(`/${employeeId}/disciplinary-notes`, payload);
     return response.data.data;
+  },
+
+  updateDisciplinaryNote: async (noteId: string, payload: { title?: string; content?: string }) => {
+    const response = await api.put<{ success: boolean; data: any }>(`/disciplinary-notes/${noteId}`, payload);
+    return response.data.data;
+  },
+
+  deleteDisciplinaryNote: async (noteId: string) => {
+    const response = await api.delete<{ success: boolean }>(`/disciplinary-notes/${noteId}`);
+    return response.data;
   },
 
   deleteEmployee: async (id: string): Promise<boolean> => {

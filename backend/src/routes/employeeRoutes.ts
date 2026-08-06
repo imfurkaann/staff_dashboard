@@ -11,7 +11,13 @@ router.use(authenticateToken);
 router.get('/', EmployeeController.getAll);
 
 // GET /api/employees/export.xlsx (Export filtered employees list)
-router.get('/export.xlsx', EmployeeController.exportExcel);
+router.get('/export.xlsx', authorizeRoles('ADMIN', 'HOUSING_MANAGER'), EmployeeController.exportExcel);
+
+// GET /api/employees/available-beds (Get list of available beds for placement)
+router.get('/available-beds', EmployeeController.getAvailableBeds);
+
+// GET /api/employees/:id (Get single employee details)
+router.get('/:id', EmployeeController.getById);
 
 // POST /api/employees (Create new employee)
 router.post('/', authorizeRoles('ADMIN', 'HOUSING_MANAGER'), EmployeeController.create);
@@ -23,9 +29,6 @@ router.put('/:id', authorizeRoles('ADMIN', 'HOUSING_MANAGER'), EmployeeControlle
 router.patch('/:id/checkout', authorizeRoles('ADMIN', 'HOUSING_MANAGER'), EmployeeController.checkoutRoom);
 
 router.delete('/:id', authorizeRoles('ADMIN', 'HOUSING_MANAGER'), EmployeeController.remove);
-
-// GET /api/employees/available-beds (Get list of available beds for placement)
-router.get('/available-beds', EmployeeController.getAvailableBeds);
 
 // POST /api/employees/:id/inventories (Add inventory or personal belonging item)
 router.post('/:id/inventories', authorizeRoles('ADMIN', 'HOUSING_MANAGER'), EmployeeController.addInventory);
@@ -41,5 +44,11 @@ router.delete('/inventories/:inventoryId', authorizeRoles('ADMIN', 'HOUSING_MANA
 
 // POST /api/employees/:id/disciplinary-notes (Add disciplinary or complaint note)
 router.post('/:id/disciplinary-notes', authorizeRoles('ADMIN', 'HOUSING_MANAGER'), EmployeeController.addDisciplinaryNote);
+
+// PUT /api/employees/disciplinary-notes/:noteId (Update disciplinary or complaint note)
+router.put('/disciplinary-notes/:noteId', authorizeRoles('ADMIN', 'HOUSING_MANAGER'), EmployeeController.updateDisciplinaryNote);
+
+// DELETE /api/employees/disciplinary-notes/:noteId (Delete disciplinary or complaint note)
+router.delete('/disciplinary-notes/:noteId', authorizeRoles('ADMIN', 'HOUSING_MANAGER'), EmployeeController.deleteDisciplinaryNote);
 
 export default router;

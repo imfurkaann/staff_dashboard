@@ -18,6 +18,13 @@ const MONTH_NAMES = [
 
 const DAY_NAMES = ['Pzt', 'Sal', 'Çar', 'Per', 'Cum', 'Cmt', 'Paz'];
 
+const formatLocalDateString = (d: Date): string => {
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
 export const DateRangePicker: React.FC<DateRangePickerProps> = ({
   startDate,
   endDate,
@@ -79,7 +86,7 @@ export const DateRangePicker: React.FC<DateRangePickerProps> = ({
 
   const setPreset = (type: 'TODAY' | 'THIS_WEEK' | 'THIS_MONTH' | 'LAST_30' | 'ALL') => {
     const today = new Date();
-    const todayStr = today.toISOString().split('T')[0];
+    const todayStr = formatLocalDateString(today);
 
     if (type === 'TODAY') {
       onChange(todayStr, todayStr);
@@ -88,14 +95,14 @@ export const DateRangePicker: React.FC<DateRangePickerProps> = ({
       const day = first.getDay();
       const diff = first.getDate() - day + (day === 0 ? -6 : 1);
       const startOfWeek = new Date(first.setDate(diff));
-      onChange(startOfWeek.toISOString().split('T')[0], todayStr);
+      onChange(formatLocalDateString(startOfWeek), todayStr);
     } else if (type === 'THIS_MONTH') {
       const startOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
-      onChange(startOfMonth.toISOString().split('T')[0], todayStr);
+      onChange(formatLocalDateString(startOfMonth), todayStr);
     } else if (type === 'LAST_30') {
       const past = new Date();
       past.setDate(today.getDate() - 30);
-      onChange(past.toISOString().split('T')[0], todayStr);
+      onChange(formatLocalDateString(past), todayStr);
     } else if (type === 'ALL') {
       onChange('', '');
     }
@@ -137,7 +144,7 @@ export const DateRangePicker: React.FC<DateRangePickerProps> = ({
         isInRange = dayStr > startDate && dayStr <= hoverDate;
       }
 
-      const isToday = dayStr === new Date().toISOString().split('T')[0];
+      const isToday = dayStr === formatLocalDateString(new Date());
 
       cells.push(
         <button
