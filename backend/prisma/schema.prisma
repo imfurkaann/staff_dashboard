@@ -71,6 +71,13 @@ model User {
   visitorsCreated Visitor[]      @relation("VisitorCreatedBy")
   visitorsUpdated Visitor[]      @relation("VisitorUpdatedBy")
   visitorsDeleted Visitor[]      @relation("VisitorDeletedBy")
+  employeesCreated Employee[]    @relation("EmployeeCreatedBy")
+  employeesCheckedOut Employee[] @relation("EmployeeCheckedOutBy")
+  employeesDeleted Employee[]    @relation("EmployeeDeletedBy")
+  occupanciesCreated OccupancyLog[] @relation("OccupancyCreatedBy")
+  occupanciesCheckedOut OccupancyLog[] @relation("OccupancyCheckedOutBy")
+  inventoriesCreated InventoryItem[] @relation("InventoryCreatedBy")
+  disciplinaryNotesCreated DisciplinaryNote[] @relation("DisciplinaryCreatedBy")
 }
 
 model Employee {
@@ -96,6 +103,15 @@ model Employee {
   photoUrl              String? // Photo (Base64/URL)
   shiftType             String?        @default("Gündüz") // Gündüz / Gece / Dönüşümlü
   status                EmployeeStatus @default(PENDING_ASSIGNMENT)
+  isDeleted             Boolean        @default(false)
+  deletedAt             DateTime?
+  deletedById           String?
+  deletedBy             User?          @relation("EmployeeDeletedBy", fields: [deletedById], references: [id], onDelete: SetNull)
+  createdById           String?
+  createdBy             User?          @relation("EmployeeCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  checkedOutById        String?
+  checkedOutBy          User?          @relation("EmployeeCheckedOutBy", fields: [checkedOutById], references: [id], onDelete: SetNull)
+  checkedOutAt          DateTime?
   createdAt             DateTime       @default(now())
   updatedAt             DateTime       @updatedAt
 
@@ -105,9 +121,12 @@ model Employee {
   occupancies       OccupancyLog[]
   visitors          Visitor[]
 
-  @@index([status])
+  @@index([status, isDeleted])
   @@index([department])
   @@index([lastName, firstName])
+  @@index([createdById])
+  @@index([checkedOutById])
+  @@index([deletedById])
 }
 
 model Block {
@@ -168,10 +187,16 @@ model OccupancyLog {
   checkInDate        DateTime  @default(now())
   checkOutDate       DateTime?
   transferReason     String?
+  createdById        String?
+  createdBy          User?     @relation("OccupancyCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  checkedOutById     String?
+  checkedOutBy       User?     @relation("OccupancyCheckedOutBy", fields: [checkedOutById], references: [id], onDelete: SetNull)
   createdAt          DateTime  @default(now())
 
   @@index([employeeId, checkInDate])
   @@index([bedId, checkOutDate])
+  @@index([createdById])
+  @@index([checkedOutById])
 }
 
 model InventoryItem {
@@ -187,23 +212,29 @@ model InventoryItem {
   assignedDate DateTime  @default(now())
   returnedDate DateTime?
   notes        String? // Açıklama / Beyan notları
+  createdById  String?
+  createdBy    User?     @relation("InventoryCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
 
   @@index([employeeId])
+  @@index([createdById])
 }
 
 model DisciplinaryNote {
-  id         String   @id @default(uuid())
-  employeeId String
-  employee   Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
-  title      String // Şikayet / Disiplin Başlığı
-  content    String // Detaylı Açıklama
-  reportedBy String   @default("Lojman Amirliği") // Bildiren
-  status     String   @default("GÖRÜŞÜLDÜ") // GÖRÜŞÜLDÜ, ÇÖZÜLDÜ, UYARILDI
-  createdAt  DateTime @default(now())
+  id          String   @id @default(uuid())
+  employeeId  String
+  employee    Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  title       String // Şikayet / Disiplin Başlığı
+  content     String // Detaylı Açıklama
+  reportedBy  String   @default("Lojman Amirliği") // Bildiren
+  status      String   @default("GÖRÜŞÜLDÜ") // GÖRÜŞÜLDÜ, ÇÖZÜLDÜ, UYARILDI
+  createdById String?
+  createdBy   User?    @relation("DisciplinaryCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  createdAt   DateTime @default(now())
 
   @@index([employeeId])
+  @@index([createdById])
 }
 
 model MaintenanceLog {

@@ -40,30 +40,44 @@ export interface CreateEmployeeDTO {
   photoUrl?: string;             // Optional Base64/URL
   shiftType?: string;            // Vardiya Tipi
   bedId?: string;                // Optional immediate bed assignment
+  createdById?: string;          // User ID who created the employee
 }
 
 export class EmployeeService {
-  public static async deleteEmployee(employeeId: string) {
+  public static async deleteEmployee(employeeId: string, deletedById?: string) {
     return prisma.$transaction(async (tx) => {
       const employee = await tx.employee.findUnique({
         where: { id: employeeId },
         include: { beds: { select: { id: true } } },
       });
-      if (!employee) throw new AppError('Personel bulunamadı.', 404);
+      if (!employee || employee.isDeleted) throw new AppError('Personel bulunamadı.', 404);
+      const now = new Date();
       if (employee.beds.length > 0) {
         await tx.bed.updateMany({
           where: { currentEmployeeId: employeeId },
           data: { currentEmployeeId: null, isOccupied: false },
         });
+        await tx.occupancyLog.updateMany({
+          where: { employeeId, checkOutDate: null },
+          data: { checkOutDate: now, checkedOutById: deletedById || null },
+        });
       }
-      await tx.employee.delete({ where: { id: employeeId } });
+      await tx.employee.update({
+        where: { id: employeeId },
+        data: {
+          isDeleted: true,
+          deletedAt: now,
+          deletedById: deletedById || null,
+          status: 'CHECKED_OUT',
+        },
+      });
     });
   }
   /**
    * Get list of employees with optional search & filters
    */
   public static async getAllEmployees(search?: string, status?: string, department?: string) {
-    const where: any = {};
+    const where: any = { isDeleted: false };
 
     if (status && status !== 'ALL') {
       if (!['PENDING_ASSIGNMENT', 'RESIDENT', 'ON_LEAVE', 'CHECKED_OUT'].includes(status)) {
@@ -161,7 +175,8 @@ export class EmployeeService {
       emergencyContactPhone,
       photoUrl,
       shiftType,
-      bedId
+      bedId,
+      createdById
     } = data;
 
     // 1. Temel Zorunlu Alan Kontrolleri
@@ -254,6 +269,7 @@ export class EmployeeService {
           photoUrl: photoUrl || null,
           shiftType: shiftType || 'Gündüz',
           status: initialStatus,
+          createdById: createdById || null,
           createdAt: now,
         },
       });
@@ -301,7 +317,7 @@ export class EmployeeService {
         });
         if (claimedBed.count !== 1) throw new AppError('Seçilen yatak başka bir işlem tarafından dolduruldu. Lütfen yeniden seçim yapın.', 409);
 
-        // Log Occupancy with exact Date + Time
+        // Log Occupancy with exact Date + Time and creator ID
         await tx.occupancyLog.create({
           data: {
             employeeId: newEmployee.id,
@@ -312,6 +328,7 @@ export class EmployeeService {
             bedId: bed.id,
             checkInDate: now,
             transferReason: 'İlk Kayıtta Doğrudan Yerleştirme',
+            createdById: createdById || null,
           },
         });
       }
@@ -500,8 +517,8 @@ export class EmployeeService {
   /**
    * Add Zimmet veya Şahsi Eşya Beyan Kaydı
    */
-  public static async addInventoryItem(employeeId: string, data: { itemName: string; itemCode?: string; category?: string; serialNo?: string; photoUrl?: string; notes?: string }) {
-    const employee = await prisma.employee.findUnique({ where: { id: employeeId } });
+  public static async addInventoryItem(employeeId: string, data: { itemName: string; itemCode?: string; category?: string; serialNo?: string; photoUrl?: string; notes?: string; createdById?: string }) {
+    const employee = await prisma.employee.findUnique({ where: { id: employeeId, isDeleted: false } });
     if (!employee) throw new AppError('Personel bulunamadı.', 404);
     if (!data.itemName?.trim()) throw new AppError('Eşya adı zorunludur.', 400);
 
@@ -515,6 +532,7 @@ export class EmployeeService {
         photoUrl: data.photoUrl || null,
         status: data.category === 'ŞAHSİ_EŞYA' ? 'ÇIKIŞ_İZİNLİ_ŞAHSİ_MÜLK' : 'TESLİM_EDİLDİ',
         notes: data.notes?.trim() || null,
+        createdById: data.createdById || null,
       },
     });
   }
@@ -558,8 +576,8 @@ export class EmployeeService {
   /**
    * Add Disiplin / Şikayet Notu
    */
-  public static async addDisciplinaryNote(employeeId: string, data: { title: string; content: string; reportedBy?: string }) {
-    const employee = await prisma.employee.findUnique({ where: { id: employeeId } });
+  public static async addDisciplinaryNote(employeeId: string, data: { title: string; content: string; reportedBy?: string; createdById?: string }) {
+    const employee = await prisma.employee.findUnique({ where: { id: employeeId, isDeleted: false } });
     if (!employee) throw new AppError('Personel bulunamadı.', 404);
     if (!data.title?.trim() || !data.content?.trim()) throw new AppError('Not başlığı ve açıklaması zorunludur.', 400);
 
@@ -570,6 +588,7 @@ export class EmployeeService {
         content: data.content.trim(),
         reportedBy: data.reportedBy?.trim() || 'Lojman Amirliği',
         status: 'GÖRÜŞÜLDÜ',
+        createdById: data.createdById || null,
       },
     });
   }
@@ -618,7 +637,7 @@ export class EmployeeService {
    * Get all employee details including encrypted TC number for Excel export
    */
   public static async getExportEmployees(search?: string, status?: string, department?: string, gender?: string) {
-    const where: any = {};
+    const where: any = { isDeleted: false };
 
     if (status && status !== 'ALL') {
       if (['PENDING_ASSIGNMENT', 'RESIDENT', 'ON_LEAVE', 'CHECKED_OUT'].includes(status)) {
@@ -683,7 +702,7 @@ export class EmployeeService {
   /**
    * Checkout employee from their assigned room/bed
    */
-  public static async checkoutEmployeeFromRoom(employeeId: string) {
+  public static async checkoutEmployeeFromRoom(employeeId: string, checkedOutById?: string) {
     return prisma.$transaction(async (tx) => {
       const employee = await tx.employee.findUnique({
         where: { id: employeeId },
@@ -701,7 +720,10 @@ export class EmployeeService {
       // 1. Close active occupancy logs
       await tx.occupancyLog.updateMany({
         where: { employeeId, checkOutDate: null },
-        data: { checkOutDate: now },
+        data: { 
+          checkOutDate: now,
+          checkedOutById: checkedOutById || null,
+        },
       });
 
       // 2. Free all beds assigned to this employee
@@ -710,10 +732,14 @@ export class EmployeeService {
         data: { isOccupied: false, currentEmployeeId: null },
       });
 
-      // 3. Update employee status to PENDING_ASSIGNMENT
+      // 3. Update employee status to PENDING_ASSIGNMENT & record checkout user
       const updated = await tx.employee.update({
         where: { id: employeeId },
-        data: { status: 'PENDING_ASSIGNMENT' },
+        data: { 
+          status: 'PENDING_ASSIGNMENT',
+          checkedOutById: checkedOutById || null,
+          checkedOutAt: now,
+        },
         include: {
           beds: {
             include: {

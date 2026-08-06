@@ -6,7 +6,8 @@ import { createEmployeeWorkbook } from '../services/employeeExportService';
 export class EmployeeController {
   public static async remove(req: AuthenticatedRequest, res: Response, next: NextFunction) {
     try {
-      await EmployeeService.deleteEmployee(req.params.id);
+      const deletedById = req.user?.id;
+      await EmployeeService.deleteEmployee(req.params.id, deletedById);
       res.status(200).json({ success: true, message: 'Personel kaydı silindi.' });
     } catch (error) {
       next(error);
@@ -60,7 +61,11 @@ export class EmployeeController {
    */
   public static async create(req: AuthenticatedRequest, res: Response, next: NextFunction) {
     try {
-      const employee = await EmployeeService.createEmployee(req.body);
+      const createdById = req.user?.id;
+      const employee = await EmployeeService.createEmployee({
+        ...req.body,
+        createdById,
+      });
 
       res.status(201).json({
         success: true,
@@ -113,7 +118,11 @@ export class EmployeeController {
   public static async addInventory(req: AuthenticatedRequest, res: Response, next: NextFunction) {
     try {
       const { id } = req.params;
-      const item = await EmployeeService.addInventoryItem(id, req.body);
+      const createdById = req.user?.id;
+      const item = await EmployeeService.addInventoryItem(id, {
+        ...req.body,
+        createdById,
+      });
 
       res.status(201).json({
         success: true,
@@ -131,7 +140,11 @@ export class EmployeeController {
   public static async addDisciplinaryNote(req: AuthenticatedRequest, res: Response, next: NextFunction) {
     try {
       const { id } = req.params;
-      const note = await EmployeeService.addDisciplinaryNote(id, req.body);
+      const createdById = req.user?.id;
+      const note = await EmployeeService.addDisciplinaryNote(id, {
+        ...req.body,
+        createdById,
+      });
 
       res.status(201).json({
         success: true,
@@ -202,7 +215,8 @@ export class EmployeeController {
   public static async checkoutRoom(req: AuthenticatedRequest, res: Response, next: NextFunction) {
     try {
       const { id } = req.params;
-      const employee = await EmployeeService.checkoutEmployeeFromRoom(id);
+      const checkedOutById = req.user?.id;
+      const employee = await EmployeeService.checkoutEmployeeFromRoom(id, checkedOutById);
 
       res.status(200).json({
         success: true,
