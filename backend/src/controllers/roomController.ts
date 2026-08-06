@@ -2,6 +2,7 @@ import { Request, Response, NextFunction } from 'express';
 import { roomService } from '../services/roomService';
 import { MaintenancePriority, MaintenanceStatus, RoomInventoryStatus, RoomStatus } from '@prisma/client';
 import { AuthenticatedRequest } from '../middleware/authMiddleware';
+import { createOccupancyWorkbook, createRoomInventoryWorkbook } from '../services/roomExportService';
 
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const isUuid = (value: unknown): value is string => typeof value === 'string' && uuidPattern.test(value);
@@ -311,5 +312,41 @@ export const roomController = {
       const updatedRoom = await roomService.deleteCleaningLog(cleaningId);
       res.status(200).json({ success: true, data: updatedRoom, message: 'Temizlik kaydı silindi.' });
     } catch (error) { next(error); }
+  },
+
+  exportOccupancyExcel: async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const filter = req.query.filter as string;
+      const startDate = req.query.startDate as string;
+      const endDate = req.query.endDate as string;
+      const authReq = req as AuthenticatedRequest;
+      const generatedBy = authReq.user?.fullName || 'Lojman Yönetimi';
+
+      const rows = await roomService.getExportOccupancies(filter, startDate, endDate);
+      const buffer = await createOccupancyWorkbook(rows, generatedBy);
+
+      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+      res.setHeader('Content-Disposition', `attachment; filename=Konaklayanlar_Listesi_${new Date().toISOString().split('T')[0]}.xlsx`);
+      res.status(200).send(buffer);
+    } catch (error) {
+      next(error);
+    }
+  },
+
+  exportRoomInventoryExcel: async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const filter = req.query.filter as string;
+      const authReq = req as AuthenticatedRequest;
+      const generatedBy = authReq.user?.fullName || 'Lojman Yönetimi';
+
+      const rows = await roomService.getExportRoomInventories(filter);
+      const buffer = await createRoomInventoryWorkbook(rows, generatedBy);
+
+      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+      res.setHeader('Content-Disposition', `attachment; filename=Oda_Demirbas_Zimmetleri_${new Date().toISOString().split('T')[0]}.xlsx`);
+      res.status(200).send(buffer);
+    } catch (error) {
+      next(error);
+    }
   },
 };

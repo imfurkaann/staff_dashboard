@@ -213,4 +213,70 @@ export const roomApi = {
     const response = await api.delete<{ success: boolean; data: Room; message: string }>(`/cleaning/${cleaningId}`);
     return response.data.data;
   },
+
+  exportOccupancyExcel: async (filter?: string, startDate?: string, endDate?: string): Promise<void> => {
+    try {
+      const response = await api.get<Blob>('/occupancy/export.xlsx', {
+        params: { filter, startDate, endDate },
+        responseType: 'blob',
+      });
+      const disposition = response.headers['content-disposition'] || '';
+      const fileName = disposition.match(/filename="?([^";]+)"?/i)?.[1] || 'konaklayanlar-listesi.xlsx';
+      const url = URL.createObjectURL(response.data);
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = fileName;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      URL.revokeObjectURL(url);
+    } catch (error: any) {
+      let msg = 'Excel dosyası oluşturulamadı.';
+      if (error.response?.data instanceof Blob) {
+        try {
+          const text = await error.response.data.text();
+          const parsed = JSON.parse(text);
+          msg = parsed.message || msg;
+        } catch (_) {}
+      } else if (error.response?.data?.message) {
+        msg = error.response.data.message;
+      } else if (error.message) {
+        msg = error.message;
+      }
+      throw new Error(msg);
+    }
+  },
+
+  exportRoomInventoryExcel: async (filter?: string): Promise<void> => {
+    try {
+      const response = await api.get<Blob>('/inventories/export.xlsx', {
+        params: { filter },
+        responseType: 'blob',
+      });
+      const disposition = response.headers['content-disposition'] || '';
+      const fileName = disposition.match(/filename="?([^";]+)"?/i)?.[1] || 'oda-demirbas-zimmetleri.xlsx';
+      const url = URL.createObjectURL(response.data);
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = fileName;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      URL.revokeObjectURL(url);
+    } catch (error: any) {
+      let msg = 'Excel dosyası oluşturulamadı.';
+      if (error.response?.data instanceof Blob) {
+        try {
+          const text = await error.response.data.text();
+          const parsed = JSON.parse(text);
+          msg = parsed.message || msg;
+        } catch (_) {}
+      } else if (error.response?.data?.message) {
+        msg = error.response.data.message;
+      } else if (error.message) {
+        msg = error.message;
+      }
+      throw new Error(msg);
+    }
+  },
 };

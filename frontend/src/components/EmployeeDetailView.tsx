@@ -308,6 +308,7 @@ export const EmployeeDetailView: React.FC<EmployeeDetailViewProps> = ({
   const [isEditProfileModalOpen, setIsEditProfileModalOpen] = useState(false);
   const [isAssignRoomOpen, setIsAssignRoomOpen] = useState(false);
   const [isCheckoutConfirmOpen, setIsCheckoutConfirmOpen] = useState(false);
+  const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false);
 
   // Refresh current employee profile after room assignment
   const refreshEmployeeData = async () => {
@@ -696,6 +697,53 @@ export const EmployeeDetailView: React.FC<EmployeeDetailViewProps> = ({
                 className="py-2.5 px-4 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-extrabold shadow-md cursor-pointer transition-colors"
               >
                 Evet, Çıkış Yap
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* PERSONEL SİLME ONAY MODALI */}
+      {isDeleteConfirmOpen && (
+        <div
+          onClick={() => setIsDeleteConfirmOpen(false)}
+          className="fixed inset-0 z-[200] bg-slate-950/70 backdrop-blur-sm flex items-center justify-center p-4 animate-fadeIn no-print"
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="bg-white border border-slate-300 rounded-3xl p-6 max-w-sm w-full shadow-2xl space-y-4 text-center text-slate-900"
+          >
+            <div className="w-12 h-12 rounded-2xl bg-rose-100 text-rose-700 flex items-center justify-center mx-auto shadow-inner border border-rose-200">
+              <Trash2 className="w-6 h-6" />
+            </div>
+            <div>
+              <h3 className="font-extrabold text-slate-900 text-base">Personel Kaydını Sil</h3>
+              <p className="text-xs text-slate-600 font-semibold mt-1">
+                <strong className="text-slate-900">{currentEmp.firstName} {currentEmp.lastName}</strong> isimli personeli silmek istediğinize emin misiniz? Bu işlem personeli sistemden arşivleyecek ve varsa odasını boşaltacaktır.
+              </p>
+            </div>
+            <div className="flex items-center justify-center gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setIsDeleteConfirmOpen(false)}
+                className="py-2.5 px-4 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold cursor-pointer transition-colors"
+              >
+                İptal
+              </button>
+              <button
+                type="button"
+                onClick={async () => {
+                  setIsDeleteConfirmOpen(false);
+                  try {
+                    await employeeApi.deleteEmployee(currentEmp.id);
+                    onBack();
+                  } catch (err: any) {
+                    alert(err.message || 'Personel silinirken bir hata oluştu.');
+                  }
+                }}
+                className="py-2.5 px-4 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-extrabold shadow-md cursor-pointer transition-colors"
+              >
+                Evet, Personeli Sil
               </button>
             </div>
           </div>
@@ -1650,6 +1698,15 @@ export const EmployeeDetailView: React.FC<EmployeeDetailViewProps> = ({
               >
                 <Printer className="w-4 h-4 text-white" />
                 <span>Yazdır / PDF Kaydet</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setIsDeleteConfirmOpen(true)}
+                className="py-2.5 px-4 bg-rose-700 hover:bg-rose-800 text-white font-bold text-xs rounded-2xl border border-rose-800 flex items-center justify-center gap-1.5 transition-all cursor-pointer shadow-md w-full sm:w-auto"
+              >
+                <Trash2 className="w-4 h-4 text-white" />
+                <span>Personeli Sil</span>
               </button>
             </div>
           </div>

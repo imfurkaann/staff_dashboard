@@ -18,6 +18,7 @@ import {
   Check,
   CheckCircle2,
   AlertTriangle,
+  AlertCircle,
   Clock,
   X,
   Loader2,
@@ -25,10 +26,13 @@ import {
   User as UserIcon,
   Search,
   Edit,
+  FilePenLine,
+  RotateCcw,
   Trash2,
   Sparkles,
 } from 'lucide-react';
 import { Room, RoomBed, RoomInventoryStatus, RoomMaintenance, RoomStatusType, RoomCleaningLog, roomApi } from '../api/roomApi';
+import { MaintenanceDetailModal } from './MaintenanceDetailModal';
 
 interface RoomDetailViewProps {
   room: Room;
@@ -71,6 +75,7 @@ export const RoomDetailView: React.FC<RoomDetailViewProps> = ({
 
   // Maintenance Report Modal State
   const [showMaintenanceModal, setShowMaintenanceModal] = useState(false);
+  const [selectedMaintenanceDetail, setSelectedMaintenanceDetail] = useState<RoomMaintenance | null>(null);
   const [maintenanceSubmitting, setMaintenanceSubmitting] = useState(false);
   const [maintenanceError, setMaintenanceError] = useState<string | null>(null);
   const [roomError, setRoomError] = useState<string | null>(null);
@@ -84,6 +89,73 @@ export const RoomDetailView: React.FC<RoomDetailViewProps> = ({
     priority: 'MEDIUM',
     location: '',
   });
+
+
+
+  const renderPriorityBadge = (p: string) => {
+    switch (p) {
+      case 'URGENT':
+        return (
+          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[10px] font-black bg-rose-100 text-rose-800 border border-rose-200 animate-pulse">
+            <AlertTriangle className="w-3 h-3 text-rose-700 shrink-0" />
+            ACİL
+          </span>
+        );
+      case 'HIGH':
+        return (
+          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[10px] font-extrabold bg-amber-100 text-amber-800 border border-amber-200">
+            <AlertCircle className="w-3 h-3 text-amber-700 shrink-0" />
+            Yüksek
+          </span>
+        );
+      case 'MEDIUM':
+        return (
+          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[10px] font-extrabold bg-blue-50 text-[#1e3a8a] border border-blue-200">
+            Orta
+          </span>
+        );
+      case 'LOW':
+      default:
+        return (
+          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[10px] font-bold bg-slate-100 text-slate-700 border border-slate-200">
+            Düşük
+          </span>
+        );
+    }
+  };
+
+  const renderStatusBadge = (s: string) => {
+    switch (s) {
+      case 'OPEN':
+        return (
+          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-xl text-[11px] font-extrabold bg-amber-50 text-amber-800 border border-amber-200">
+            <Clock className="w-3 h-3 text-amber-600 shrink-0" />
+            Açık Bildirim
+          </span>
+        );
+      case 'IN_PROGRESS':
+        return (
+          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-xl text-[11px] font-extrabold bg-blue-50 text-[#1e3a8a] border border-blue-200">
+            <Wrench className="w-3 h-3 text-[#1e3a8a] shrink-0" />
+            İşlemde (Teknik)
+          </span>
+        );
+      case 'RESOLVED':
+        return (
+          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-xl text-[11px] font-extrabold bg-emerald-50 text-emerald-800 border border-emerald-200">
+            <CheckCircle2 className="w-3 h-3 text-emerald-600 shrink-0" />
+            Çözüldü
+          </span>
+        );
+      case 'CLOSED':
+      default:
+        return (
+          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-xl text-[11px] font-bold bg-slate-100 text-slate-700 border border-slate-200">
+            Kapatıldı
+          </span>
+        );
+    }
+  };
 
   const maintenanceCategories = [
     { value: 'Elektrik / Aydınlatma', label: 'Elektrik / Aydınlatma' },
@@ -349,6 +421,8 @@ export const RoomDetailView: React.FC<RoomDetailViewProps> = ({
   const roomMaintenances = currentRoom.maintenances || [];
   const openMaintenances = roomMaintenances.filter((m) => m.status !== 'RESOLVED' && m.status !== 'CLOSED' && !m.resolvedAt);
   const resolvedMaintenances = roomMaintenances.filter((m) => m.status === 'RESOLVED' || m.status === 'CLOSED' || !!m.resolvedAt);
+
+
 
   // Cleaning logs for room
   const roomCleaningLogs = currentRoom.cleaningLogs || [];
@@ -831,7 +905,11 @@ export const RoomDetailView: React.FC<RoomDetailViewProps> = ({
                                 : 'bg-slate-100 text-slate-700 border-slate-200'
                             }`}
                           >
-                            {Object.entries(inventoryStatusLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+                            {Object.entries(inventoryStatusLabels).map(([value, label]) => (
+                              <option key={value} value={value}>
+                                {label}
+                              </option>
+                            ))}
                           </select>
                         </td>
                       </tr>
@@ -850,17 +928,35 @@ export const RoomDetailView: React.FC<RoomDetailViewProps> = ({
           <div className="p-5 border-b border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div>
               <h2 className="text-base font-black text-slate-900 flex items-center gap-2">
-                <span className="w-9 h-9 rounded-xl bg-blue-50 border border-blue-100 flex items-center justify-center"><Wrench className="w-4.5 h-4.5 text-[#1e3a8a]" /></span>
+                <span className="w-9 h-9 rounded-xl bg-blue-50 border border-blue-100 flex items-center justify-center">
+                  <Wrench className="w-4.5 h-4.5 text-[#1e3a8a]" />
+                </span>
                 <span>Oda Arıza & Bakım Kayıtları</span>
               </h2>
-              <p className="text-xs text-slate-500 font-semibold mt-1">Toplam {roomMaintenances.length} kayıt · Arızaları işlem butonlarından düzenleyebilir, çözebilir veya geri alabilirsiniz.</p>
+              <p className="text-xs text-slate-500 font-semibold mt-1">
+                Toplam {roomMaintenances.length} kayıt · Arızaları işlem butonlarından düzenleyebilir, çözebilir veya geri alabilirsiniz.
+              </p>
             </div>
-            <button onClick={() => { setMaintenanceError(null); setShowMaintenanceModal(true); }} className="flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-xl bg-[#1e3a8a] text-white font-bold text-xs hover:bg-blue-900 shadow-sm transition-all">
-              <Plus className="w-4 h-4" /><span>Yeni Arıza Kaydı</span>
+            <button
+              onClick={() => {
+                setMaintenanceError(null);
+                setShowMaintenanceModal(true);
+              }}
+              className="flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-xl bg-[#1e3a8a] text-white font-bold text-xs hover:bg-blue-900 shadow-sm transition-all cursor-pointer"
+            >
+              <Plus className="w-4 h-4" />
+              <span>Yeni Arıza Kaydı</span>
             </button>
           </div>
 
-          {maintenanceError && <div role="alert" className="m-4 p-3 rounded-xl bg-rose-50 border border-rose-200 text-xs font-bold text-rose-800 flex items-center justify-between gap-3"><span>{maintenanceError}</span><button aria-label="Hata mesajını kapat" onClick={() => setMaintenanceError(null)}><X className="w-4 h-4"/></button></div>}
+          {maintenanceError && (
+            <div role="alert" className="m-4 p-3 rounded-xl bg-rose-50 border border-rose-200 text-xs font-bold text-rose-800 flex items-center justify-between gap-3">
+              <span>{maintenanceError}</span>
+              <button aria-label="Hata mesajını kapat" onClick={() => setMaintenanceError(null)}>
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          )}
 
           {roomMaintenances.length === 0 ? (
             <div className="m-5 p-10 text-center bg-slate-50 rounded-2xl border border-dashed border-slate-300">
@@ -869,39 +965,144 @@ export const RoomDetailView: React.FC<RoomDetailViewProps> = ({
               <p className="text-xs text-slate-500 mt-1">Yeni bir teknik sorun oluştuğunda “Yeni Arıza Kaydı” ile bildirebilirsiniz.</p>
             </div>
           ) : (
-            <div className="room-table-shell m-5 mt-4">
-              <table className="room-data-table w-full min-w-[960px] text-left text-xs border-collapse">
-                <thead><tr>
-                  <th className="w-40">Kategori / Arıza</th><th className="w-28">Konum</th><th>Açıklama</th><th className="w-24 text-center">Öncelik</th><th className="w-32">Bildiren</th><th className="w-36">Çözümleyen</th><th className="w-36">Kayıt Tarihi</th><th className="w-40">Çözülme Tarihi</th><th className="w-44 text-center">İşlemler</th>
-                </tr></thead>
-                <tbody>
-                  {roomMaintenances.map((maintenance) => {
-                    const priorityLabels: Record<string, string> = { LOW: 'Düşük', MEDIUM: 'Orta', HIGH: 'Yüksek', URGENT: 'Acil' };
-                    const priorityClasses: Record<string, string> = { LOW: 'bg-slate-100 text-slate-700 border-slate-200', MEDIUM: 'bg-blue-50 text-blue-800 border-blue-200', HIGH: 'bg-amber-50 text-amber-800 border-amber-200', URGENT: 'bg-rose-50 text-rose-800 border-rose-200' };
-                    return <tr key={maintenance.id}>
-                      <td className="font-extrabold text-slate-900"><div className="flex items-start gap-2"><Wrench className="w-3.5 h-3.5 text-[#1e3a8a] shrink-0 mt-0.5"/><div><p>{maintenance.category || maintenance.title}</p>{maintenance.category && maintenance.title !== maintenance.category && <p className="text-[11px] text-slate-500 mt-0.5">{maintenance.title}</p>}</div></div></td>
-                      <td>{maintenance.location || 'ODA GENELİ'}</td>
-                      <td className="leading-relaxed max-w-sm">{maintenance.description}</td>
-                      <td className="text-center"><span className={`inline-flex px-2 py-0.5 rounded-md border text-[10px] font-extrabold ${priorityClasses[maintenance.priority] || priorityClasses.MEDIUM}`}>{priorityLabels[maintenance.priority] || maintenance.priority}</span></td>
-                      <td className="font-bold text-slate-700 whitespace-nowrap">{maintenance.reportedBy && maintenance.reportedBy !== 'Sistem Kullanıcısı' ? maintenance.reportedBy : 'Lojman Yönetimi'}</td>
-                      <td className="font-bold text-slate-700 whitespace-nowrap">
-                        {maintenance.assignedTo ? (
-                          maintenance.assignedTo
-                        ) : maintenance.status === 'RESOLVED' || maintenance.status === 'CLOSED' ? (
-                          'Lojman Yönetimi'
-                        ) : (
-                          <span className="text-slate-400 italic font-semibold text-[11px]">Çözülmedi</span>
+            <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse min-w-[1000px]">
+                <thead>
+                  <tr className="bg-slate-50 border-b border-slate-200 text-[11px] font-black text-slate-600 uppercase tracking-wider">
+                    <th className="py-3.5 px-4 whitespace-nowrap">Konum / Kategori</th>
+                    <th className="py-3.5 px-4 whitespace-nowrap">Arıza Açıklaması</th>
+                    <th className="py-3.5 px-4 whitespace-nowrap">Öncelik</th>
+                    <th className="py-3.5 px-4 whitespace-nowrap">Durum</th>
+                    <th className="py-3.5 px-4 whitespace-nowrap">Bildiren Kişi</th>
+                    <th className="py-3.5 px-4 whitespace-nowrap">Çözümleyen Personel</th>
+                    <th className="py-3.5 px-4 whitespace-nowrap">Açılış Tarihi</th>
+                    <th className="py-3.5 px-4 whitespace-nowrap">Kapanış Tarihi</th>
+                    <th className="py-3.5 px-4 text-right whitespace-nowrap">İşlemler</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-200 text-xs font-bold text-slate-900">
+                  {roomMaintenances.map((log) => (
+                    <tr
+                      key={log.id}
+                      onClick={() => setSelectedMaintenanceDetail(log)}
+                      className="hover:bg-slate-50/80 transition-colors cursor-pointer"
+                    >
+                      {/* Location & Category */}
+                      <td className="py-3.5 px-4 whitespace-nowrap">
+                        <div>
+                          <span className="font-black text-[#1e3a8a] text-xs block truncate max-w-[130px]" title={log.location || 'Oda Geneli'}>
+                            {log.location || 'Oda Geneli'}
+                          </span>
+                          {log.category && (
+                            <span className="inline-block text-[10px] font-bold text-[#1e3a8a] bg-blue-50 border border-blue-200 rounded-md px-1.5 py-0.5 mt-0.5">
+                              {log.category}
+                            </span>
+                          )}
+                        </div>
+                      </td>
+
+                      {/* Description */}
+                      <td className="py-3.5 px-4 max-w-[280px]">
+                        <p className="font-extrabold text-slate-950 truncate max-w-[260px]" title={log.description}>
+                          {log.description}
+                        </p>
+                        {log.resolutionNote && (
+                          <p className="text-[10px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-md px-1.5 py-0.5 mt-1 truncate max-w-[260px]" title={`Çözüm Notu: ${log.resolutionNote}`}>
+                            Çözüm Notu: {log.resolutionNote}
+                          </p>
                         )}
                       </td>
-                      <td className="font-bold text-slate-600 whitespace-nowrap">{formatDateTime(maintenance.createdAt)}</td>
-                      <td className="font-bold text-slate-600 whitespace-nowrap">{maintenance.resolvedAt ? <><p>{formatDateTime(maintenance.resolvedAt)}</p>{maintenance.resolutionNote && <p className="mt-1 text-[10px] leading-relaxed text-emerald-700 whitespace-normal">{maintenance.resolutionNote}</p>}</> : <span className="text-slate-500 italic font-semibold">Henüz çözülmedi</span>}</td>
-                      <td><div className="flex items-center justify-center gap-1 min-h-[28px]">
-                        <button type="button" title="Düzenle" disabled={updatingMaintenanceId === maintenance.id} onClick={() => openMaintenanceEdit(maintenance)} className="group relative inline-flex items-center justify-center h-7 px-2 rounded-lg bg-blue-50 text-blue-700 hover:bg-blue-600 hover:text-white border border-blue-200/80 hover:border-blue-600 transition-all duration-500 ease-out shadow-2xs hover:shadow-md cursor-pointer overflow-hidden disabled:opacity-50"><Edit className="w-3.5 h-3.5 shrink-0 transition-transform duration-500 group-hover:scale-110"/><span className="max-w-0 opacity-0 group-hover:max-w-[80px] group-hover:opacity-100 group-hover:ml-1.5 transition-all duration-500 ease-out text-[11px] font-extrabold whitespace-nowrap overflow-hidden">Düzenle</span></button>
-                        {maintenance.status === 'RESOLVED' || maintenance.status === 'CLOSED' ? <button type="button" title="Geri Al" disabled={updatingMaintenanceId === maintenance.id} onClick={() => handleUndoResolveMaintenance(maintenance)} className="group relative inline-flex items-center justify-center h-7 px-2 rounded-lg bg-amber-50 text-amber-700 hover:bg-amber-600 hover:text-white border border-amber-200/80 hover:border-amber-600 transition-all duration-500 ease-out shadow-2xs hover:shadow-md cursor-pointer overflow-hidden disabled:opacity-50"><History className="w-3.5 h-3.5 shrink-0 transition-transform duration-500 group-hover:-rotate-45"/><span className="max-w-0 opacity-0 group-hover:max-w-[70px] group-hover:opacity-100 group-hover:ml-1.5 transition-all duration-500 ease-out text-[11px] font-extrabold whitespace-nowrap overflow-hidden">Geri Al</span></button> : <button type="button" title="Çözüldü" disabled={updatingMaintenanceId === maintenance.id} onClick={() => handleResolveMaintenance(maintenance)} className="group relative inline-flex items-center justify-center h-7 px-2 rounded-lg bg-emerald-50 text-emerald-700 hover:bg-emerald-600 hover:text-white border border-emerald-200/80 hover:border-emerald-600 transition-all duration-500 ease-out shadow-2xs hover:shadow-md cursor-pointer overflow-hidden disabled:opacity-50"><CheckCircle2 className="w-3.5 h-3.5 shrink-0 transition-transform duration-500 group-hover:scale-110"/><span className="max-w-0 opacity-0 group-hover:max-w-[80px] group-hover:opacity-100 group-hover:ml-1.5 transition-all duration-500 ease-out text-[11px] font-extrabold whitespace-nowrap overflow-hidden">Çözüldü</span></button>}
-                        <button type="button" aria-label={`${maintenance.title} kaydını sil`} title="Sil" disabled={updatingMaintenanceId === maintenance.id} onClick={() => setMaintenanceToDelete(maintenance)} className="group relative inline-flex items-center justify-center h-7 px-2 rounded-lg bg-red-50 text-red-700 hover:bg-red-600 hover:text-white border border-red-200/80 hover:border-red-600 transition-all duration-500 ease-out shadow-2xs hover:shadow-md cursor-pointer overflow-hidden disabled:opacity-50"><Trash2 className="w-3.5 h-3.5 shrink-0 transition-transform duration-500 group-hover:scale-110"/><span className="max-w-0 opacity-0 group-hover:max-w-[60px] group-hover:opacity-100 group-hover:ml-1.5 transition-all duration-500 ease-out text-[11px] font-extrabold whitespace-nowrap overflow-hidden">Sil</span></button>
-                      </div></td>
-                    </tr>;
-                  })}
+
+                      {/* Priority Badge */}
+                      <td className="py-3.5 px-4 whitespace-nowrap">
+                        {renderPriorityBadge(log.priority)}
+                      </td>
+
+                      {/* Status Badge */}
+                      <td className="py-3.5 px-4 whitespace-nowrap">
+                        {renderStatusBadge(log.status)}
+                      </td>
+
+                      {/* Reported By */}
+                      <td className="py-3.5 px-4 whitespace-nowrap max-w-[140px]">
+                        <span className="font-extrabold text-slate-800 block truncate max-w-[130px]" title={log.reportedBy || 'Lojman Yönetimi'}>
+                          {log.reportedBy || 'Lojman Yönetimi'}
+                        </span>
+                      </td>
+
+                      {/* Assigned To / Solved By */}
+                      <td className="py-3.5 px-4 whitespace-nowrap max-w-[150px]">
+                        {log.assignedTo ? (
+                          <span className="font-extrabold text-slate-800 block truncate max-w-[140px]" title={log.assignedTo}>{log.assignedTo}</span>
+                        ) : log.status === 'RESOLVED' || log.status === 'CLOSED' ? (
+                          <span className="font-extrabold text-slate-800 block truncate max-w-[140px]">Lojman Yönetimi</span>
+                        ) : (
+                          <span className="text-xs font-semibold text-slate-400 italic">Henüz Çözülmedi</span>
+                        )}
+                      </td>
+
+                      {/* Opening Date */}
+                      <td className="py-3.5 px-4 whitespace-nowrap text-xs font-semibold text-slate-600">
+                        {formatDateTime(log.createdAt)}
+                      </td>
+
+                      {/* Closing Date */}
+                      <td className="py-3.5 px-4 whitespace-nowrap text-xs font-semibold text-slate-600">
+                        {log.resolvedAt ? formatDateTime(log.resolvedAt) : <span className="text-slate-400">-</span>}
+                      </td>
+
+                      {/* Actions */}
+                      <td className="py-3.5 px-4 text-right whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
+                        <div className="flex items-center justify-end gap-1">
+                          {log.status === 'RESOLVED' || log.status === 'CLOSED' ? (
+                            <button
+                              type="button"
+                              disabled={updatingMaintenanceId === log.id}
+                              onClick={() => handleUndoResolveMaintenance(log)}
+                              className="group relative inline-flex items-center justify-center h-7 px-2 rounded-lg border transition-all duration-300 ease-out shadow-2xs hover:shadow-xs cursor-pointer overflow-hidden disabled:opacity-40 bg-amber-50 text-amber-700 hover:bg-amber-600 hover:text-white border-amber-200/80 hover:border-amber-600"
+                              title="Çözümü geri al (Tekrar açık yap)"
+                            >
+                              <RotateCcw className="w-3.5 h-3.5 shrink-0 group-hover:scale-110 transition-transform duration-300" />
+                              <span className="max-w-0 opacity-0 group-hover:max-w-[80px] group-hover:opacity-100 group-hover:ml-1 transition-all duration-300 text-[11px] font-extrabold whitespace-nowrap overflow-hidden">Geri Al</span>
+                            </button>
+                          ) : (
+                            <button
+                              type="button"
+                              disabled={updatingMaintenanceId === log.id}
+                              onClick={() => handleResolveMaintenance(log)}
+                              className="group relative inline-flex items-center justify-center h-7 px-2 rounded-lg border transition-all duration-300 ease-out shadow-2xs hover:shadow-xs cursor-pointer overflow-hidden disabled:opacity-40 bg-emerald-50 text-emerald-700 hover:bg-emerald-600 hover:text-white border-emerald-200/80 hover:border-emerald-600"
+                              title="Çözüldü yap"
+                            >
+                              <CheckCircle2 className="w-3.5 h-3.5 shrink-0 group-hover:scale-110 transition-transform duration-300" />
+                              <span className="max-w-0 opacity-0 group-hover:max-w-[80px] group-hover:opacity-100 group-hover:ml-1 transition-all duration-300 text-[11px] font-extrabold whitespace-nowrap overflow-hidden">Çözüldü Yap</span>
+                            </button>
+                          )}
+
+                          <button
+                            type="button"
+                            disabled={updatingMaintenanceId === log.id}
+                            onClick={() => openMaintenanceEdit(log)}
+                            className="group relative inline-flex items-center justify-center h-7 px-2 rounded-lg border transition-all duration-300 ease-out shadow-2xs hover:shadow-xs cursor-pointer overflow-hidden disabled:opacity-40 bg-blue-50 text-[#1e3a8a] hover:bg-[#1e3a8a] hover:text-white border-blue-200/80 hover:border-[#1e3a8a]"
+                            title="Düzenle"
+                          >
+                            <FilePenLine className="w-3.5 h-3.5 shrink-0 group-hover:scale-110 transition-transform duration-300" />
+                            <span className="max-w-0 opacity-0 group-hover:max-w-[80px] group-hover:opacity-100 group-hover:ml-1 transition-all duration-300 text-[11px] font-extrabold whitespace-nowrap overflow-hidden">Düzenle</span>
+                          </button>
+
+                          <button
+                            type="button"
+                            disabled={updatingMaintenanceId === log.id}
+                            onClick={() => setMaintenanceToDelete(log)}
+                            className="group relative inline-flex items-center justify-center h-7 px-2 rounded-lg border transition-all duration-300 ease-out shadow-2xs hover:shadow-xs cursor-pointer overflow-hidden disabled:opacity-40 bg-rose-50 text-rose-600 hover:bg-rose-600 hover:text-white border-rose-200/80 hover:border-rose-600"
+                            title="Sil"
+                          >
+                            <Trash2 className="w-3.5 h-3.5 shrink-0 group-hover:scale-110 transition-transform duration-300" />
+                            <span className="max-w-0 opacity-0 group-hover:max-w-[80px] group-hover:opacity-100 group-hover:ml-1 transition-all duration-300 text-[11px] font-extrabold whitespace-nowrap overflow-hidden">Sil</span>
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
                 </tbody>
               </table>
             </div>
@@ -1642,6 +1843,25 @@ export const RoomDetailView: React.FC<RoomDetailViewProps> = ({
           </div>
         </div>
       )}
+
+      {/* Maintenance Detail Modal */}
+      <MaintenanceDetailModal
+        log={selectedMaintenanceDetail as any}
+        isOpen={Boolean(selectedMaintenanceDetail)}
+        onClose={() => setSelectedMaintenanceDetail(null)}
+        onEdit={(logToEdit) => {
+          setSelectedMaintenanceDetail(null);
+          openMaintenanceEdit(logToEdit as any);
+        }}
+        onStatusChange={(logToChange, newStatus) => {
+          setSelectedMaintenanceDetail(null);
+          if (newStatus === 'RESOLVED') {
+            handleResolveMaintenance(logToChange as any);
+          } else {
+            handleUndoResolveMaintenance(logToChange as any);
+          }
+        }}
+      />
     </div>
   );
 };

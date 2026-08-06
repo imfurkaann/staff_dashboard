@@ -42,8 +42,10 @@ export class EmployeeController {
       const status = req.query.status as string;
       const department = req.query.department as string;
       const gender = req.query.gender as string;
+      const startDate = req.query.startDate as string;
+      const endDate = req.query.endDate as string;
 
-      const employees = await EmployeeService.getExportEmployees(search, status, department, gender);
+      const employees = await EmployeeService.getExportEmployees(search, status, department, gender, startDate, endDate);
       const generatedBy = req.user?.fullName || 'Lojman Yönetimi';
 
       const buffer = await createEmployeeWorkbook(employees, generatedBy);
@@ -83,7 +85,11 @@ export class EmployeeController {
   public static async update(req: AuthenticatedRequest, res: Response, next: NextFunction) {
     try {
       const { id } = req.params;
-      const employee = await EmployeeService.updateEmployee(id, req.body);
+      const createdById = req.user?.id;
+      const employee = await EmployeeService.updateEmployee(id, {
+        ...req.body,
+        createdById,
+      });
 
       res.status(200).json({
         success: true,
@@ -180,7 +186,8 @@ export class EmployeeController {
   public static async returnInventory(req: AuthenticatedRequest, res: Response, next: NextFunction) {
     try {
       const { inventoryId } = req.params;
-      const item = await EmployeeService.returnInventoryItem(inventoryId);
+      const returnedById = req.user?.id;
+      const item = await EmployeeService.returnInventoryItem(inventoryId, returnedById);
 
       res.status(200).json({
         success: true,

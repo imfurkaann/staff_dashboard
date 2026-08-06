@@ -8,16 +8,22 @@ const router = Router();
 router.use(authenticateToken);
 
 // GET /api/rooms - List rooms with optional filters
-router.get('/', authorizeRoles('ADMIN', 'HOUSING_MANAGER', 'SECURITY'), roomController.getRooms);
+router.get('/', roomController.getRooms);
 
 // GET /api/rooms/stats - Room & bed overall stats
-router.get('/stats', authorizeRoles('ADMIN', 'HOUSING_MANAGER', 'SECURITY'), roomController.getStats);
+router.get('/stats', roomController.getStats);
+
+// GET /api/rooms/occupancy/export.xlsx - Export room occupancies
+router.get('/occupancy/export.xlsx', roomController.exportOccupancyExcel);
+
+// GET /api/rooms/inventories/export.xlsx - Export room inventories / fixtures
+router.get('/inventories/export.xlsx', roomController.exportRoomInventoryExcel);
 
 // GET /api/rooms/blocks - List all blocks with room/bed capacity stats
-router.get('/blocks', authorizeRoles('ADMIN', 'HOUSING_MANAGER', 'SECURITY'), roomController.getBlocks);
+router.get('/blocks', roomController.getBlocks);
 
 // GET /api/rooms/:id - Full room detail (inventories, maintenance and occupancy history)
-router.get('/:id', authorizeRoles('ADMIN', 'HOUSING_MANAGER', 'SECURITY'), roomController.getRoomById);
+router.get('/:id', roomController.getRoomById);
 
 // PATCH /api/rooms/:id/status - Update room status (READY, NEEDS_CLEANING, OUT_OF_ORDER)
 router.patch('/:id/status', authorizeRoles('ADMIN', 'HOUSING_MANAGER'), roomController.updateStatus);

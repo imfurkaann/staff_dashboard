@@ -36,7 +36,7 @@ import {
 import { employeeApi, Employee } from '../api/employeeApi';
 import { AddEmployeeModal } from './AddEmployeeModal';
 import { EmployeeDetailView } from './EmployeeDetailView';
-import { EmployeeExportModal } from './EmployeeExportModal';
+import { EmployeeExportModal, EmployeeExportFilter } from './EmployeeExportModal';
 import { AssignRoomModal } from './AssignRoomModal';
 import { DateRangePicker } from './DateRangePicker';
 
@@ -87,12 +87,19 @@ export const EmployeeManagementView: React.FC = () => {
   const [isExporting, setIsExporting] = useState(false);
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
 
-  const handleExportExcel = async (exportStatus: string) => {
+  const handleExportExcel = async (filterData: EmployeeExportFilter) => {
     setIsExporting(true);
     setLoadError(null);
     setIsExportModalOpen(false);
     try {
-      await employeeApi.exportExcel(search, exportStatus, departmentFilter, genderFilter);
+      await employeeApi.exportExcel(
+        search,
+        filterData.status,
+        departmentFilter,
+        genderFilter,
+        filterData.startDate,
+        filterData.endDate
+      );
     } catch (err: any) {
       setLoadError(err.message || 'Excel çıktısı alınırken hata oluştu.');
     } finally {

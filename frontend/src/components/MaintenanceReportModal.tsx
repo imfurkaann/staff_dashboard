@@ -2,10 +2,8 @@ import React, { useState } from 'react';
 import {
   AlertTriangle,
   Building2,
-  Calendar,
   CheckCircle2,
-  Filter,
-  Printer,
+  FileSpreadsheet,
   Wrench,
   X,
 } from 'lucide-react';
@@ -27,6 +25,7 @@ interface MaintenanceReportModalProps {
   onClose: () => void;
   blocks: BlockSummary[];
   onGenerateReport: (criteria: MaintenanceReportCriteria) => void;
+  isExporting?: boolean;
 }
 
 const categoryOptions = [
@@ -45,6 +44,7 @@ export const MaintenanceReportModal: React.FC<MaintenanceReportModalProps> = ({
   onClose,
   blocks,
   onGenerateReport,
+  isExporting = false,
 }) => {
   const [status, setStatus] = useState<MaintenanceStatus | 'ALL'>('ALL');
   const [priority, setPriority] = useState<MaintenancePriority | 'ALL'>('ALL');
@@ -80,12 +80,12 @@ export const MaintenanceReportModal: React.FC<MaintenanceReportModalProps> = ({
         <div className="bg-gradient-to-r from-slate-900 via-[#1e3a8a] to-slate-900 p-5 text-white flex items-center justify-between shrink-0">
           <div className="flex items-center gap-3">
             <span className="w-10 h-10 rounded-xl bg-white/10 text-white flex items-center justify-center border border-white/20">
-              <Printer className="w-5 h-5" />
+              <FileSpreadsheet className="w-5 h-5" />
             </span>
             <div>
-              <h3 className="text-base font-extrabold text-white">Arıza Raporu Yazdır / PDF</h3>
+              <h3 className="text-base font-extrabold text-white">Arıza Excel Raporu İndir</h3>
               <p className="text-xs font-semibold text-blue-200">
-                Çıktıda yer alacak filtre ve kriterleri belirleyin.
+                Seçtiğiniz kriterlere göre filtrelenmiş kurumsal Excel dökümü alın.
               </p>
             </div>
           </div>
@@ -103,7 +103,7 @@ export const MaintenanceReportModal: React.FC<MaintenanceReportModalProps> = ({
           {/* Arıza Durum Filtresi */}
           <label className="block space-y-1.5 text-xs font-extrabold text-slate-700">
             Arıza Durum Kriteri
-            <span className="relative block">
+            <span className="relative block mt-1">
               <CheckCircle2 className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
               <select
                 value={status}
@@ -122,7 +122,7 @@ export const MaintenanceReportModal: React.FC<MaintenanceReportModalProps> = ({
           {/* Kategori Filtresi */}
           <label className="block space-y-1.5 text-xs font-extrabold text-slate-700">
             Arıza Kategorisi
-            <span className="relative block">
+            <span className="relative block mt-1">
               <Wrench className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
               <select
                 value={category}
@@ -142,7 +142,7 @@ export const MaintenanceReportModal: React.FC<MaintenanceReportModalProps> = ({
           {/* Öncelik Seviyesi */}
           <label className="block space-y-1.5 text-xs font-extrabold text-slate-700">
             Öncelik Seviyesi
-            <span className="relative block">
+            <span className="relative block mt-1">
               <AlertTriangle className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
               <select
                 value={priority}
@@ -161,7 +161,7 @@ export const MaintenanceReportModal: React.FC<MaintenanceReportModalProps> = ({
           {/* Blok Seçimi */}
           <label className="block space-y-1.5 text-xs font-extrabold text-slate-700">
             Blok Kriteri
-            <span className="relative block">
+            <span className="relative block mt-1">
               <Building2 className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
               <select
                 value={blockId}
@@ -180,7 +180,7 @@ export const MaintenanceReportModal: React.FC<MaintenanceReportModalProps> = ({
 
           {/* Tarih Aralığı */}
           <div className="space-y-1.5 text-xs font-extrabold text-slate-700">
-            <label className="block">Kayıt Tarih Aralığı</label>
+            <label className="block">Kayıt Tarih Aralığı (Opsiyonel)</label>
             <DateRangePicker
               startDate={dateStart}
               endDate={dateEnd}
@@ -194,9 +194,9 @@ export const MaintenanceReportModal: React.FC<MaintenanceReportModalProps> = ({
           </div>
 
           <div className="p-3 bg-blue-50/70 border border-blue-200 rounded-2xl text-[11px] font-semibold text-[#1e3a8a] flex items-start gap-2">
-            <Printer className="w-4 h-4 shrink-0 mt-0.5" />
+            <FileSpreadsheet className="w-4 h-4 shrink-0 mt-0.5" />
             <p>
-              Yazdırma ekranında <strong>"Hedef"</strong> seçeneğini <strong>"PDF olarak kaydet"</strong> şeklinde seçerek raporu direkt PDF formatında bilgisayarınıza indirebilirsiniz.
+              Belirlediğiniz kriterlere uyan tüm teknik arıza ve bakım kayıtları kurumsal şablon formatında Excel belgesine aktarılacaktır.
             </p>
           </div>
 
@@ -211,10 +211,11 @@ export const MaintenanceReportModal: React.FC<MaintenanceReportModalProps> = ({
             </button>
             <button
               type="submit"
-              className="px-5 py-2.5 rounded-xl bg-[#1e3a8a] hover:bg-[#172554] text-xs font-bold text-white flex items-center gap-2 cursor-pointer shadow-md"
+              disabled={isExporting}
+              className="px-5 py-2.5 rounded-xl bg-[#1e3a8a] hover:bg-[#172554] text-xs font-bold text-white flex items-center gap-2 cursor-pointer shadow-md disabled:bg-[#1e3a8a]/50"
             >
-              <Printer className="w-4 h-4" />
-              <span>Rapor Oluştur & PDF Yazdır</span>
+              <FileSpreadsheet className="w-4 h-4" />
+              <span>{isExporting ? 'Excel Hazırlanıyor...' : 'Excel Listesini İndir'}</span>
             </button>
           </div>
         </form>

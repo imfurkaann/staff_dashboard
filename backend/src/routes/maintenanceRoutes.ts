@@ -10,6 +10,9 @@ router.use(authenticateToken);
 // GET /api/maintenance - List all maintenance records with filters & summary
 router.get('/', authorizeRoles('ADMIN', 'HOUSING_MANAGER', 'SECURITY'), maintenanceController.getMaintenances);
 
+// GET /api/maintenance/export.xlsx - Export maintenance records to Excel
+router.get('/export.xlsx', authorizeRoles('ADMIN', 'HOUSING_MANAGER', 'SECURITY'), maintenanceController.exportExcel);
+
 // POST /api/maintenance - Create a new maintenance record
 router.post('/', authorizeRoles('ADMIN', 'HOUSING_MANAGER', 'SECURITY'), maintenanceController.createMaintenance);
 

@@ -77,6 +77,7 @@ model User {
   occupanciesCreated OccupancyLog[] @relation("OccupancyCreatedBy")
   occupanciesCheckedOut OccupancyLog[] @relation("OccupancyCheckedOutBy")
   inventoriesCreated InventoryItem[] @relation("InventoryCreatedBy")
+  inventoriesReturned InventoryItem[] @relation("InventoryReturnedBy")
   disciplinaryNotesCreated DisciplinaryNote[] @relation("DisciplinaryCreatedBy")
 }
 
@@ -214,11 +215,14 @@ model InventoryItem {
   notes        String? // Açıklama / Beyan notları
   createdById  String?
   createdBy    User?     @relation("InventoryCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  returnedById String?
+  returnedBy   User?     @relation("InventoryReturnedBy", fields: [returnedById], references: [id], onDelete: SetNull)
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
 
   @@index([employeeId])
   @@index([createdById])
+  @@index([returnedById])
 }
 
 model DisciplinaryNote {

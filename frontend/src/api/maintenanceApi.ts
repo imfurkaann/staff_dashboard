@@ -122,4 +122,35 @@ export const maintenanceApi = {
       withCredentials: true,
     });
   },
+
+  exportExcel: async (filters: MaintenanceQueryFilters = {}): Promise<void> => {
+    const params = new URLSearchParams();
+    if (filters.status && filters.status !== 'ALL') params.append('status', filters.status);
+    if (filters.priority && filters.priority !== 'ALL') params.append('priority', filters.priority);
+    if (filters.category && filters.category !== 'ALL') params.append('category', filters.category);
+    if (filters.blockId) params.append('blockId', filters.blockId);
+    if (filters.search) params.append('search', filters.search);
+    if (filters.dateStart) params.append('dateStart', filters.dateStart);
+    if (filters.dateEnd) params.append('dateEnd', filters.dateEnd);
+
+    const response = await axios.get<Blob>(
+      `${appConfig.apiBaseUrl}/maintenance/export.xlsx`,
+      {
+        params,
+        responseType: 'blob',
+        withCredentials: true,
+      }
+    );
+
+    const disposition = response.headers['content-disposition'] || '';
+    const fileName = disposition.match(/filename="?([^";]+)"?/i)?.[1] || 'ariza-bakim-kayitlari.xlsx';
+    const url = URL.createObjectURL(response.data);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = fileName;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    URL.revokeObjectURL(url);
+  },
 };

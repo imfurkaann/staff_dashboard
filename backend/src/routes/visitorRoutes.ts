@@ -7,8 +7,6 @@ const router = Router();
 // Protect all visitor routes with token authentication
 router.use(authenticateToken);
 
-router.use(authorizeRoles('ADMIN', 'HOUSING_MANAGER', 'SECURITY'));
-
 // GET /api/visitors (List with filters)
 router.get('/', VisitorController.getAll);
 

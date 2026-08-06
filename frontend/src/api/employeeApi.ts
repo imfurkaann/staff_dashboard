@@ -169,10 +169,10 @@ export const employeeApi = {
     }
   },
 
-  exportExcel: async (search?: string, status?: string, department?: string, gender?: string): Promise<void> => {
+  exportExcel: async (search?: string, status?: string, department?: string, gender?: string, startDate?: string, endDate?: string): Promise<void> => {
     try {
       const response = await api.get<Blob>('/export.xlsx', {
-        params: { search, status, department, gender },
+        params: { search, status, department, gender, startDate, endDate },
         responseType: 'blob',
       });
       const disposition = response.headers['content-disposition'] || '';
@@ -186,7 +186,18 @@ export const employeeApi = {
       anchor.remove();
       URL.revokeObjectURL(url);
     } catch (error: any) {
-      const msg = error.response?.data?.message || error.message || 'Excel dosyası oluşturulamadı.';
+      let msg = 'Excel dosyası oluşturulamadı.';
+      if (error.response?.data instanceof Blob) {
+        try {
+          const text = await error.response.data.text();
+          const parsed = JSON.parse(text);
+          msg = parsed.message || msg;
+        } catch (_) {}
+      } else if (error.response?.data?.message) {
+        msg = error.response.data.message;
+      } else if (error.message) {
+        msg = error.message;
+      }
       throw new Error(msg);
     }
   },

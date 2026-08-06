@@ -438,7 +438,7 @@ export class EmployeeService {
         const now = new Date();
         await tx.occupancyLog.updateMany({
           where: { employeeId, checkOutDate: null },
-          data: { checkOutDate: now },
+          data: { checkOutDate: now, checkedOutById: data.createdById || null },
         });
 
         // Free previous bed if assigned
@@ -468,6 +468,7 @@ export class EmployeeService {
             bedId: data.bedId,
             checkInDate: now,
             transferReason: 'Personele Oda & Yatak Ataması Yapıldı',
+            createdById: data.createdById || null,
           },
         });
       }
@@ -554,12 +555,13 @@ export class EmployeeService {
   /**
    * Return / Receive back Inventory Item (Teslim Al / İade Al)
    */
-  public static async returnInventoryItem(inventoryId: string) {
+  public static async returnInventoryItem(inventoryId: string, returnedById?: string) {
     return prisma.inventoryItem.update({
       where: { id: inventoryId },
       data: {
         status: 'TAM_İADE_ALINDI',
         returnedDate: new Date(),
+        returnedById: returnedById || null,
       },
     });
   }
@@ -636,7 +638,7 @@ export class EmployeeService {
   /**
    * Get all employee details including encrypted TC number for Excel export
    */
-  public static async getExportEmployees(search?: string, status?: string, department?: string, gender?: string) {
+  public static async getExportEmployees(search?: string, status?: string, department?: string, gender?: string, startDate?: string, endDate?: string) {
     const where: any = { isDeleted: false };
 
     if (status && status !== 'ALL') {
@@ -655,6 +657,24 @@ export class EmployeeService {
       }
     }
 
+    if (startDate || endDate) {
+      const dateFilter: any = {};
+      if (startDate) {
+        dateFilter.gte = new Date(`${startDate}T00:00:00.000Z`);
+      }
+      if (endDate) {
+        dateFilter.lte = new Date(`${endDate}T23:59:59.999Z`);
+      }
+
+      where.AND = where.AND || [];
+      where.AND.push({
+        OR: [
+          { createdAt: dateFilter },
+          { occupancies: { some: { checkInDate: dateFilter } } },
+        ],
+      });
+    }
+
     if (search && search.trim() !== '') {
       const query = search.trim();
       where.OR = [
@@ -671,6 +691,18 @@ export class EmployeeService {
     return prisma.employee.findMany({
       where,
       include: {
+        createdBy: {
+          select: {
+            fullName: true,
+            username: true,
+          },
+        },
+        checkedOutBy: {
+          select: {
+            fullName: true,
+            username: true,
+          },
+        },
         beds: {
           include: {
             room: {
@@ -683,6 +715,12 @@ export class EmployeeService {
         occupancies: {
           orderBy: { checkInDate: 'desc' },
           include: {
+            createdBy: {
+              select: { fullName: true, username: true },
+            },
+            checkedOutBy: {
+              select: { fullName: true, username: true },
+            },
             bed: {
               include: {
                 room: {

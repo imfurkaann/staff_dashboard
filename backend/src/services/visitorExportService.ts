@@ -23,76 +23,142 @@ function safeCell(value?: string | null): string {
 
 export async function createVisitorWorkbook(rows: ExportVisitor[], generatedBy: string): Promise<Buffer> {
   const workbook = new ExcelJS.Workbook();
-  workbook.creator = 'Dosinia Resort Lojman Yönetimi';
-  workbook.lastModifiedBy = generatedBy;
-  workbook.created = new Date();
-  workbook.modified = new Date();
-  workbook.subject = 'Ziyaretçi kayıt dökümü';
-  workbook.title = 'Ziyaretçi Kayıtları';
-  workbook.company = 'Dosinia Resort';
+  const sheet = workbook.addWorksheet('Ziyaretçi Kayıtları');
 
-  const sheet = workbook.addWorksheet('Ziyaretçi Kayıtları', {
-    views: [{ state: 'frozen', ySplit: 5, showGridLines: false }],
-    pageSetup: { orientation: 'landscape', fitToPage: true, fitToWidth: 1, fitToHeight: 0, paperSize: 9, margins: { left: 0.3, right: 0.3, top: 0.5, bottom: 0.5, header: 0.2, footer: 0.2 } },
-    headerFooter: { oddFooter: '&LPersonel Lojman Yönetim Sistemi&C&F&R&P / &N' },
-  });
+  const reportDate = new Intl.DateTimeFormat('tr-TR', { 
+    dateStyle: 'short', 
+    timeStyle: 'short', 
+    timeZone: 'Europe/Istanbul' 
+  }).format(new Date());
 
-  sheet.mergeCells('A1:L1');
-  sheet.getCell('A1').value = 'DOSINIA RESORT LOJMAN YÖNETİMİ';
-  sheet.getCell('A1').font = { name: 'Aptos Display', size: 16, bold: true, color: { argb: 'FFFFFFFF' } };
-  sheet.getCell('A1').fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1E3A8A' } };
-  sheet.getCell('A1').alignment = { vertical: 'middle', horizontal: 'left' };
-  sheet.getRow(1).height = 30;
-  sheet.mergeCells('A2:L2');
-  sheet.getCell('A2').value = 'ZİYARETÇİ GİRİŞ / ÇIKIŞ KAYIT DÖKÜMÜ';
-  sheet.getCell('A2').font = { name: 'Aptos', size: 11, bold: true, color: { argb: 'FF1E293B' } };
-  sheet.getCell('A2').alignment = { vertical: 'middle', horizontal: 'left' };
-  sheet.getRow(2).height = 22;
-  sheet.mergeCells('A3:F3');
-  sheet.getCell('A3').value = `Toplam kayıt: ${rows.length}`;
-  sheet.mergeCells('G3:L3');
-  sheet.getCell('G3').value = `Oluşturma: ${new Intl.DateTimeFormat('tr-TR', { dateStyle: 'short', timeStyle: 'short', timeZone: 'Europe/Istanbul' }).format(new Date())}`;
-  sheet.getCell('G3').alignment = { horizontal: 'right' };
-  for (let column = 1; column <= 12; column += 1) sheet.getCell(3, column).font = { name: 'Aptos', size: 9, color: { argb: 'FF475569' } };
-  sheet.getRow(4).height = 8;
+  // 1. Corporate Header Section
+  sheet.mergeCells('A1:N1');
+  const titleCell = sheet.getCell('A1');
+  titleCell.value = 'DOSİNİA RESORT LOJMAN YÖNETİMİ - ZİYARETÇİ GİRİŞ / ÇIKIŞ VE İKAMET KAYITLARI RAPORU';
+  titleCell.font = { name: 'Arial', size: 12, bold: true, color: { argb: 'FFFFFFFF' } };
+  titleCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1E3A8A' } };
+  titleCell.alignment = { vertical: 'middle', horizontal: 'left', indent: 1 };
+  sheet.getRow(1).height = 26;
 
+  sheet.mergeCells('A2:N2');
+  const subCell = sheet.getCell('A2');
+  subCell.value = `Rapor Oluşturulma Tarihi: ${reportDate}  |  Raporu Düzenleyen Yetkili: ${generatedBy}`;
+  subCell.font = { name: 'Arial', size: 9, italic: true, color: { argb: 'FF475569' } };
+  subCell.alignment = { vertical: 'middle', horizontal: 'left', indent: 1 };
+  sheet.getRow(2).height = 18;
+
+  // 2. Table Column Headers
   const columns = [
-    ['Kayıt Durumu', 15], ['Ziyaretçi Adı Soyadı', 25], ['Kişi', 8], ['Telefon', 17],
-    ['Firma / Kurum', 22], ['Ziyaret Edilen Personel', 26], ['Oda', 22], ['Ziyaret Amacı', 24], ['Araç Plakası', 15],
-    ['Giriş Tarihi', 19], ['Çıkış Tarihi', 19], ['Notlar', 32],
-  ] as const;
-  columns.forEach(([header, width], index) => { sheet.getColumn(index + 1).width = width; sheet.getCell(5, index + 1).value = header; });
-  sheet.getColumn(4).numFmt = '@';
-  sheet.getColumn(9).numFmt = '@';
-  sheet.getColumn(10).numFmt = 'dd.mm.yyyy hh:mm';
-  sheet.getColumn(11).numFmt = 'dd.mm.yyyy hh:mm';
-  sheet.getRow(5).eachCell((cell) => {
-    cell.font = { name: 'Aptos', size: 9, bold: true, color: { argb: 'FFFFFFFF' } };
-    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF334155' } };
-    cell.alignment = { vertical: 'middle', horizontal: 'left', wrapText: true };
-  });
-  sheet.getRow(5).height = 28;
+    'KAYIT DURUMU',
+    'ZİYARETÇİ ADI SOYADI',
+    'KİŞİ SAYISI',
+    'TELEFON',
+    'FİRMA / KURUM',
+    'ZİYARET EDİLEN PERSONEL',
+    'ODA / LOJMAN KONUMU',
+    'ZİYARET AMACI',
+    'ARAÇ PLAKASI',
+    'GİRİŞ TARİHİ',
+    'GİRİŞ SAATİ',
+    'ÇIKIŞ TARİHİ',
+    'ÇIKIŞ SAATİ',
+    'NOTLAR',
+  ];
 
-  rows.forEach((visitor) => {
-    const row = sheet.addRow([
-      visitor.isDeleted ? 'SİLİNMİŞ' : visitor.status === 'INSIDE' ? 'İÇERİDE' : 'ÇIKIŞ YAPTI', safeCell(visitor.fullName), visitor.visitorCount,
-      safeCell(visitor.phone), safeCell(visitor.company), safeCell(visitor.hostEmployeeName), safeCell(visitor.hostRoomLabel),
-      safeCell(visitor.purpose), safeCell(visitor.vehiclePlate), new Date(visitor.entryTime), visitor.exitTime ? new Date(visitor.exitTime) : null, safeCell(visitor.notes),
-    ]);
-    row.font = { name: 'Aptos', size: 9, color: { argb: 'FF1E293B' } };
-    row.alignment = { vertical: 'top', horizontal: 'left', wrapText: true };
-    row.getCell(3).alignment = { vertical: 'top', horizontal: 'center' };
-    row.getCell(10).numFmt = 'dd.mm.yyyy hh:mm';
-    row.getCell(11).numFmt = 'dd.mm.yyyy hh:mm';
-    row.eachCell((cell) => { cell.border = { bottom: { style: 'hair', color: { argb: 'FFE2E8F0' } } }; });
-    const statusCell = row.getCell(1);
-    statusCell.font = { name: 'Aptos', size: 8, bold: true, color: { argb: visitor.isDeleted ? 'FF9F1239' : visitor.status === 'INSIDE' ? 'FF166534' : 'FF475569' } };
-    statusCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: visitor.isDeleted ? 'FFFFE4E6' : visitor.status === 'INSIDE' ? 'FFDCFCE7' : 'FFF1F5F9' } };
+  const headerRowNum = 4;
+  columns.forEach((header, index) => {
+    const cell = sheet.getCell(headerRowNum, index + 1);
+    cell.value = header;
+    cell.font = { name: 'Arial', size: 9.5, bold: true, color: { argb: 'FF0F172A' } };
+    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE2E8F0' } };
+    cell.border = {
+      top: { style: 'thin', color: { argb: 'FFCBD5E1' } },
+      bottom: { style: 'medium', color: { argb: 'FF94A3B8' } },
+      left: { style: 'thin', color: { argb: 'FFCBD5E1' } },
+      right: { style: 'thin', color: { argb: 'FFCBD5E1' } },
+    };
+    cell.alignment = { vertical: 'middle', horizontal: index === 2 ? 'center' : 'left' };
   });
-  if (rows.length > 0) sheet.autoFilter = { from: 'A5', to: `L${rows.length + 5}` };
-  sheet.properties.defaultRowHeight = 30;
-  sheet.pageSetup.printTitlesRow = '1:5';
-  sheet.pageSetup.printArea = `A1:L${Math.max(5, rows.length + 5)}`;
+  sheet.getRow(headerRowNum).height = 22;
+
+  // 3. Populate Rows
+  rows.forEach((v, idx) => {
+    const statusLabel = v.isDeleted 
+      ? 'ARŞİVLENMİŞ / SİLİNMİŞ' 
+      : v.status === 'INSIDE' 
+      ? 'HALEN İÇERİDE' 
+      : 'ÇIKIŞ YAPTI';
+
+    const fullName = v.fullName.toLocaleUpperCase('tr-TR');
+    const company = (v.company || '-').toLocaleUpperCase('tr-TR');
+    const hostName = (v.hostEmployeeName || '-').toLocaleUpperCase('tr-TR');
+    const hostRoom = (v.hostRoomLabel || '-').toLocaleUpperCase('tr-TR');
+    const purpose = (v.purpose || '-').toLocaleUpperCase('tr-TR');
+
+    const rowIndex = headerRowNum + 1 + idx;
+    const row = sheet.getRow(rowIndex);
+    row.height = 20;
+
+    row.values = [
+      statusLabel,
+      fullName,
+      v.visitorCount,
+      safeCell(v.phone),
+      company,
+      hostName,
+      hostRoom,
+      purpose,
+      safeCell(v.vehiclePlate),
+      new Date(v.entryTime),
+      new Date(v.entryTime),
+      v.exitTime ? new Date(v.exitTime) : '',
+      v.exitTime ? new Date(v.exitTime) : '',
+      safeCell(v.notes),
+    ];
+
+    const isEven = idx % 2 === 0;
+    const rowBgColor = isEven ? 'FFFFFFFF' : 'FFF8FAFC';
+
+    for (let col = 1; col <= 14; col++) {
+      const cell = row.getCell(col);
+      cell.font = { name: 'Arial', size: 9.5 };
+      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: rowBgColor } };
+      cell.border = {
+        top: { style: 'thin', color: { argb: 'FFE2E8F0' } },
+        bottom: { style: 'thin', color: { argb: 'FFE2E8F0' } },
+        left: { style: 'thin', color: { argb: 'FFE2E8F0' } },
+        right: { style: 'thin', color: { argb: 'FFE2E8F0' } },
+      };
+    }
+
+    // Corporate Status Font Styling
+    const statusCell = row.getCell(1);
+    if (v.isDeleted) {
+      statusCell.font = { name: 'Arial', size: 9.5, bold: true, color: { argb: 'FFBE123C' } };
+    } else if (v.status === 'INSIDE') {
+      statusCell.font = { name: 'Arial', size: 9.5, bold: true, color: { argb: 'FF15803D' } };
+    } else {
+      statusCell.font = { name: 'Arial', size: 9.5, bold: true, color: { argb: 'FF64748B' } };
+    }
+
+    // Number formats & Alignments
+    row.getCell(3).alignment = { horizontal: 'center' };
+    row.getCell(4).numFmt = '@';
+    row.getCell(9).numFmt = '@';
+    row.getCell(10).numFmt = 'dd.mm.yyyy';
+    row.getCell(11).numFmt = 'hh:mm';
+
+    if (v.exitTime) {
+      row.getCell(12).numFmt = 'dd.mm.yyyy';
+      row.getCell(13).numFmt = 'hh:mm';
+    }
+  });
+
+  // Set corporate column widths
+  const widths = [24, 26, 12, 18, 24, 26, 20, 24, 16, 16, 14, 16, 14, 32];
+  widths.forEach((w, colIdx) => {
+    sheet.getColumn(colIdx + 1).width = w;
+  });
 
   const output = await workbook.xlsx.writeBuffer();
   return Buffer.from(output);

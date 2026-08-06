@@ -7,6 +7,7 @@ import {
   Clock,
   Eye,
   FilePenLine,
+  FileSpreadsheet,
   Filter,
   Pencil,
   Plus,
@@ -84,27 +85,14 @@ export const MaintenanceManagementView: React.FC<MaintenanceManagementViewProps>
   const [deleteTarget, setDeleteTarget] = useState<MaintenanceLog | null>(null);
 
   const [isReportModalOpen, setIsReportModalOpen] = useState<boolean>(false);
-  const [reportMaintenances, setReportMaintenances] = useState<MaintenanceLog[]>([]);
-  const [reportCriteria, setReportCriteria] = useState<MaintenanceReportCriteria | null>(null);
-
-  const openReportLogs = useMemo(() => {
-    return reportMaintenances.filter(
-      (m) => m.status === 'OPEN' || m.status === 'IN_PROGRESS'
-    );
-  }, [reportMaintenances]);
-
-  const resolvedReportLogs = useMemo(() => {
-    return reportMaintenances.filter(
-      (m) => m.status === 'RESOLVED' || m.status === 'CLOSED'
-    );
-  }, [reportMaintenances]);
+  const [isExporting, setIsExporting] = useState<boolean>(false);
 
   const handleGenerateReport = async (criteria: MaintenanceReportCriteria) => {
+    setIsExporting(true);
     setIsReportModalOpen(false);
-    setReportCriteria(criteria);
     setError(null);
     try {
-      const res = await maintenanceApi.getMaintenances({
+      await maintenanceApi.exportExcel({
         status: criteria.status,
         priority: criteria.priority,
         category: criteria.category,
@@ -112,17 +100,10 @@ export const MaintenanceManagementView: React.FC<MaintenanceManagementViewProps>
         dateStart: criteria.dateStart || undefined,
         dateEnd: criteria.dateEnd || undefined,
       });
-      setReportMaintenances(res.items);
-      const originalTitle = document.title;
-      document.title = `Ariza_Yonetimi_Raporu_${new Date().toISOString().split('T')[0]}.pdf`;
-      const restoreTitle = () => {
-        document.title = originalTitle;
-        window.removeEventListener('afterprint', restoreTitle);
-      };
-      window.addEventListener('afterprint', restoreTitle);
-      window.setTimeout(() => window.print(), 150);
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'Rapor verileri alınamadı.');
+      setError(caught instanceof Error ? caught.message : 'Excel arıza dökümü alınırken hata oluştu.');
+    } finally {
+      setIsExporting(false);
     }
   };
 
@@ -333,11 +314,12 @@ export const MaintenanceManagementView: React.FC<MaintenanceManagementViewProps>
         <div className="flex items-center gap-2 shrink-0 ml-auto">
           <button
             type="button"
+            disabled={isExporting}
             onClick={() => setIsReportModalOpen(true)}
-            className="inline-flex items-center gap-1.5 h-9 px-3.5 rounded-xl bg-slate-100 text-slate-800 hover:bg-slate-200 border border-slate-300 font-extrabold text-xs transition-all cursor-pointer shadow-xs whitespace-nowrap"
+            className="inline-flex items-center gap-1.5 h-9 px-3.5 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white font-extrabold text-xs transition-all cursor-pointer shadow-xs whitespace-nowrap disabled:opacity-50"
           >
-            <Printer className="w-4 h-4 text-[#1e3a8a]" />
-            <span>Rapor Yazdır / PDF</span>
+            <FileSpreadsheet className="w-4 h-4" />
+            <span>Rapor / Çıktı Al</span>
           </button>
           <button
             type="button"
@@ -811,180 +793,8 @@ export const MaintenanceManagementView: React.FC<MaintenanceManagementViewProps>
         onClose={() => setIsReportModalOpen(false)}
         blocks={blocks}
         onGenerateReport={handleGenerateReport}
+        isExporting={isExporting}
       />
-
-      {/* Official Corporate Printable PDF Document (Visible ONLY during print / PDF export) */}
-      <div className="official-print-document hidden print:block text-black font-sans text-[9px] leading-tight">
-        <header className="border-b-2 border-slate-900 pb-3 mb-3 flex items-start justify-between">
-          <div>
-            <p className="font-black text-[13px] tracking-wide">DOSINIA RESORT LOJMAN YÖNETİMİ</p>
-            <h1 className="font-black text-[15px] mt-1">TEKNİK ARIZA VE BAKIM DÖKÜM RAPORU</h1>
-            <p className="mt-1 text-slate-600">Kurumsal arıza ve bakım kayıt belgesi</p>
-          </div>
-          <div className="text-right">
-            <p className="font-black text-[14px]">LOJMAN YÖNETİMİ</p>
-            <p className="mt-0.5 text-[10px]">Raporlayan: {currentUser.fullName}</p>
-            <p className="mt-0.5 text-[10px]">Döküm Tarihi: {new Date().toLocaleString('tr-TR', { dateStyle: 'short', timeStyle: 'short' })}</p>
-          </div>
-        </header>
-
-        {/* Section 1: Rapor Filtre ve Kriter Bilgileri */}
-        <section className="mb-3">
-          <h2 className="print-section-title">1. RAPOR FİLTRE VE KRİTER BİLGİLERİ</h2>
-          <table className="print-table">
-            <tbody>
-              <tr>
-                <th>Durum Filtresi</th>
-                <td>
-                  {reportCriteria?.status === 'ALL'
-                    ? 'Tüm Durumlar (Açık, İşlemde, Çözülen)'
-                    : reportCriteria?.status === 'OPEN'
-                    ? 'Sadece Açık Arızalar'
-                    : reportCriteria?.status === 'IN_PROGRESS'
-                    ? 'Sadece İşlemdeki Arızalar'
-                    : reportCriteria?.status === 'RESOLVED'
-                    ? 'Sadece Çözülen Arızalar'
-                    : reportCriteria?.status === 'CLOSED'
-                    ? 'Sadece Kapalı Arızalar'
-                    : 'Tüm Durumlar'}
-                </td>
-                <th>Kategori</th>
-                <td>{reportCriteria?.category === 'ALL' || !reportCriteria?.category ? 'Tüm Kategoriler' : reportCriteria.category}</td>
-              </tr>
-              <tr>
-                <th>Öncelik Seviyesi</th>
-                <td>
-                  {reportCriteria?.priority === 'ALL'
-                    ? 'Tüm Öncelikler'
-                    : reportCriteria?.priority === 'URGENT'
-                    ? '🔴 Acil'
-                    : reportCriteria?.priority === 'HIGH'
-                    ? '🟠 Yüksek'
-                    : reportCriteria?.priority === 'MEDIUM'
-                    ? '🟡 Orta'
-                    : '🟢 Düşük'}
-                </td>
-                <th>Blok Bilgisi</th>
-                <td>
-                  {reportCriteria?.blockId
-                    ? blocks.find((b) => b.id === reportCriteria.blockId)?.name || 'Seçili Blok'
-                    : 'Tüm Bloklar'}
-                </td>
-              </tr>
-              <tr>
-                <th>Tarih Aralığı</th>
-                <td>{reportCriteria?.dateStart ? `${reportCriteria.dateStart} — ${reportCriteria.dateEnd || 'Bugün'}` : 'Tüm Zamanlar'}</td>
-                <th>Toplam Kayıt</th>
-                <td><strong>{reportMaintenances.length} Adet Arıza Kaydı</strong></td>
-              </tr>
-            </tbody>
-          </table>
-        </section>
-
-        {/* Section 2: Arıza ve Bakım Kayıtları */}
-        <section className="mb-3 space-y-3">
-          <h2 className="print-section-title">2. ARIZA VE BAKIM KAYITLARI ({reportMaintenances.length} Kayıt)</h2>
-
-          {/* 2.1. Devam Eden (Çözülmemiş) Arızalar */}
-          {(reportCriteria?.status === 'ALL' || reportCriteria?.status === 'OPEN' || reportCriteria?.status === 'IN_PROGRESS') && (
-            <div>
-              <p className="font-bold text-[9.5px] text-rose-900 border-b border-rose-300 pb-0.5 mb-1 uppercase tracking-wide">
-                2.1. DEVAM EDEN (ÇÖZÜLMEMİŞ) ARIZALAR ({openReportLogs.length})
-              </p>
-              <table className="print-table">
-                <thead>
-                  <tr>
-                    <th style={{ width: '16%' }}>Kategori</th>
-                    <th style={{ width: '18%' }}>Konum / Oda</th>
-                    <th>Açıklama</th>
-                    <th style={{ width: '10%' }}>Öncelik</th>
-                    <th style={{ width: '16%' }}>Kayıt Tarihi</th>
-                    <th style={{ width: '16%' }}>Durum</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {openReportLogs.length ? (
-                    openReportLogs.map((item) => (
-                      <tr key={item.id}>
-                        <td>{item.category || item.title || '-'}</td>
-                        <td className="font-bold">
-                          {item.room ? `${item.room.block.name} - Oda ${item.room.roomNumber}` : 'LOJMAN GENELİ'}
-                        </td>
-                        <td className="font-semibold">{item.description}</td>
-                        <td>{item.priority}</td>
-                        <td>{formatDate(item.createdAt)}</td>
-                        <td className="font-bold text-rose-700">Devam Ediyor / Çözülmedi</td>
-                      </tr>
-                    ))
-                  ) : (
-                    <tr>
-                      <td colSpan={6} className="text-slate-500 italic">Devam eden arıza kaydı bulunmamaktadır.</td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
-          )}
-
-          {/* 2.2. Çözülmüş Arıza ve Bakım Geçmişi */}
-          {(reportCriteria?.status === 'ALL' || reportCriteria?.status === 'RESOLVED' || reportCriteria?.status === 'CLOSED') && (
-            <div>
-              <p className="font-bold text-[9.5px] text-emerald-900 border-b border-emerald-300 pb-0.5 mb-1 uppercase tracking-wide">
-                2.2. ÇÖZÜLMÜŞ ARIZA VE BAKIM GEÇMİŞİ ({resolvedReportLogs.length})
-              </p>
-              <table className="print-table">
-                <thead>
-                  <tr>
-                    <th style={{ width: '16%' }}>Kategori</th>
-                    <th style={{ width: '18%' }}>Konum / Oda</th>
-                    <th>Açıklama</th>
-                    <th style={{ width: '10%' }}>Öncelik</th>
-                    <th style={{ width: '16%' }}>Kayıt Tarihi</th>
-                    <th style={{ width: '16%' }}>Çözülme Tarihi</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {resolvedReportLogs.length ? (
-                    resolvedReportLogs.map((item) => (
-                      <tr key={item.id}>
-                        <td>{item.category || item.title || '-'}</td>
-                        <td className="font-bold">
-                          {item.room ? `${item.room.block.name} - Oda ${item.room.roomNumber}` : 'LOJMAN GENELİ'}
-                        </td>
-                        <td>
-                          <div className="font-semibold">{item.description}</div>
-                          {item.resolutionNote && (
-                            <div className="text-[8px] text-emerald-900 mt-0.5 italic font-bold">
-                              Çözüm Notu: {item.resolutionNote}
-                            </div>
-                          )}
-                        </td>
-                        <td>{item.priority}</td>
-                        <td>{formatDate(item.createdAt)}</td>
-                        <td>{formatDate(item.resolvedAt || item.updatedAt)}</td>
-                      </tr>
-                    ))
-                  ) : (
-                    <tr>
-                      <td colSpan={6} className="text-slate-500 italic">Çözülmüş arıza kaydı bulunmamaktadır.</td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </section>
-
-        <footer className="mt-8 pt-3 border-t border-slate-500 flex justify-between items-start">
-          <p className="text-[8px] italic text-slate-600 max-w-[60%]">
-            İşbu belge, seçilen kriterlere uygun olarak sistem veritabanından üretilmiş resmi teknik arıza ve bakım döküm raporudur.
-          </p>
-          <div className="text-right text-[9px]">
-            <p className="font-bold">Raporlayan: {currentUser.fullName}</p>
-            <p className="text-slate-500 mt-6">İmza / Mühür</p>
-          </div>
-        </footer>
-      </div>
     </div>
   );
 };

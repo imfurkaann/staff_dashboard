@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import { maintenanceService } from '../services/maintenanceService';
+import { createMaintenanceWorkbook } from '../services/maintenanceExportService';
 import { MaintenancePriority, MaintenanceStatus } from '@prisma/client';
 import { AuthenticatedRequest } from '../middleware/authMiddleware';
 
@@ -143,6 +144,32 @@ export const maintenanceController = {
         success: true,
         message: 'Arıza kaydı silindi.',
       });
+    } catch (error) {
+      next(error);
+    }
+  },
+
+  exportExcel: async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+    try {
+      const { status, priority, category, blockId, search, dateStart, dateEnd } = req.query;
+
+      const result = await maintenanceService.getMaintenances({
+        status: status ? (String(status) as MaintenanceStatus | 'ALL') : undefined,
+        priority: priority ? (String(priority) as MaintenancePriority | 'ALL') : undefined,
+        category: category ? String(category) : undefined,
+        blockId: blockId ? String(blockId) : undefined,
+        search: cleanString(search, 100) || undefined,
+        dateStart: dateStart ? String(dateStart) : undefined,
+        dateEnd: dateEnd ? String(dateEnd) : undefined,
+      });
+
+      const generatedBy = req.user?.fullName || 'Lojman Yönetimi';
+      const buffer = await createMaintenanceWorkbook(result.items, generatedBy);
+
+      const dateStr = new Date().toISOString().split('T')[0];
+      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+      res.setHeader('Content-Disposition', `attachment; filename=Ariza_Bakim_Kayitlari_${dateStr}.xlsx`);
+      res.status(200).send(buffer);
     } catch (error) {
       next(error);
     }

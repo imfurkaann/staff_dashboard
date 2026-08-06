@@ -449,15 +449,10 @@ export const roomService = {
           })),
         },
         inventories: {
-          create: [
-            { itemName: 'Televizyon (Smart LED TV)', location: 'ODA ORTAK' },
-            { itemName: 'Minibar (Buzdolabı)', location: 'ODA ORTAK' },
-            { itemName: 'Klima (Inverter)', location: 'ODA ORTAK' },
-            ...bedLabels.flatMap((label) => [
-              { itemName: 'Yatak (Ortopedik)', location: label.toLocaleUpperCase('tr-TR') },
-              { itemName: 'Baza (Sandıklı)', location: label.toLocaleUpperCase('tr-TR') },
-            ]),
-          ],
+          create: bedLabels.map((label) => ({
+            itemName: label,
+            location: label.toLocaleUpperCase('tr-TR'),
+          })),
         },
       },
       include: {
@@ -597,6 +592,121 @@ export const roomService = {
         ...(data.status && { status: data.status }),
         ...(data.notes !== undefined && { notes: data.notes?.trim().toLocaleUpperCase('tr-TR') || null }),
       },
+    });
+  },
+
+  /**
+   * Fetch room occupancies for Excel export
+   */
+  async getExportOccupancies(filter?: string, startDate?: string, endDate?: string) {
+    const where: any = {};
+    if (filter === 'ACTIVE') {
+      where.checkOutDate = null;
+    } else if (filter === 'CHECKED_OUT') {
+      where.checkOutDate = { not: null };
+    }
+
+    if (startDate || endDate) {
+      where.AND = where.AND || [];
+
+      if (startDate && endDate) {
+        const start = new Date(`${startDate}T00:00:00.000Z`);
+        const end = new Date(`${endDate}T23:59:59.999Z`);
+        where.AND.push({
+          checkInDate: { lte: end },
+          OR: [
+            { checkOutDate: null },
+            { checkOutDate: { gte: start } },
+          ],
+        });
+      } else if (startDate) {
+        const start = new Date(`${startDate}T00:00:00.000Z`);
+        where.AND.push({
+          OR: [
+            { checkOutDate: null },
+            { checkOutDate: { gte: start } },
+          ],
+        });
+      } else if (endDate) {
+        const end = new Date(`${endDate}T23:59:59.999Z`);
+        where.AND.push({
+          checkInDate: { lte: end },
+        });
+      }
+    }
+
+    return prisma.occupancyLog.findMany({
+      where,
+      include: {
+        employee: {
+          select: {
+            firstName: true,
+            lastName: true,
+            tcNo: true,
+            registrationNo: true,
+            department: true,
+            title: true,
+            company: true,
+          },
+        },
+        createdBy: {
+          select: {
+            fullName: true,
+            username: true,
+          },
+        },
+        checkedOutBy: {
+          select: {
+            fullName: true,
+            username: true,
+          },
+        },
+        bed: {
+          include: {
+            room: {
+              include: {
+                block: true,
+              },
+            },
+          },
+        },
+      },
+      orderBy: { checkInDate: 'desc' },
+    });
+  },
+
+  /**
+   * Fetch room inventories / fixtures for Excel export
+   */
+  async getExportRoomInventories(statusFilter?: string) {
+    const where: any = {};
+
+    if (statusFilter && statusFilter !== 'ALL') {
+      if (statusFilter === 'PROBLEMATIC_ALL') {
+        where.status = { not: 'HEALTHY' };
+      } else if (statusFilter === 'NEEDS_ATTENTION') {
+        where.status = { in: ['MAINTENANCE_REQUIRED', 'REPLACEMENT_REQUIRED', 'IN_SERVICE'] };
+      } else if (statusFilter === 'DAMAGED_LOST') {
+        where.status = { in: ['DAMAGED', 'LOST', 'RETIRED'] };
+      } else {
+        where.status = statusFilter;
+      }
+    }
+
+    return prisma.roomInventory.findMany({
+      where,
+      include: {
+        room: {
+          include: {
+            block: true,
+          },
+        },
+      },
+      orderBy: [
+        { room: { block: { name: 'asc' } } },
+        { room: { roomNumber: 'asc' } },
+        { itemName: 'asc' },
+      ],
     });
   },
 };

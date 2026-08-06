@@ -17,9 +17,11 @@ import {
   Phone,
   Briefcase,
   Plus,
+  FileSpreadsheet,
 } from 'lucide-react';
 import { roomApi, Room, RoomStatusType } from '../api/roomApi';
 import { RoomDetailView } from './RoomDetailView';
+import { RoomOccupancyExportModal, ReportCategory } from './RoomOccupancyExportModal';
 
 type GroupByMode = 'block' | 'floor';
 
@@ -39,6 +41,11 @@ export const RoomManagementView: React.FC<RoomManagementViewProps> = ({ onNaviga
   const [createError, setCreateError] = useState<string | null>(null);
   const [roomForm, setRoomForm] = useState({ blockId: '', floor: '1', roomNumber: '', capacity: '2' });
   const [blockForm, setBlockForm] = useState({ name: '', genderPolicy: 'Mixed' });
+
+  // Export Modal State
+  const [isExportModalOpen, setIsExportModalOpen] = useState(false);
+  const [isExporting, setIsExporting] = useState(false);
+  const [exportError, setExportError] = useState<string | null>(null);
 
   const handleSelectEmployee = (e: React.MouseEvent, empId: string) => {
     e.stopPropagation();
@@ -383,6 +390,13 @@ export const RoomManagementView: React.FC<RoomManagementViewProps> = ({ onNaviga
               Yeni Oda
             </button>
             <button
+              onClick={() => setIsExportModalOpen(true)}
+              className="px-3.5 py-2 rounded-xl border border-emerald-300 bg-emerald-50 text-emerald-800 hover:bg-emerald-100 hover:border-emerald-400 text-xs font-bold inline-flex items-center gap-1.5 transition-colors cursor-pointer"
+            >
+              <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-700" />
+              <span>Rapor / Çıktı Al</span>
+            </button>
+            <button
               onClick={() => fetchRooms(true)}
               disabled={refreshing}
               className="p-2 rounded-xl border border-slate-300 text-slate-600 hover:bg-slate-50 active:scale-95 transition-all cursor-pointer"
@@ -649,6 +663,28 @@ export const RoomManagementView: React.FC<RoomManagementViewProps> = ({ onNaviga
           </div>
         </div>
       )}
+
+      {/* ODA & KONAKLAYANLAR / DEMİRBAŞ EXCEL EKSPORT MODALI */}
+      <RoomOccupancyExportModal
+        isOpen={isExportModalOpen}
+        onClose={() => setIsExportModalOpen(false)}
+        isExporting={isExporting}
+        onExport={async (category: ReportCategory, filter: string, startDate?: string, endDate?: string) => {
+          setIsExporting(true);
+          try {
+            if (category === 'OCCUPANCY') {
+              await roomApi.exportOccupancyExcel(filter, startDate, endDate);
+            } else {
+              await roomApi.exportRoomInventoryExcel(filter);
+            }
+            setIsExportModalOpen(false);
+          } catch (err: any) {
+            alert(err.message || 'Excel raporu indirilirken bir hata oluştu.');
+          } finally {
+            setIsExporting(false);
+          }
+        }}
+      />
     </div>
   );
 };
