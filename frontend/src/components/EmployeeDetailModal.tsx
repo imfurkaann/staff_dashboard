@@ -21,7 +21,7 @@ import {
   EyeOff,
   PackageCheck
 } from 'lucide-react';
-import { Employee } from '../api/employeeApi';
+import { Employee, employeeApi } from '../api/employeeApi';
 import { decryptSensitiveData } from '../utils/cryptoHelpers';
 
 interface EmployeeDetailModalProps {
@@ -36,6 +36,22 @@ export const EmployeeDetailModal: React.FC<EmployeeDetailModalProps> = ({
   onClose,
 }) => {
   const [showFullTc, setShowFullTc] = useState(false);
+  const [generatedAcc, setGeneratedAcc] = useState<{ username: string; password: string } | null>(null);
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [copySuccess, setCopySuccess] = useState(false);
+
+  const handleGenerateAccount = async () => {
+    if (!employee) return;
+    try {
+      setIsGenerating(true);
+      const res = await employeeApi.generateAccount(employee.id);
+      setGeneratedAcc(res);
+    } catch (err: any) {
+      alert(err.message || 'Hesap üretilirken hata oluştu.');
+    } finally {
+      setIsGenerating(false);
+    }
+  };
 
   if (!isOpen || !employee) return null;
 
@@ -241,6 +257,45 @@ export const EmployeeDetailModal: React.FC<EmployeeDetailModalProps> = ({
                   <span className="font-extrabold text-slate-900 flex items-center gap-1">
                     <Car className="w-3.5 h-3.5 text-[#1e3a8a]" /> {employee.vehiclePlate || 'Araç Yok'}
                   </span>
+                </div>
+
+                {/* Kullanıcı Hesabı / Portal Hesabı */}
+                <div className="bg-slate-900 text-white p-3 rounded-xl space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[11px] font-bold text-slate-300">Mobil Portal Giriş Hesabı</span>
+                    {employee.user ? (
+                      <span className="px-2 py-0.5 bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 text-[10px] font-extrabold rounded-md">
+                        Kayıtlı: {employee.user.username}
+                      </span>
+                    ) : (
+                      <button
+                        type="button"
+                        disabled={isGenerating}
+                        onClick={handleGenerateAccount}
+                        className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-500 text-white text-[11px] font-extrabold rounded-lg transition disabled:opacity-50"
+                      >
+                        {isGenerating ? 'Üretiliyor...' : '🔑 Otomatik Şifre Oluştur'}
+                      </button>
+                    )}
+                  </div>
+
+                  {generatedAcc && (
+                    <div className="p-2.5 bg-slate-950 rounded-lg border border-slate-800 space-y-1 font-mono text-[11px]">
+                      <div>Kullanıcı Adı: <span className="text-emerald-400 font-bold">{generatedAcc.username}</span></div>
+                      <div>Yeni Parola: <span className="text-amber-400 font-bold">{generatedAcc.password}</span></div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          navigator.clipboard.writeText(`Giriş Bilgileri:\nKullanıcı Adı: ${generatedAcc.username}\nParola: ${generatedAcc.password}`);
+                          setCopySuccess(true);
+                          setTimeout(() => setCopySuccess(false), 2000);
+                        }}
+                        className="mt-1 text-[10px] font-bold text-emerald-400 underline"
+                      >
+                        {copySuccess ? '✓ Kopyalandı' : 'Kopyala'}
+                      </button>
+                    </div>
+                  )}
                 </div>
               </div>
             </div>

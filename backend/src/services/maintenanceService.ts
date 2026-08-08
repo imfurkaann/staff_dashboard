@@ -38,10 +38,10 @@ export interface UpdateMaintenanceInput {
 
 export const maintenanceService = {
   /**
-   * Get all maintenance records with filters and summary statistics
+   * Get maintenance records with filters, summary statistics, and pagination support
    */
   async getMaintenances(filters: MaintenanceFilterOptions = {}) {
-    const { status, priority, category, blockId, search, dateStart, dateEnd } = filters;
+    const { status, priority, category, blockId, search, dateStart, dateEnd, page, pageSize } = filters;
 
     const whereCondition: Prisma.MaintenanceLogWhereInput = {};
 
@@ -87,6 +87,18 @@ export const maintenanceService = {
       ];
     }
 
+    // Scoped condition without status filter for status tab counts
+    const baseScopedCondition: Prisma.MaintenanceLogWhereInput = { ...whereCondition };
+    delete baseScopedCondition.status;
+
+    // Scoped condition without priority filter for priority counts
+    const baseScopedConditionForPriority: Prisma.MaintenanceLogWhereInput = { ...whereCondition };
+    delete baseScopedConditionForPriority.priority;
+
+    const currentPage = page && page > 0 ? Math.floor(page) : 1;
+    const limit = pageSize && pageSize > 0 ? Math.min(Math.floor(pageSize), 100) : undefined;
+    const skip = limit ? (currentPage - 1) * limit : undefined;
+
     const [items, totalCount, openCount, inProgressCount, resolvedCount, urgentCount] = await Promise.all([
       prisma.maintenanceLog.findMany({
         where: whereCondition,
@@ -95,6 +107,8 @@ export const maintenanceService = {
           { priority: 'desc' },
           { createdAt: 'desc' },
         ],
+        ...(skip !== undefined ? { skip } : {}),
+        ...(limit !== undefined ? { take: limit } : {}),
         include: {
           room: {
             select: {
@@ -112,11 +126,20 @@ export const maintenanceService = {
         },
       }),
       prisma.maintenanceLog.count({ where: whereCondition }),
-      prisma.maintenanceLog.count({ where: { status: 'OPEN' } }),
-      prisma.maintenanceLog.count({ where: { status: 'IN_PROGRESS' } }),
-      prisma.maintenanceLog.count({ where: { status: { in: ['RESOLVED', 'CLOSED'] } } }),
-      prisma.maintenanceLog.count({ where: { priority: { in: ['HIGH', 'URGENT'] }, status: { in: ['OPEN', 'IN_PROGRESS'] } } }),
+      prisma.maintenanceLog.count({ where: { ...baseScopedCondition, status: 'OPEN' } }),
+      prisma.maintenanceLog.count({ where: { ...baseScopedCondition, status: 'IN_PROGRESS' } }),
+      prisma.maintenanceLog.count({ where: { ...baseScopedCondition, status: { in: ['RESOLVED', 'CLOSED'] } } }),
+      prisma.maintenanceLog.count({
+        where: {
+          ...baseScopedConditionForPriority,
+          priority: { in: ['HIGH', 'URGENT'] },
+          status: { in: ['OPEN', 'IN_PROGRESS'] },
+        },
+      }),
     ]);
+
+    const effectiveLimit = limit || totalCount || 1;
+    const totalPages = Math.ceil(totalCount / effectiveLimit) || 1;
 
     return {
       items,
@@ -126,6 +149,12 @@ export const maintenanceService = {
         inProgressCount,
         resolvedCount,
         urgentCount,
+      },
+      pagination: {
+        page: currentPage,
+        pageSize: limit || totalCount,
+        total: totalCount,
+        totalPages,
       },
     };
   },

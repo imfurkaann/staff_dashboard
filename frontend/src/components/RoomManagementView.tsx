@@ -19,7 +19,7 @@ import {
   Plus,
   FileSpreadsheet,
 } from 'lucide-react';
-import { roomApi, Room, RoomStatusType } from '../api/roomApi';
+import { roomApi, Room, RoomStatusType, BlockSummary } from '../api/roomApi';
 import { RoomDetailView } from './RoomDetailView';
 import { RoomOccupancyExportModal, ReportCategory } from './RoomOccupancyExportModal';
 
@@ -31,6 +31,7 @@ interface RoomManagementViewProps {
 
 export const RoomManagementView: React.FC<RoomManagementViewProps> = ({ onNavigateTo }) => {
   const [rooms, setRooms] = useState<Room[]>([]);
+  const [blocks, setBlocks] = useState<BlockSummary[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [refreshing, setRefreshing] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
@@ -64,15 +65,19 @@ export const RoomManagementView: React.FC<RoomManagementViewProps> = ({ onNaviga
   const [selectedOccupancy, setSelectedOccupancy] = useState<string>('ALL'); // 'ALL' | 'FULL' | 'EMPTY' | 'PARTIAL'
   const [searchQuery, setSearchQuery] = useState<string>('');
 
-  // Fetch rooms data
+  // Fetch rooms & blocks data
   const fetchRooms = async (showRefreshSpinner = false) => {
     if (showRefreshSpinner) setRefreshing(true);
     else setLoading(true);
     setError(null);
 
     try {
-      const data = await roomApi.getRooms();
-      setRooms(data);
+      const [roomsData, blocksData] = await Promise.all([
+        roomApi.getRooms(),
+        roomApi.getBlocks(),
+      ]);
+      setRooms(roomsData);
+      setBlocks(blocksData);
     } catch (err: any) {
       setError(err?.response?.data?.message || err?.message || 'Oda ve yatak bilgileri yüklenirken bir hata oluştu.');
     } finally {
@@ -134,10 +139,13 @@ export const RoomManagementView: React.FC<RoomManagementViewProps> = ({ onNaviga
 
   // Available unique blocks and floors
   const availableBlocks = useMemo(() => {
+    if (blocks.length > 0) {
+      return blocks.map((b) => ({ id: b.id, name: b.name }));
+    }
     const map = new Map<string, string>();
     rooms.forEach((r) => map.set(r.blockId, r.block.name));
     return Array.from(map.entries()).map(([id, name]) => ({ id, name }));
-  }, [rooms]);
+  }, [blocks, rooms]);
 
   const availableFloors = useMemo(() => {
     const floorSet = new Set<number>();

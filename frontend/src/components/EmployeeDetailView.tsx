@@ -252,6 +252,7 @@ export const EmployeeDetailView: React.FC<EmployeeDetailViewProps> = ({
   // Keep state in sync with employee prop changes
   useEffect(() => {
     setCurrentEmp(employee);
+    setActiveTab('general');
     if (Array.isArray(employee.inventories)) {
       setDeliveredInventories(
         employee.inventories.filter((i: any) => i.category !== 'ŞAHSİ_EŞYA').map((i: any) => ({
@@ -287,7 +288,7 @@ export const EmployeeDetailView: React.FC<EmployeeDetailViewProps> = ({
         }))
       );
     }
-  }, [employee]);
+  }, [employee?.id]);
 
   // Room Transfer History
   const [transfers, setTransfers] = useState([
@@ -1870,6 +1871,8 @@ export const EmployeeDetailView: React.FC<EmployeeDetailViewProps> = ({
                   )}
                 </div>
               </div>
+
+
 
               {/* LOJMAN ODA & YATAK KONUMU */}
               <div className="p-5 rounded-2xl bg-emerald-50/70 border border-emerald-200 space-y-3">

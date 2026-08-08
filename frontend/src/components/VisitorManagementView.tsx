@@ -22,37 +22,53 @@ export const VisitorManagementView: React.FC<Props> = ({ currentUser }) => {
   const [deleteTarget, setDeleteTarget] = useState<Visitor | null>(null);
   const canManageArchive = currentUser.role === 'ADMIN' || currentUser.role === 'HOUSING_MANAGER';
 
-  const query = useMemo<VisitorQuery>(() => {
+  const [page, setPage] = useState(1);
+  const [hasMore, setHasMore] = useState(false);
+  const [isInitialLoading, setIsInitialLoading] = useState(true);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
+
+  const baseQuery = useMemo<VisitorQuery>(() => {
     const isInsideTab = status === 'INSIDE';
     return {
       search: search.trim() || undefined,
       status,
-      // 'INSIDE' tab shows ALL active visitors currently inside the building regardless of entry date!
-      ...(!isInsideTab ? { dateStart: today(), dateEnd: today() } : {}),
-      page: 1,
-      pageSize: 100,
+      // 'INSIDE' tab shows all visitors inside, others default to today unless search is active
+      ...(!isInsideTab && !search.trim() ? { dateStart: today(), dateEnd: today() } : {}),
+      pageSize: 25,
       sortBy: 'entryTime',
       sortOrder: 'desc',
     };
   }, [search, status]);
 
-  const [isInitialLoading, setIsInitialLoading] = useState(true);
-  const [isFetching, setIsFetching] = useState(false);
-
-  const load = async (isInitial = false) => {
-    if (isInitial) setIsInitialLoading(true);
-    setIsFetching(true);
+  const load = async (isInitial = false, pageToFetch = 1) => {
+    if (pageToFetch === 1) {
+      if (isInitial) setIsInitialLoading(true);
+    } else {
+      setIsLoadingMore(true);
+    }
     setError(null);
+
     try {
-      const result = await visitorApi.getVisitors(query);
-      setVisitors(result.items);
+      const result = await visitorApi.getVisitors({ ...baseQuery, page: pageToFetch });
+      if (pageToFetch === 1) {
+        setVisitors(result.items);
+      } else {
+        setVisitors((prev) => [...prev, ...result.items]);
+      }
+      setPage(pageToFetch);
+      setHasMore(result.pagination.page < result.pagination.totalPages);
       setSummary(result.summary);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'Ziyaretçi kayıtları yüklenemedi.');
     } finally {
       setIsInitialLoading(false);
-      setIsFetching(false);
+      setIsLoadingMore(false);
     }
+  };
+
+  const loadMore = () => {
+    if (!hasMore || isLoadingMore) return;
+    load(false, page + 1);
   };
 
   // Immediate fetch on status filter change, debounced 250ms fetch on search input typing
@@ -60,9 +76,9 @@ export const VisitorManagementView: React.FC<Props> = ({ currentUser }) => {
     if (view !== 'list') return;
     const isFirstTime = visitors.length === 0;
     const delay = search ? 250 : 0;
-    const timer = window.setTimeout(() => load(isFirstTime), delay);
+    const timer = window.setTimeout(() => load(isFirstTime, 1), delay);
     return () => window.clearTimeout(timer);
-  }, [query, view]);
+  }, [baseQuery, view]);
 
   const run = async (visitor: Visitor, action: () => Promise<unknown>, message: string) => {
     setBusyId(visitor.id);
@@ -70,7 +86,7 @@ export const VisitorManagementView: React.FC<Props> = ({ currentUser }) => {
     try {
       await action();
       setNotice(message);
-      await load(false);
+      await load(false, 1);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'İşlem tamamlanamadı.');
     } finally {
@@ -155,8 +171,21 @@ export const VisitorManagementView: React.FC<Props> = ({ currentUser }) => {
       </label>
     </div>
 
-    <VisitorRecordsTable visitors={visitors} loading={isInitialLoading} busyId={busyId} canManageArchive={canManageArchive} onCheckOut={(visitor) => run(visitor, () => visitorApi.checkOutVisitor(visitor.id), 'Ziyaretçi çıkışı kaydedildi.')} onUndoCheckOut={(visitor) => run(visitor, () => visitorApi.undoCheckOutVisitor(visitor.id), 'Çıkış işlemi geri alındı.')} onEdit={(visitor) => setEditing(visitor)} onDelete={setDeleteTarget} onRestore={(visitor) => run(visitor, () => visitorApi.restoreVisitor(visitor.id), 'Kayıt geri yüklendi.')} />
-    <AddVisitorModal isOpen={editing !== undefined} visitor={editing || null} onClose={() => setEditing(undefined)} onSuccess={() => { setNotice(editing ? 'Ziyaretçi kaydı güncellendi.' : 'Ziyaretçi girişi kaydedildi.'); load(); }} />
+    <VisitorRecordsTable
+      visitors={visitors}
+      loading={isInitialLoading}
+      busyId={busyId}
+      canManageArchive={canManageArchive}
+      hasMore={hasMore}
+      loadingMore={isLoadingMore}
+      onLoadMore={loadMore}
+      onCheckOut={(visitor) => run(visitor, () => visitorApi.checkOutVisitor(visitor.id), 'Ziyaretçi çıkışı kaydedildi.')}
+      onUndoCheckOut={(visitor) => run(visitor, () => visitorApi.undoCheckOutVisitor(visitor.id), 'Çıkış işlemi geri alındı.')}
+      onEdit={(visitor) => setEditing(visitor)}
+      onDelete={setDeleteTarget}
+      onRestore={(visitor) => run(visitor, () => visitorApi.restoreVisitor(visitor.id), 'Kayıt geri yüklendi.')}
+    />
+    <AddVisitorModal isOpen={editing !== undefined} visitor={editing || null} onClose={() => setEditing(undefined)} onSuccess={() => { setNotice(editing ? 'Ziyaretçi kaydı güncellendi.' : 'Ziyaretçi girişi kaydedildi.'); load(false, 1); }} />
     {deleteTarget && <div className="fixed inset-0 z-[350] bg-slate-950/70 backdrop-blur-sm flex items-center justify-center p-4" onMouseDown={() => setDeleteTarget(null)}><div className="w-full max-w-sm rounded-3xl bg-white border border-slate-300 p-6 shadow-2xl text-center" onMouseDown={(event) => event.stopPropagation()}><div className="w-12 h-12 mx-auto rounded-2xl bg-rose-100 text-rose-700 flex items-center justify-center"><ShieldCheck className="w-6 h-6" /></div><h3 className="mt-3 font-extrabold text-slate-950">Ziyaretçi Kaydını Sil</h3><p className="mt-1 text-xs font-semibold text-slate-600"><strong>{deleteTarget.fullName}</strong> kaydı denetim geçmişi korunarak arşivlenecektir.</p><div className="flex justify-center gap-2 mt-5"><button onClick={() => setDeleteTarget(null)} className="px-4 py-2.5 rounded-xl bg-slate-100 text-xs font-bold text-slate-700">Vazgeç</button><button onClick={() => { const target = deleteTarget; setDeleteTarget(null); run(target, () => visitorApi.deleteVisitor(target.id), 'Kayıt arşivlendi.'); }} className="px-4 py-2.5 rounded-xl bg-rose-600 text-xs font-bold text-white">Evet, Sil</button></div></div></div>}
     </div>
   );

@@ -38,6 +38,8 @@ export interface MaintenanceQueryFilters {
   search?: string;
   dateStart?: string;
   dateEnd?: string;
+  page?: number;
+  pageSize?: number;
 }
 
 export interface MaintenanceSummaryStats {
@@ -48,9 +50,17 @@ export interface MaintenanceSummaryStats {
   urgentCount: number;
 }
 
+export interface MaintenancePagination {
+  page: number;
+  pageSize: number;
+  total: number;
+  totalPages: number;
+}
+
 export interface MaintenanceListResponse {
   items: MaintenanceLog[];
   summary: MaintenanceSummaryStats;
+  pagination: MaintenancePagination;
 }
 
 export interface CreateMaintenanceDTO {
@@ -84,6 +94,8 @@ export const maintenanceApi = {
     if (filters.search) params.append('search', filters.search);
     if (filters.dateStart) params.append('dateStart', filters.dateStart);
     if (filters.dateEnd) params.append('dateEnd', filters.dateEnd);
+    if (filters.page) params.append('page', String(filters.page));
+    if (filters.pageSize) params.append('pageSize', String(filters.pageSize));
 
     const response = await axios.get<{ success: boolean; data: MaintenanceListResponse }>(
       `${appConfig.apiBaseUrl}/maintenance`,

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { ArchiveRestore, Car, FilePenLine, FileText, LogOut, Phone, RotateCcw, Trash2, UserCheck, Users, X } from 'lucide-react';
 import { Visitor } from '../api/visitorApi';
 import { VisitorDetailModal } from './VisitorDetailModal';
@@ -9,6 +9,9 @@ interface Props {
   busyId?: string | null;
   canManageArchive?: boolean;
   readOnly?: boolean;
+  hasMore?: boolean;
+  loadingMore?: boolean;
+  onLoadMore?: () => void;
   onCheckOut?: (visitor: Visitor) => void;
   onUndoCheckOut?: (visitor: Visitor) => void;
   onEdit?: (visitor: Visitor) => void;
@@ -65,6 +68,9 @@ export const VisitorRecordsTable: React.FC<Props> = ({
   busyId,
   canManageArchive,
   readOnly = false,
+  hasMore = false,
+  loadingMore = false,
+  onLoadMore,
   onCheckOut,
   onUndoCheckOut,
   onEdit,
@@ -73,6 +79,26 @@ export const VisitorRecordsTable: React.FC<Props> = ({
 }) => {
   const [selectedNote, setSelectedNote] = useState<{ title: string; content: string } | null>(null);
   const [selectedDetailVisitor, setSelectedDetailVisitor] = useState<Visitor | null>(null);
+
+  const sentinelRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!hasMore || loadingMore || !onLoadMore) return;
+    const node = sentinelRef.current;
+    if (!node) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting) {
+          onLoadMore();
+        }
+      },
+      { threshold: 0.1, rootMargin: '120px' }
+    );
+
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [hasMore, loadingMore, onLoadMore]);
 
   return (
     <div className="bg-white border border-slate-300 rounded-3xl overflow-hidden shadow-sm w-full">
@@ -329,6 +355,31 @@ export const VisitorRecordsTable: React.FC<Props> = ({
           </tbody>
         </table>
       </div>
+
+      {/* Infinite Scroll Sentinel & Loader */}
+      {hasMore && (
+        <div ref={sentinelRef} className="py-3.5 text-center border-t border-slate-200 bg-slate-50/70">
+          {loadingMore ? (
+            <div className="inline-flex items-center gap-2 text-xs font-bold text-slate-700">
+              <span className="w-4 h-4 rounded-full border-2 border-[#1e3a8a] border-t-transparent animate-spin"></span>
+              <span>Daha fazla kayıt yükleniyor...</span>
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={onLoadMore}
+              className="text-xs font-extrabold text-[#1e3a8a] hover:underline cursor-pointer"
+            >
+              Daha fazla kayıt yükle...
+            </button>
+          )}
+        </div>
+      )}
+      {!hasMore && visitors.length > 0 && !loading && (
+        <div className="py-2.5 text-center border-t border-slate-100 bg-slate-50/40 text-[11px] font-bold text-slate-400">
+          Tüm kayıtlar görüntülendi ({visitors.length} kayıt)
+        </div>
+      )}
 
       {/* NOTE DETAILS POPUP MODAL */}
       {selectedNote && (

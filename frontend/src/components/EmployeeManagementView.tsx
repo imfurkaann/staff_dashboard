@@ -20,6 +20,7 @@ import {
   VolumeX,
   Lock,
   Eye,
+  ChevronLeft,
   ChevronRight,
   Calendar,
   RotateCcw,
@@ -178,11 +179,21 @@ export const EmployeeManagementView: React.FC = () => {
     }
   };
 
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
+
   const fetchEmployees = async () => {
     setIsLoading(true);
     setLoadError(null);
     try {
-      const data = await employeeApi.getEmployees(search, statusFilter, departmentFilter);
+      const data = await employeeApi.getEmployees(
+        search,
+        statusFilter,
+        departmentFilter,
+        genderFilter,
+        dateRangeStart,
+        dateRangeEnd
+      );
       setEmployees(data);
     } catch (err) {
       setLoadError('Personel kayıtları yüklenemedi. Bağlantınızı kontrol edip yeniden deneyin.');
@@ -193,7 +204,12 @@ export const EmployeeManagementView: React.FC = () => {
 
   useEffect(() => {
     fetchEmployees();
-  }, [statusFilter, departmentFilter]);
+  }, [search, statusFilter, departmentFilter, genderFilter, dateRangeStart, dateRangeEnd]);
+
+  // Reset pagination to page 1 on filter changes
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [search, statusFilter, departmentFilter, genderFilter, dateRangeStart, dateRangeEnd]);
 
   // Restore saved active employee on initial load or after fetch
   useEffect(() => {
@@ -208,6 +224,19 @@ export const EmployeeManagementView: React.FC = () => {
 
   // Client-side instant filtering across all parameters
   const filteredEmployees = employees.filter((emp) => {
+    // 0. Status Filter
+    if (statusFilter !== 'ALL') {
+      if (statusFilter === 'RESIDENT' && emp.status !== 'RESIDENT') return false;
+      if (statusFilter === 'PENDING_ASSIGNMENT' && emp.status !== 'PENDING_ASSIGNMENT') return false;
+      if (statusFilter === 'ON_LEAVE' && emp.status !== 'ON_LEAVE') return false;
+      if (statusFilter === 'CHECKED_OUT' && emp.status !== 'CHECKED_OUT') return false;
+    }
+
+    // 0b. Department Filter
+    if (departmentFilter !== 'ALL') {
+      if (emp.department !== departmentFilter) return false;
+    }
+
     // 1. Search Query
     if (search.trim()) {
       const q = search.toLowerCase().trim();
@@ -486,7 +515,7 @@ export const EmployeeManagementView: React.FC = () => {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-200 text-xs font-semibold text-slate-800">
-                {sortedEmployees.map((emp) => {
+                {sortedEmployees.slice((currentPage - 1) * pageSize, currentPage * pageSize).map((emp) => {
                   const hasBed = emp.beds && emp.beds.length > 0;
                   const currentBed = hasBed ? emp.beds![0] : null;
 
@@ -574,10 +603,9 @@ export const EmployeeManagementView: React.FC = () => {
                         </div>
                       </td>
 
-                      {/* 6. Aksiyonlar — tooltip açılır butonlar */}
+                      {/* 6. Aksiyonlar */}
                       <td className="py-3.5 px-4 text-right whitespace-nowrap">
                         <div className="flex items-center justify-end gap-1.5 min-h-[32px] whitespace-nowrap shrink-0">
-                          {/* Personele Oda Ata / Odadan Çıkış Yap */}
                           {hasBed ? (
                             <button
                               type="button"
@@ -610,7 +638,6 @@ export const EmployeeManagementView: React.FC = () => {
                             </button>
                           )}
 
-                           {/* Sil */}
                           <button
                             type="button"
                             onClick={(e) => {
@@ -633,6 +660,57 @@ export const EmployeeManagementView: React.FC = () => {
                 })}
               </tbody>
             </table>
+          </div>
+
+          {/* Table Pagination Bar */}
+          <div className="px-5 py-3.5 bg-slate-50 border-t border-slate-200 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs font-bold text-slate-600">
+            <div className="flex items-center gap-2">
+              <span>Göster:</span>
+              <select
+                value={pageSize}
+                onChange={(e) => {
+                  setPageSize(Number(e.target.value));
+                  setCurrentPage(1);
+                }}
+                className="px-2 py-1 bg-white border border-slate-300 rounded-lg text-xs font-bold text-slate-800 outline-none cursor-pointer"
+              >
+                <option value={10}>10</option>
+                <option value={25}>25</option>
+                <option value={50}>50</option>
+                <option value={100}>100</option>
+              </select>
+              <span>
+                (Toplam <strong className="text-slate-900">{sortedEmployees.length}</strong> personelden{' '}
+                {sortedEmployees.length > 0 ? (currentPage - 1) * pageSize + 1 : 0}-
+                {Math.min(currentPage * pageSize, sortedEmployees.length)} arası)
+              </span>
+            </div>
+
+            <div className="flex items-center gap-1.5">
+              <button
+                type="button"
+                disabled={currentPage <= 1}
+                onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
+                className="p-1.5 rounded-lg bg-white border border-slate-300 hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer transition-colors"
+                title="Önceki Sayfa"
+              >
+                <ChevronLeft className="w-4 h-4 text-slate-700" />
+              </button>
+
+              <span className="px-3 py-1 bg-white border border-slate-300 rounded-lg text-xs font-extrabold text-slate-900">
+                {currentPage} / {Math.ceil(sortedEmployees.length / pageSize) || 1}
+              </span>
+
+              <button
+                type="button"
+                disabled={currentPage >= Math.ceil(sortedEmployees.length / pageSize)}
+                onClick={() => setCurrentPage(prev => Math.min(prev + 1, Math.ceil(sortedEmployees.length / pageSize)))}
+                className="p-1.5 rounded-lg bg-white border border-slate-300 hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer transition-colors"
+                title="Sonraki Sayfa"
+              >
+                <ChevronRight className="w-4 h-4 text-slate-700" />
+              </button>
+            </div>
           </div>
         </div>
       )}

@@ -60,6 +60,7 @@ const visitorSelect = {
   updatedAt: true,
   createdBy: { select: { id: true, fullName: true } },
   updatedBy: { select: { id: true, fullName: true } },
+  deletedBy: { select: { id: true, fullName: true } },
 } satisfies Prisma.VisitorSelect;
 
 type VisitorRow = Prisma.VisitorGetPayload<{ select: typeof visitorSelect }>;
@@ -117,8 +118,8 @@ function serializeVisitor(visitor: VisitorRow) { return visitor; }
 async function resolveHost(hostEmployeeId: string | undefined) {
   const id = validateUuid(hostEmployeeId, 'Ziyaret edilen personel');
   if (!id) throw new AppError('Ziyaret edilen personel seçilmelidir.', 400);
-  const employee = await prisma.employee.findUnique({
-    where: { id },
+  const employee = await prisma.employee.findFirst({
+    where: { id, isDeleted: false },
     select: {
       id: true,
       firstName: true,
@@ -126,7 +127,7 @@ async function resolveHost(hostEmployeeId: string | undefined) {
       beds: { take: 1, select: { bedLabel: true, room: { select: { roomNumber: true, block: { select: { name: true } } } } } },
     },
   });
-  if (!employee) throw new AppError('Ziyaret edilen personel bulunamadı.', 404);
+  if (!employee) throw new AppError('Ziyaret edilen aktif personel bulunamadı.', 404);
   const bed = employee.beds[0];
   return {
     id: employee.id,
@@ -198,7 +199,14 @@ export class VisitorService {
         _sum: { visitorCount: true },
       }),
       prisma.visitor.aggregate({
-        where: { status: VisitorStatus.EXITED, isDeleted: false, entryTime: { gte: todayStart, lte: todayEnd } },
+        where: {
+          status: VisitorStatus.EXITED,
+          isDeleted: false,
+          OR: [
+            { exitTime: { gte: todayStart, lte: todayEnd } },
+            { exitTime: null, entryTime: { gte: todayStart, lte: todayEnd } },
+          ],
+        },
         _sum: { visitorCount: true },
       }),
       prisma.visitor.count({

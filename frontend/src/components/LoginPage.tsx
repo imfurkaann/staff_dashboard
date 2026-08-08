@@ -16,9 +16,10 @@ import { appConfig } from '../config/appConfig';
 
 interface LoginPageProps {
   onLoginSuccess: (user: User) => void;
+  onSwitchToStaffLogin?: () => void;
 }
 
-export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
+export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, onSwitchToStaffLogin }) => {
   const [usernameOrEmail, setUsernameOrEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -222,6 +223,18 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
             </div>
           </div>}
 
+          {/* Switch to Staff Login Button */}
+          {onSwitchToStaffLogin && (
+            <div className="mt-6 text-center">
+              <button
+                type="button"
+                onClick={onSwitchToStaffLogin}
+                className="text-xs font-bold text-slate-700 hover:text-[#1e3a8a] inline-flex items-center gap-1.5 transition py-2 px-3 rounded-xl hover:bg-slate-200/60"
+              >
+                <span>📱 Mobil Personel Portalı Girişine Geç</span>
+              </button>
+            </div>
+          )}
         </div>
       </main>
 

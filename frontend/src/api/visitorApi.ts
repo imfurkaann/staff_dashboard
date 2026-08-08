@@ -22,6 +22,7 @@ export interface Visitor {
   updatedAt: string;
   createdBy?: { id: string; fullName: string } | null;
   updatedBy?: { id: string; fullName: string } | null;
+  deletedBy?: { id: string; fullName: string } | null;
 }
 
 export interface CreateVisitorPayload {
@@ -69,6 +70,21 @@ function messageFrom(error: unknown, fallback: string): string {
   return fallback;
 }
 
+async function extractBlobErrorMessage(error: unknown, fallback: string): Promise<string> {
+  if (axios.isAxiosError(error) && error.response?.data) {
+    const data = error.response.data;
+    if (typeof data?.message === 'string') return data.message;
+    if (data instanceof Blob) {
+      try {
+        const text = await data.text();
+        const parsed = JSON.parse(text);
+        if (typeof parsed.message === 'string') return parsed.message;
+      } catch {}
+    }
+  }
+  return messageFrom(error, fallback);
+}
+
 export const visitorApi = {
   getVisitors: async (query: VisitorQuery = {}): Promise<VisitorListResult> => {
     const response = await api.get<{ success: boolean; data: Visitor[]; pagination: VisitorListResult['pagination']; summary: VisitorListResult['summary'] }>('/', { params: query });
@@ -112,6 +128,9 @@ export const visitorApi = {
       anchor.click();
       anchor.remove();
       URL.revokeObjectURL(url);
-    } catch (error) { throw new Error(messageFrom(error, 'Excel dosyası oluşturulamadı.')); }
+    } catch (error) {
+      const errMsg = await extractBlobErrorMessage(error, 'Excel dosyası oluşturulamadı.');
+      throw new Error(errMsg);
+    }
   },
 };

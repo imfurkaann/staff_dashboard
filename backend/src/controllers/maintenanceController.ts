@@ -11,7 +11,7 @@ const cleanString = (value: unknown, maxLength: number) => typeof value === 'str
 export const maintenanceController = {
   getMaintenances: async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const { status, priority, category, blockId, search, dateStart, dateEnd } = req.query;
+      const { status, priority, category, blockId, search, dateStart, dateEnd, page, pageSize } = req.query;
 
       if (status && status !== 'ALL' && !Object.values(MaintenanceStatus).includes(String(status) as MaintenanceStatus)) {
         return res.status(400).json({ success: false, message: 'Geçersiz arıza durumu filtresi.' });
@@ -25,6 +25,9 @@ export const maintenanceController = {
         return res.status(400).json({ success: false, message: 'Geçersiz blok kimliği.' });
       }
 
+      const parsedPage = page ? parseInt(String(page), 10) : undefined;
+      const parsedPageSize = pageSize ? parseInt(String(pageSize), 10) : undefined;
+
       const result = await maintenanceService.getMaintenances({
         status: status ? (String(status) as MaintenanceStatus | 'ALL') : undefined,
         priority: priority ? (String(priority) as MaintenancePriority | 'ALL') : undefined,
@@ -33,6 +36,8 @@ export const maintenanceController = {
         search: cleanString(search, 100) || undefined,
         dateStart: dateStart ? String(dateStart) : undefined,
         dateEnd: dateEnd ? String(dateEnd) : undefined,
+        page: parsedPage && !isNaN(parsedPage) ? parsedPage : undefined,
+        pageSize: parsedPageSize && !isNaN(parsedPageSize) ? parsedPageSize : undefined,
       });
 
       res.status(200).json({ success: true, data: result });
@@ -169,6 +174,7 @@ export const maintenanceController = {
       const dateStr = new Date().toISOString().split('T')[0];
       res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
       res.setHeader('Content-Disposition', `attachment; filename=Ariza_Bakim_Kayitlari_${dateStr}.xlsx`);
+      res.setHeader('Access-Control-Expose-Headers', 'Content-Disposition');
       res.status(200).send(buffer);
     } catch (error) {
       next(error);

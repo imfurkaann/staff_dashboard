@@ -143,10 +143,10 @@ export async function createMaintenanceWorkbook(rows: ExportMaintenanceLog[], ge
             ? 'ORTA'
             : 'DÜŞÜK';
 
-        const description = m.description.toLocaleUpperCase('tr-TR');
+        const description = (m.description || m.title || '').toLocaleUpperCase('tr-TR');
         const category = (m.category || m.title || '-').toLocaleUpperCase('tr-TR');
         const location = (m.location || 'ODA GENELİ').toLocaleUpperCase('tr-TR');
-        const reportedBy = safeCell(m.reportedBy);
+        const reportedBy = safeCell(m.reportedBy || 'Lojman Yönetimi');
         const assignedTo = safeCell(m.assignedTo || (m.status === 'RESOLVED' || m.status === 'CLOSED' ? 'Lojman Yönetimi' : '-'));
         const resolutionNote = safeCell(m.resolutionNote);
 

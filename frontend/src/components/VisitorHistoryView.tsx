@@ -217,7 +217,7 @@ export const VisitorHistoryView: React.FC<Props> = ({ currentUser, onBack }) => 
         try {
           await visitorApi.exportExcel({
             ...query,
-            status: filter.status !== 'ALL' ? (filter.status as any) : query.status,
+            status: filter.status as any,
             dateStart: filter.startDate || query.dateStart,
             dateEnd: filter.endDate || query.dateEnd,
           });

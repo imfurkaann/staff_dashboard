@@ -21,8 +21,11 @@ export class EmployeeController {
       const search = req.query.search as string;
       const status = req.query.status as string;
       const department = req.query.department as string;
+      const gender = req.query.gender as string;
+      const startDate = req.query.startDate as string;
+      const endDate = req.query.endDate as string;
 
-      const employees = await EmployeeService.getAllEmployees(search, status, department);
+      const employees = await EmployeeService.getAllEmployees(search, status, department, gender, startDate, endDate);
 
       res.status(200).json({
         success: true,
@@ -287,4 +290,23 @@ export class EmployeeController {
       next(error);
     }
   }
+
+  /**
+   * POST /api/employees/:id/generate-account
+   */
+  public static async generateAccount(req: AuthenticatedRequest, res: Response, next: NextFunction) {
+    try {
+      const { id } = req.params;
+      const credentials = await EmployeeService.generateAccountForEmployee(id);
+
+      res.status(200).json({
+        success: true,
+        message: 'Personel için otomatik kullanıcı hesabı ve parola başarıyla oluşturuldu.',
+        data: credentials,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
 }
+

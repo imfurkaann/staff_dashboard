@@ -21,6 +21,34 @@ function safeCell(value?: string | null): string {
   return /^[=+\-@]/.test(text) ? `'${text}` : text;
 }
 
+function toLocalExcelDate(dateVal: Date | string | null | undefined): Date | string {
+  if (!dateVal) return '';
+  const d = new Date(dateVal);
+  if (Number.isNaN(d.getTime())) return '';
+  // Convert to Europe/Istanbul ISO components for correct Excel representation
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'Europe/Istanbul',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false,
+  }).formatToParts(d);
+
+  const getPart = (type: string) => parts.find((p) => p.type === type)?.value || '00';
+  const year = parseInt(getPart('year'), 10);
+  const month = parseInt(getPart('month'), 10) - 1;
+  const day = parseInt(getPart('day'), 10);
+  const hour = parseInt(getPart('hour'), 10);
+  const minute = parseInt(getPart('minute'), 10);
+  const second = parseInt(getPart('second'), 10);
+
+  // Return a Date object with UTC components matching local Istanbul time so Excel renders exact local time
+  return new Date(Date.UTC(year, month, day, hour, minute, second));
+}
+
 export async function createVisitorWorkbook(rows: ExportVisitor[], generatedBy: string): Promise<Buffer> {
   const workbook = new ExcelJS.Workbook();
   const sheet = workbook.addWorksheet('Ziyaretçi Kayıtları');
@@ -42,7 +70,7 @@ export async function createVisitorWorkbook(rows: ExportVisitor[], generatedBy: 
 
   sheet.mergeCells('A2:N2');
   const subCell = sheet.getCell('A2');
-  subCell.value = `Rapor Oluşturulma Tarihi: ${reportDate}  |  Raporu Düzenleyen Yetkili: ${generatedBy}`;
+  subCell.value = `Rapor Oluşturulma Tarihi: ${reportDate}  |  Raporu Düzenleyen Yetkili: ${safeCell(generatedBy)}`;
   subCell.font = { name: 'Arial', size: 9, italic: true, color: { argb: 'FF475569' } };
   subCell.alignment = { vertical: 'middle', horizontal: 'left', indent: 1 };
   sheet.getRow(2).height = 18;
@@ -89,11 +117,14 @@ export async function createVisitorWorkbook(rows: ExportVisitor[], generatedBy: 
       ? 'HALEN İÇERİDE' 
       : 'ÇIKIŞ YAPTI';
 
-    const fullName = v.fullName.toLocaleUpperCase('tr-TR');
-    const company = (v.company || '-').toLocaleUpperCase('tr-TR');
-    const hostName = (v.hostEmployeeName || '-').toLocaleUpperCase('tr-TR');
-    const hostRoom = (v.hostRoomLabel || '-').toLocaleUpperCase('tr-TR');
-    const purpose = (v.purpose || '-').toLocaleUpperCase('tr-TR');
+    const fullName = safeCell(v.fullName.toLocaleUpperCase('tr-TR'));
+    const company = safeCell((v.company || '-').toLocaleUpperCase('tr-TR'));
+    const hostName = safeCell((v.hostEmployeeName || '-').toLocaleUpperCase('tr-TR'));
+    const hostRoom = safeCell((v.hostRoomLabel || '-').toLocaleUpperCase('tr-TR'));
+    const purpose = safeCell((v.purpose || '-').toLocaleUpperCase('tr-TR'));
+
+    const entryExcelDate = toLocalExcelDate(v.entryTime);
+    const exitExcelDate = v.exitTime ? toLocalExcelDate(v.exitTime) : '';
 
     const rowIndex = headerRowNum + 1 + idx;
     const row = sheet.getRow(rowIndex);
@@ -109,10 +140,10 @@ export async function createVisitorWorkbook(rows: ExportVisitor[], generatedBy: 
       hostRoom,
       purpose,
       safeCell(v.vehiclePlate),
-      new Date(v.entryTime),
-      new Date(v.entryTime),
-      v.exitTime ? new Date(v.exitTime) : '',
-      v.exitTime ? new Date(v.exitTime) : '',
+      entryExcelDate,
+      entryExcelDate,
+      exitExcelDate,
+      exitExcelDate,
       safeCell(v.notes),
     ];
 
@@ -163,3 +194,4 @@ export async function createVisitorWorkbook(rows: ExportVisitor[], generatedBy: 
   const output = await workbook.xlsx.writeBuffer();
   return Buffer.from(output);
 }
+

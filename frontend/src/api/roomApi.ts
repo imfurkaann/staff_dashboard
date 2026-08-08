@@ -21,6 +21,7 @@ export interface RoomEmployee {
   createdAt: string;
   checkInDate?: string | null;
   checkOutDate?: string | null;
+  inventories?: any[];
 }
 
 export interface RoomBed {
@@ -212,6 +213,24 @@ export const roomApi = {
   deleteCleaningLog: async (cleaningId: string): Promise<Room> => {
     const response = await api.delete<{ success: boolean; data: Room; message: string }>(`/cleaning/${cleaningId}`);
     return response.data.data;
+  },
+
+  updateRoom: async (roomId: string, payload: { roomNumber?: string; floor?: number; capacity?: number; status?: RoomStatusType }): Promise<Room> => {
+    const response = await api.put<{ success: boolean; data: Room; message: string }>(`/${roomId}`, payload);
+    return response.data.data;
+  },
+
+  deleteRoom: async (roomId: string): Promise<void> => {
+    await api.delete(`/${roomId}`);
+  },
+
+  createRoomInventory: async (roomId: string, payload: { itemName: string; location?: string; quantity?: number; status?: RoomInventoryStatus; notes?: string }): Promise<RoomInventory> => {
+    const response = await api.post<{ success: boolean; data: RoomInventory; message: string }>(`/${roomId}/inventories`, payload);
+    return response.data.data;
+  },
+
+  deleteRoomInventory: async (inventoryId: string): Promise<void> => {
+    await api.delete(`/inventories/${inventoryId}`);
   },
 
   exportOccupancyExcel: async (filter?: string, startDate?: string, endDate?: string): Promise<void> => {

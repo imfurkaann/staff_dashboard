@@ -18,6 +18,9 @@ const roomEmployeeSelect = {
   status: true,
   shiftType: true,
   createdAt: true,
+  inventories: {
+    orderBy: { createdAt: 'desc' },
+  },
 } satisfies Prisma.EmployeeSelect;
 
 const roomListEmployeeSelect = {
@@ -593,6 +596,169 @@ export const roomService = {
         ...(data.notes !== undefined && { notes: data.notes?.trim().toLocaleUpperCase('tr-TR') || null }),
       },
     });
+  },
+
+  /** Update existing room details (roomNumber, floor, capacity, status) */
+  async updateRoom(roomId: string, data: { roomNumber?: string; floor?: number; capacity?: number; status?: RoomStatus }) {
+    const room = await prisma.room.findUnique({
+      where: { id: roomId },
+      include: { beds: { orderBy: { bedLabel: 'asc' } }, block: true },
+    });
+    if (!room) throw new AppError('Oda bulunamadı.', 404);
+
+    const updateData: any = {};
+
+    if (data.roomNumber && data.roomNumber.trim() !== '') {
+      const normalizedRoomNumber = data.roomNumber.trim().toLocaleUpperCase('tr-TR');
+      if (normalizedRoomNumber !== room.roomNumber) {
+        const duplicate = await prisma.room.findFirst({
+          where: { blockId: room.blockId, roomNumber: normalizedRoomNumber, NOT: { id: roomId } },
+        });
+        if (duplicate) {
+          throw new AppError(`${room.block.name} bloğunda '${normalizedRoomNumber}' numaralı oda zaten mevcut.`, 400);
+        }
+        updateData.roomNumber = normalizedRoomNumber;
+      }
+    }
+
+    if (data.floor !== undefined && !isNaN(data.floor)) {
+      updateData.floor = Number(data.floor);
+    }
+
+    if (data.status && Object.values(RoomStatus).includes(data.status)) {
+      updateData.status = data.status;
+    }
+
+    if (data.capacity !== undefined && Number(data.capacity) !== room.capacity) {
+      const newCapacity = Number(data.capacity);
+      if (newCapacity < 1 || newCapacity > 26) {
+        throw new AppError('Oda kapasitesi 1 ile 26 arasında olmalıdır.', 400);
+      }
+
+      const currentBeds = room.beds;
+      if (newCapacity > room.capacity) {
+        const newBedCount = newCapacity - room.capacity;
+        const newBedLabels = Array.from({ length: newBedCount }, (_, i) => `Yatak-${String.fromCharCode(65 + room.capacity + i)}`);
+
+        await prisma.$transaction([
+          prisma.bed.createMany({
+            data: newBedLabels.map((label) => ({
+              roomId,
+              bedLabel: label,
+              isOccupied: false,
+            })),
+          }),
+          prisma.roomInventory.createMany({
+            data: newBedLabels.map((label) => ({
+              roomId,
+              itemName: label,
+              location: label.toLocaleUpperCase('tr-TR'),
+            })),
+            skipDuplicates: true,
+          }),
+        ]);
+        updateData.capacity = newCapacity;
+      } else if (newCapacity < room.capacity) {
+        const bedsToRemove = currentBeds.slice(newCapacity);
+        const occupiedBedsToRemove = bedsToRemove.filter((b) => b.isOccupied);
+        if (occupiedBedsToRemove.length > 0) {
+          throw new AppError(
+            `Kapasite düşürülemez. Kaldırılacak yataklarda (${occupiedBedsToRemove.map((b) => b.bedLabel).join(', ')}) halen ikamet eden personel bulunmaktadır. Önce personelleri başka yatağa transfer edin.`,
+            400
+          );
+        }
+
+        const bedIdsToRemove = bedsToRemove.map((b) => b.id);
+        const bedLabelsToRemove = bedsToRemove.map((b) => b.bedLabel.toLocaleUpperCase('tr-TR'));
+
+        await prisma.$transaction([
+          prisma.bed.deleteMany({ where: { id: { in: bedIdsToRemove } } }),
+          prisma.roomInventory.deleteMany({ where: { roomId, location: { in: bedLabelsToRemove } } }),
+        ]);
+        updateData.capacity = newCapacity;
+      }
+    }
+
+    if (Object.keys(updateData).length > 0) {
+      await prisma.room.update({
+        where: { id: roomId },
+        data: updateData,
+      });
+    }
+
+    return this.getRoomById(roomId);
+  },
+
+  /** Delete a room safely */
+  async deleteRoom(roomId: string) {
+    const room = await prisma.room.findUnique({
+      where: { id: roomId },
+      include: {
+        beds: { select: { id: true, bedLabel: true, isOccupied: true } },
+        block: { select: { name: true } },
+      },
+    });
+    if (!room) throw new AppError('Oda bulunamadı.', 404);
+
+    const occupiedBeds = room.beds.filter((b) => b.isOccupied);
+    if (occupiedBeds.length > 0) {
+      throw new AppError(
+        `'${room.block.name} - Oda ${room.roomNumber}' silinemez. Odadaki yataklarda (${occupiedBeds.map((b) => b.bedLabel).join(', ')}) halen ikamet eden personel bulunmaktadır.`,
+        400
+      );
+    }
+
+    await prisma.room.delete({ where: { id: roomId } });
+    return { success: true, message: `'${room.block.name} - Oda ${room.roomNumber}' başarıyla silindi.` };
+  },
+
+  /** Add custom fixture / inventory item to a room */
+  async createRoomInventory(roomId: string, data: { itemName: string; location?: string; quantity?: number; status?: RoomInventoryStatus; notes?: string }) {
+    const room = await prisma.room.findUnique({ where: { id: roomId } });
+    if (!room) throw new AppError('Oda bulunamadı.', 404);
+
+    if (!data.itemName || !data.itemName.trim()) {
+      throw new AppError('Demirbaş eşya adı zorunludur.', 400);
+    }
+
+    const cleanItemName = data.itemName.trim().toLocaleUpperCase('tr-TR');
+    const cleanLocation = (data.location?.trim() || 'GENEL').toLocaleUpperCase('tr-TR');
+    const quantity = data.quantity && data.quantity > 0 ? Number(data.quantity) : 1;
+
+    const existing = await prisma.roomInventory.findFirst({
+      where: { roomId, itemName: cleanItemName, location: cleanLocation },
+    });
+
+    if (existing) {
+      return prisma.roomInventory.update({
+        where: { id: existing.id },
+        data: {
+          quantity: existing.quantity + quantity,
+          status: data.status || existing.status,
+          notes: data.notes ? data.notes.trim().toLocaleUpperCase('tr-TR') : existing.notes,
+        },
+      });
+    }
+
+    return prisma.roomInventory.create({
+      data: {
+        roomId,
+        itemName: cleanItemName,
+        location: cleanLocation,
+        quantity,
+        status: data.status || 'HEALTHY',
+        notes: data.notes ? data.notes.trim().toLocaleUpperCase('tr-TR') : null,
+      },
+    });
+  },
+
+  /** Delete custom fixture / inventory item from a room */
+  async deleteRoomInventory(inventoryId: string) {
+    const existing = await prisma.roomInventory.findUnique({ where: { id: inventoryId } });
+    if (!existing) throw new AppError('Demirbaş eşya kaydı bulunamadı.', 404);
+
+    await prisma.roomInventory.delete({ where: { id: inventoryId } });
+    return { deleted: true };
   },
 
   /**

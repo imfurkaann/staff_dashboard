@@ -4,14 +4,15 @@ import { authenticateToken, authorizeRoles } from '../middleware/authMiddleware'
 
 const router = Router();
 
-// Protect all visitor routes with token authentication
+// Protect all visitor routes with token authentication and RBAC
 router.use(authenticateToken);
+router.use(authorizeRoles('ADMIN', 'HOUSING_MANAGER', 'SECURITY'));
 
 // GET /api/visitors (List with filters)
 router.get('/', VisitorController.getAll);
 
 // GET /api/visitors/export.xlsx (Export the same filtered records)
-router.get('/export.xlsx', VisitorController.exportExcel);
+router.get('/export.xlsx', authorizeRoles('ADMIN', 'HOUSING_MANAGER'), VisitorController.exportExcel);
 
 // GET /api/visitors/:id
 router.get('/:id', VisitorController.getById);

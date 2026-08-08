@@ -4,8 +4,9 @@ import { authenticateToken, authorizeRoles } from '../middleware/authMiddleware'
 
 const router = Router();
 
-// Protect all employee routes with authenticateToken
+// Protect all employee routes with authenticateToken and RBAC
 router.use(authenticateToken);
+router.use(authorizeRoles('ADMIN', 'HOUSING_MANAGER', 'SECURITY'));
 
 // GET /api/employees (List employees with search/filters)
 router.get('/', EmployeeController.getAll);
@@ -21,6 +22,9 @@ router.get('/:id', EmployeeController.getById);
 
 // POST /api/employees (Create new employee)
 router.post('/', authorizeRoles('ADMIN', 'HOUSING_MANAGER'), EmployeeController.create);
+
+// POST /api/employees/:id/generate-account (Generate unique credentials for existing employee)
+router.post('/:id/generate-account', authorizeRoles('ADMIN', 'HOUSING_MANAGER'), EmployeeController.generateAccount);
 
 // PUT /api/employees/:id (Update employee profile)
 router.put('/:id', authorizeRoles('ADMIN', 'HOUSING_MANAGER'), EmployeeController.update);
@@ -52,3 +56,4 @@ router.put('/disciplinary-notes/:noteId', authorizeRoles('ADMIN', 'HOUSING_MANAG
 router.delete('/disciplinary-notes/:noteId', authorizeRoles('ADMIN', 'HOUSING_MANAGER'), EmployeeController.deleteDisciplinaryNote);
 
 export default router;
+

@@ -68,6 +68,13 @@ export const AddEmployeeModal: React.FC<AddEmployeeModalProps> = ({
   
   const [photoUrl, setPhotoUrl] = useState<string | null>(null);
 
+  // System User Account & Database Role Assignment State
+  const [createSystemUser, setCreateSystemUser] = useState(false);
+  const [systemUsername, setSystemUsername] = useState('');
+  const [systemEmail, setSystemEmail] = useState('');
+  const [systemPassword, setSystemPassword] = useState('');
+  const [systemRole, setSystemRole] = useState<'ADMIN' | 'HOUSING_MANAGER' | 'SECURITY' | 'STAFF'>('HOUSING_MANAGER');
+
   // Optional Room/Bed Assignment State
   const [assignBed, setAssignBed] = useState(false);
   const [selectedBedId, setSelectedBedId] = useState('');
@@ -83,6 +90,8 @@ export const AddEmployeeModal: React.FC<AddEmployeeModalProps> = ({
   // UI State
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorPopUpMessage, setErrorPopUpMessage] = useState<string | null>(null);
+  const [credentialsPopup, setCredentialsPopup] = useState<{ username: string; password: string; fullName: string } | null>(null);
+  const [isCopied, setIsCopied] = useState(false);
 
   const departmentsList = [
     'İnşaat / Saha',
@@ -149,6 +158,19 @@ export const AddEmployeeModal: React.FC<AddEmployeeModalProps> = ({
         setAssignBed(false);
         setSelectedBedId('');
         setErrorPopUpMessage(null);
+        if (initialData.user) {
+          setCreateSystemUser(true);
+          setSystemUsername(initialData.user.username || '');
+          setSystemEmail(initialData.user.email || '');
+          setSystemPassword('');
+          setSystemRole(initialData.user.role || 'HOUSING_MANAGER');
+        } else {
+          setCreateSystemUser(false);
+          setSystemUsername('');
+          setSystemEmail('');
+          setSystemPassword('');
+          setSystemRole('HOUSING_MANAGER');
+        }
       } else {
         setFirstName('');
         setLastName('');
@@ -173,6 +195,11 @@ export const AddEmployeeModal: React.FC<AddEmployeeModalProps> = ({
         setAssignBed(false);
         setSelectedBedId('');
         setErrorPopUpMessage(null);
+        setCreateSystemUser(false);
+        setSystemUsername('');
+        setSystemEmail('');
+        setSystemPassword('');
+        setSystemRole('HOUSING_MANAGER');
       }
     }
   }, [isOpen, initialData]);
@@ -229,12 +256,25 @@ export const AddEmployeeModal: React.FC<AddEmployeeModalProps> = ({
 
   const capturePhoto = () => {
     if (videoRef.current) {
+      const video = videoRef.current;
+      const maxDim = 400;
+      let width = video.videoWidth || 640;
+      let height = video.videoHeight || 480;
+      if (width > maxDim || height > maxDim) {
+        if (width > height) {
+          height = Math.round((height * maxDim) / width);
+          width = maxDim;
+        } else {
+          width = Math.round((width * maxDim) / height);
+          height = maxDim;
+        }
+      }
       const canvas = document.createElement('canvas');
-      canvas.width = videoRef.current.videoWidth || 640;
-      canvas.height = videoRef.current.videoHeight || 480;
+      canvas.width = width;
+      canvas.height = height;
       const ctx = canvas.getContext('2d');
       if (ctx) {
-        ctx.drawImage(videoRef.current, 0, 0, canvas.width, canvas.height);
+        ctx.drawImage(video, 0, 0, width, height);
         const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
         setPhotoUrl(dataUrl);
         stopCamera();
@@ -245,14 +285,43 @@ export const AddEmployeeModal: React.FC<AddEmployeeModalProps> = ({
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      if (!file.type.startsWith('image/') || file.size > 1_500_000) {
-        setErrorPopUpMessage('Lütfen 1,5 MB boyutunu aşmayan bir görsel seçin.');
+      if (!file.type.startsWith('image/')) {
+        setErrorPopUpMessage('Lütfen geçerli bir resim dosyası seçin (JPG, PNG, WEBP).');
+        e.target.value = '';
+        return;
+      }
+      if (file.size > 5_000_000) {
+        setErrorPopUpMessage('Seçilen resim dosyası 5 MB boyutunu aşamaz.');
         e.target.value = '';
         return;
       }
       const reader = new FileReader();
-      reader.onloadend = () => {
-        setPhotoUrl(reader.result as string);
+      reader.onload = (event) => {
+        const img = new Image();
+        img.onload = () => {
+          const maxDim = 400;
+          let width = img.width;
+          let height = img.height;
+          if (width > maxDim || height > maxDim) {
+            if (width > height) {
+              height = Math.round((height * maxDim) / width);
+              width = maxDim;
+            } else {
+              width = Math.round((width * maxDim) / height);
+              height = maxDim;
+            }
+          }
+          const canvas = document.createElement('canvas');
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext('2d');
+          if (ctx) {
+            ctx.drawImage(img, 0, 0, width, height);
+            const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
+            setPhotoUrl(dataUrl);
+          }
+        };
+        img.src = event.target?.result as string;
       };
       reader.readAsDataURL(file);
     }
@@ -302,17 +371,33 @@ export const AddEmployeeModal: React.FC<AddEmployeeModalProps> = ({
         emergencyContactPhone: emergencyContactPhone.trim() || undefined,
         photoUrl: photoUrl || undefined,
         bedId: assignBed ? selectedBedId : undefined,
+        systemUser: createSystemUser ? {
+          createAccount: true,
+          username: systemUsername.trim(),
+          email: systemEmail.trim(),
+          password: systemPassword.trim() || undefined,
+          role: systemRole,
+        } : undefined,
       };
 
       let resultEmployee: Employee;
       if (initialData) {
         resultEmployee = await employeeApi.updateEmployee(initialData.id, payload);
+        onSuccess(resultEmployee);
+        handleResetAndClose();
       } else {
         resultEmployee = await employeeApi.createEmployee(payload);
+        onSuccess(resultEmployee);
+        if (resultEmployee.generatedAccountInfo) {
+          setCredentialsPopup({
+            username: resultEmployee.generatedAccountInfo.username,
+            password: resultEmployee.generatedAccountInfo.password,
+            fullName: `${resultEmployee.firstName} ${resultEmployee.lastName}`,
+          });
+        } else {
+          handleResetAndClose();
+        }
       }
-
-      onSuccess(resultEmployee);
-      handleResetAndClose();
     } catch (err: any) {
       // Trigger Center Pop-up Warning Modal
       setErrorPopUpMessage(err.message || 'Personel kaydı kaydedilirken hata meydana geldi.');
@@ -347,11 +432,66 @@ export const AddEmployeeModal: React.FC<AddEmployeeModalProps> = ({
     onClose();
   };
 
-  if (!isOpen) return null;
+  if (!isOpen && !credentialsPopup) return null;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm overflow-y-auto">
-      
+      {/* CREDENTIALS SUCCESS POPUP MODAL */}
+      {credentialsPopup && (
+        <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md">
+          <div className="bg-white border border-slate-200 rounded-3xl p-6 sm:p-8 max-w-md w-full shadow-2xl text-center space-y-5 animate-scaleUp">
+            <div className="w-16 h-16 bg-emerald-100 text-emerald-600 rounded-2xl flex items-center justify-center mx-auto text-3xl font-bold border border-emerald-200">
+              ✓
+            </div>
+            <div>
+              <h3 className="text-xl font-black text-slate-900">Personel Kaydı Oluşturuldu!</h3>
+              <p className="text-xs text-slate-600 font-semibold mt-1">
+                <span className="font-bold text-slate-900">{credentialsPopup.fullName}</span> için otomatik kullanıcı adı ve kolay parola üretildi.
+              </p>
+            </div>
+
+            <div className="bg-slate-900 text-white rounded-2xl p-4 text-left space-y-3 font-mono text-xs shadow-inner border border-slate-800">
+              <div>
+                <span className="text-slate-400 text-[10px] uppercase font-bold block">Benzersiz Kullanıcı Adı</span>
+                <span className="text-emerald-400 font-bold text-sm tracking-wide">{credentialsPopup.username}</span>
+              </div>
+              <div className="pt-2 border-t border-slate-800">
+                <span className="text-slate-400 text-[10px] uppercase font-bold block">Kendine Has Kolay Parola</span>
+                <span className="text-amber-400 font-bold text-sm tracking-wide">{credentialsPopup.password}</span>
+              </div>
+            </div>
+
+            <p className="text-[11px] text-slate-500 font-medium italic">
+              Bu giriş bilgileri ile personel telefonundan Personel Portalı'na erişim sağlayabilir.
+            </p>
+
+            <div className="flex gap-3">
+              <button
+                type="button"
+                onClick={() => {
+                  navigator.clipboard.writeText(`Personel Portalı Giriş Bilgileri:\nKullanıcı Adı: ${credentialsPopup.username}\nParola: ${credentialsPopup.password}`);
+                  setIsCopied(true);
+                  setTimeout(() => setIsCopied(false), 2500);
+                }}
+                className="flex-1 py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl shadow-md transition"
+              >
+                {isCopied ? '✓ Kopyalandı!' : '📋 Bilgileri Kopyala'}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setCredentialsPopup(null);
+                  handleResetAndClose();
+                }}
+                className="px-5 py-3 bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold text-xs rounded-xl transition"
+              >
+                Tamam
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* MODERN MINIMAL CENTER ERROR POPUP MODAL */}
       {errorPopUpMessage && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-md animate-fadeIn">
@@ -865,6 +1005,8 @@ export const AddEmployeeModal: React.FC<AddEmployeeModalProps> = ({
               </div>
             </div>
           </div>
+
+
 
           {/* Section 4: Opsiyonel Oda / Yatak Atama */}
           <div className="p-4 rounded-2xl bg-blue-50/70 border border-blue-200 space-y-3">

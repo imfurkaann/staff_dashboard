@@ -67,7 +67,6 @@ model User {
   lastLoginAt  DateTime?
   createdAt    DateTime      @default(now())
   updatedAt    DateTime      @updatedAt
-  FacilityLogs FacilityLog[]
   visitorsCreated Visitor[]      @relation("VisitorCreatedBy")
   visitorsUpdated Visitor[]      @relation("VisitorUpdatedBy")
   visitorsDeleted Visitor[]      @relation("VisitorDeletedBy")
@@ -79,6 +78,9 @@ model User {
   inventoriesCreated InventoryItem[] @relation("InventoryCreatedBy")
   inventoriesReturned InventoryItem[] @relation("InventoryReturnedBy")
   disciplinaryNotesCreated DisciplinaryNote[] @relation("DisciplinaryCreatedBy")
+  notificationsCreated Notification[] @relation("NotificationCreatedBy")
+  notificationRecipients NotificationRecipient[]
+  employee Employee? @relation("EmployeeUserAccount")
 }
 
 model Employee {
@@ -112,7 +114,8 @@ model Employee {
   createdBy             User?          @relation("EmployeeCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
   checkedOutById        String?
   checkedOutBy          User?          @relation("EmployeeCheckedOutBy", fields: [checkedOutById], references: [id], onDelete: SetNull)
-  checkedOutAt          DateTime?
+  userId                String?        @unique
+  user                  User?          @relation("EmployeeUserAccount", fields: [userId], references: [id], onDelete: SetNull)
   createdAt             DateTime       @default(now())
   updatedAt             DateTime       @updatedAt
 
@@ -279,17 +282,6 @@ model RoomInventory {
   @@index([roomId, status])
 }
 
-model FacilityLog {
-  id        String   @id @default(uuid())
-  userId    String
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  category  String // Discipline, ShiftHandover, GeneralNotice, Visitor
-  content   String
-  createdAt DateTime @default(now())
-
-  @@index([userId, createdAt])
-}
-
 model Visitor {
   id               String        @id @default(uuid())
   fullName         String
@@ -338,3 +330,47 @@ model RoomCleaningLog {
   @@index([roomId, status])
   @@index([roomId, requestedAt])
 }
+
+enum NotificationPriority {
+  NORMAL
+  IMPORTANT
+  URGENT
+}
+
+enum NotificationTargetType {
+  ALL
+  SPECIFIC_USERS
+  BLOCK
+  DEPARTMENT
+}
+
+model Notification {
+  id           String                 @id @default(uuid())
+  title        String
+  message      String
+  priority     NotificationPriority   @default(NORMAL)
+  targetType   NotificationTargetType @default(ALL)
+  targetValue  String?
+  createdById  String?
+  createdBy    User?                  @relation("NotificationCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  createdAt    DateTime               @default(now())
+  recipients   NotificationRecipient[]
+
+  @@index([createdAt])
+  @@index([createdById])
+}
+
+model NotificationRecipient {
+  id             String       @id @default(uuid())
+  notificationId String
+  notification   Notification @relation(fields: [notificationId], references: [id], onDelete: Cascade)
+  userId         String
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  isRead         Boolean      @default(false)
+  readAt         DateTime?
+
+  @@unique([notificationId, userId])
+  @@index([userId, isRead])
+  @@index([notificationId])
+}
+

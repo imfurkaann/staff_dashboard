@@ -10,6 +10,8 @@ import dashboardRoutes from './routes/dashboardRoutes';
 import roomRoutes from './routes/roomRoutes';
 import visitorRoutes from './routes/visitorRoutes';
 import maintenanceRoutes from './routes/maintenanceRoutes';
+import notificationRoutes from './routes/notificationRoutes';
+import portalRoutes from './routes/portalRoutes';
 import { errorHandler } from './middleware/errorHandler';
 import { apiRateLimiter } from './middleware/rateLimiter';
 
@@ -23,7 +25,7 @@ app.use(helmet());
 app.use(
   cors({
     origin: (origin, callback) => {
-      const isLocalDevelopmentOrigin = config.nodeEnv === 'development' && !!origin && /^http:\/\/(localhost|127\.0\.0\.1):\d+$/.test(origin);
+      const isLocalDevelopmentOrigin = config.nodeEnv === 'development' && !!origin && /^http:\/\/(localhost|127\.0\.0\.1|192\.168\.\d+\.\d+|172\.(1[6-9]|2\d|3[01])\.\d+\.\d+|10\.\d+\.\d+\.\d+):\d+$/.test(origin);
       if (!origin || config.cors.allowedOrigins.includes(origin) || isLocalDevelopmentOrigin) {
         callback(null, true);
       } else {
@@ -48,6 +50,8 @@ app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/rooms', roomRoutes);
 app.use('/api/visitors', visitorRoutes);
 app.use('/api/maintenance', maintenanceRoutes);
+app.use('/api/notifications', notificationRoutes);
+app.use('/api/portal', portalRoutes);
 
 // Health check endpoint
 app.get('/api/health', async (_req, res) => {

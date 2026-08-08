@@ -75,6 +75,10 @@ export const MaintenanceManagementView: React.FC<MaintenanceManagementViewProps>
   const [dateStart, setDateStart] = useState<string>('');
   const [dateEnd, setDateEnd] = useState<string>('');
 
+  const [page, setPage] = useState<number>(1);
+  const [hasMore, setHasMore] = useState<boolean>(false);
+  const [isLoadingMore, setIsLoadingMore] = useState<boolean>(false);
+
   const [isInitialLoading, setIsInitialLoading] = useState<boolean>(true);
   const [isFetching, setIsFetching] = useState<boolean>(false);
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -86,6 +90,8 @@ export const MaintenanceManagementView: React.FC<MaintenanceManagementViewProps>
 
   const [isReportModalOpen, setIsReportModalOpen] = useState<boolean>(false);
   const [isExporting, setIsExporting] = useState<boolean>(false);
+
+  const sentinelRef = React.useRef<HTMLDivElement | null>(null);
 
   const handleGenerateReport = async (criteria: MaintenanceReportCriteria) => {
     setIsExporting(true);
@@ -123,32 +129,74 @@ export const MaintenanceManagementView: React.FC<MaintenanceManagementViewProps>
       search: search.trim() || undefined,
       dateStart: dateStart || undefined,
       dateEnd: dateEnd || undefined,
+      pageSize: 25,
     };
   }, [selectedStatus, selectedPriority, selectedCategory, selectedBlockId, search, dateStart, dateEnd]);
 
-  const loadData = async (isInitial = false) => {
-    if (isInitial) setIsInitialLoading(true);
-    setIsFetching(true);
+  const loadData = async (isInitial = false, pageToFetch = 1) => {
+    if (pageToFetch === 1) {
+      if (isInitial) setIsInitialLoading(true);
+      setIsFetching(true);
+    } else {
+      setIsLoadingMore(true);
+    }
     setError(null);
 
     try {
-      const result = await maintenanceApi.getMaintenances(queryFilters);
-      setMaintenances(result.items);
+      const result = await maintenanceApi.getMaintenances({
+        ...queryFilters,
+        page: pageToFetch,
+      });
+
+      if (pageToFetch === 1) {
+        setMaintenances(result.items);
+      } else {
+        setMaintenances((prev) => [...prev, ...result.items]);
+      }
+
+      setPage(pageToFetch);
+      setHasMore(result.pagination.page < result.pagination.totalPages);
       setSummary(result.summary);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'Arıza kayıtları yüklenemedi.');
     } finally {
       setIsInitialLoading(false);
       setIsFetching(false);
+      setIsLoadingMore(false);
     }
   };
 
+  // Immediate fetch on status/filter change, debounced 250ms fetch on search input typing
   useEffect(() => {
     const isFirst = maintenances.length === 0;
     const delay = search ? 250 : 0;
-    const timer = window.setTimeout(() => loadData(isFirst), delay);
+    const timer = window.setTimeout(() => loadData(isFirst, 1), delay);
     return () => window.clearTimeout(timer);
   }, [queryFilters]);
+
+  // Intersection Observer for Infinite Scroll
+  useEffect(() => {
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const first = entries[0];
+        if (first && first.isIntersecting && hasMore && !isLoadingMore && !isFetching) {
+          loadData(false, page + 1);
+        }
+      },
+      { threshold: 0.2 }
+    );
+
+    const currentSentinel = sentinelRef.current;
+    if (currentSentinel) {
+      observer.observe(currentSentinel);
+    }
+
+    return () => {
+      if (currentSentinel) {
+        observer.unobserve(currentSentinel);
+      }
+    };
+  }, [hasMore, isLoadingMore, isFetching, page, queryFilters]);
 
   const handleQuickStatusChange = async (log: MaintenanceLog, newStatus: MaintenanceStatus) => {
     setBusyId(log.id);
@@ -728,6 +776,21 @@ export const MaintenanceManagementView: React.FC<MaintenanceManagementViewProps>
                   </div>
                 </div>
               ))}
+            </div>
+
+            {/* Infinite Scroll Sentinel & Loading Indicator */}
+            <div ref={sentinelRef} className="py-4 text-center">
+              {isLoadingMore && (
+                <div className="inline-flex items-center gap-2 text-xs font-bold text-slate-500 bg-slate-100 px-4 py-2 rounded-full border border-slate-200 shadow-2xs">
+                  <div className="w-4 h-4 border-2 border-[#1e3a8a]/20 border-t-[#1e3a8a] rounded-full animate-spin" />
+                  Daha fazla arıza kaydı yükleniyor...
+                </div>
+              )}
+              {!hasMore && maintenances.length > 0 && (
+                <p className="text-[11px] font-semibold text-slate-400">
+                  Tüm arıza kayıtları gösteriliyor ({maintenances.length} / {summary.totalCount})
+                </p>
+              )}
             </div>
           </>
         )}

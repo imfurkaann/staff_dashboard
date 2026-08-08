@@ -31,7 +31,7 @@ import {
   Trash2,
   Sparkles,
 } from 'lucide-react';
-import { Room, RoomBed, RoomInventoryStatus, RoomMaintenance, RoomStatusType, RoomCleaningLog, roomApi } from '../api/roomApi';
+import { Room, RoomBed, RoomInventory, RoomInventoryStatus, RoomMaintenance, RoomStatusType, RoomCleaningLog, roomApi } from '../api/roomApi';
 import { MaintenanceDetailModal } from './MaintenanceDetailModal';
 
 interface RoomDetailViewProps {
@@ -89,6 +89,91 @@ export const RoomDetailView: React.FC<RoomDetailViewProps> = ({
     priority: 'MEDIUM',
     location: '',
   });
+
+  // Edit Room Modal State
+  const [showEditRoomModal, setShowEditRoomModal] = useState(false);
+  const [editRoomForm, setEditRoomForm] = useState({ roomNumber: room.roomNumber, floor: room.floor, capacity: room.capacity, status: room.status });
+  const [editRoomSubmitting, setEditRoomSubmitting] = useState(false);
+
+  // Delete Room Modal State
+  const [showDeleteRoomModal, setShowDeleteRoomModal] = useState(false);
+  const [deleteRoomSubmitting, setDeleteRoomSubmitting] = useState(false);
+
+  // Add Room Fixture Inventory Modal State
+  const [showAddInventoryModal, setShowAddInventoryModal] = useState(false);
+  const [addInventoryForm, setAddInventoryForm] = useState({ itemName: '', location: 'GENEL', quantity: 1, status: 'HEALTHY' as RoomInventoryStatus, notes: '' });
+  const [addInventorySubmitting, setAddInventorySubmitting] = useState(false);
+
+  // Delete Inventory Modal State
+  const [inventoryToDelete, setInventoryToDelete] = useState<RoomInventory | null>(null);
+  const [deleteInventorySubmitting, setDeleteInventorySubmitting] = useState(false);
+
+  const handleEditRoomSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setEditRoomSubmitting(true);
+    setRoomError(null);
+    try {
+      const updated = await roomApi.updateRoom(currentRoom.id, editRoomForm);
+      setCurrentRoom(updated);
+      if (onRoomUpdated) onRoomUpdated(updated);
+      setShowEditRoomModal(false);
+    } catch (err: any) {
+      setRoomError(err?.response?.data?.message || err?.message || 'Oda bilgileri güncellenemedi.');
+    } finally {
+      setEditRoomSubmitting(false);
+    }
+  };
+
+  const handleDeleteRoomSubmit = async () => {
+    setDeleteRoomSubmitting(true);
+    setRoomError(null);
+    try {
+      await roomApi.deleteRoom(currentRoom.id);
+      setShowDeleteRoomModal(false);
+      onBack();
+    } catch (err: any) {
+      setRoomError(err?.response?.data?.message || err?.message || 'Oda silinemedi.');
+      setShowDeleteRoomModal(false);
+    } finally {
+      setDeleteRoomSubmitting(false);
+    }
+  };
+
+  const handleAddInventorySubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!addInventoryForm.itemName.trim()) return;
+    setAddInventorySubmitting(true);
+    setRoomError(null);
+    try {
+      await roomApi.createRoomInventory(currentRoom.id, addInventoryForm);
+      const reloaded = await roomApi.getRoomById(currentRoom.id);
+      setCurrentRoom(reloaded);
+      if (onRoomUpdated) onRoomUpdated(reloaded);
+      setShowAddInventoryModal(false);
+      setAddInventoryForm({ itemName: '', location: 'GENEL', quantity: 1, status: 'HEALTHY', notes: '' });
+    } catch (err: any) {
+      setRoomError(err?.response?.data?.message || err?.message || 'Demirbaş eşya eklenemedi.');
+    } finally {
+      setAddInventorySubmitting(false);
+    }
+  };
+
+  const handleDeleteInventorySubmit = async () => {
+    if (!inventoryToDelete) return;
+    setDeleteInventorySubmitting(true);
+    setRoomError(null);
+    try {
+      await roomApi.deleteRoomInventory(inventoryToDelete.id);
+      const reloaded = await roomApi.getRoomById(currentRoom.id);
+      setCurrentRoom(reloaded);
+      if (onRoomUpdated) onRoomUpdated(reloaded);
+      setInventoryToDelete(null);
+    } catch (err: any) {
+      setRoomError(err?.response?.data?.message || err?.message || 'Demirbaş kaydı silinemedi.');
+    } finally {
+      setDeleteInventorySubmitting(false);
+    }
+  };
 
 
 
@@ -529,7 +614,33 @@ export const RoomDetailView: React.FC<RoomDetailViewProps> = ({
         <footer className="mt-6 pt-3 border-t border-slate-500"><p className="text-[8px] italic text-slate-600">İşbu belge, belirtilen odaya ait lojman kayıtlarının kurumsal dökümüdür.</p></footer>
       </div>
       {/* Top Action Bar */}
-      <div className="flex items-center justify-end no-print">
+      <div className="flex items-center justify-end gap-2 no-print">
+        <button
+          type="button"
+          onClick={() => {
+            setEditRoomForm({
+              roomNumber: currentRoom.roomNumber,
+              floor: currentRoom.floor,
+              capacity: currentRoom.capacity,
+              status: currentRoom.status,
+            });
+            setShowEditRoomModal(true);
+          }}
+          className="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs shadow-md transition-all cursor-pointer"
+        >
+          <Edit className="w-4 h-4" />
+          <span>Oda Bilgilerini Düzenle</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setShowDeleteRoomModal(true)}
+          className="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-rose-700 hover:bg-rose-800 text-white font-bold text-xs shadow-md transition-all cursor-pointer"
+        >
+          <Trash2 className="w-4 h-4" />
+          <span>Odayı Sil</span>
+        </button>
+
         <button
           onClick={() => setShowPrintModal(true)}
           className="flex items-center gap-2 px-4 py-2 rounded-xl bg-[#1e3a8a] text-white font-bold text-xs shadow-md shadow-blue-950/20 hover:bg-blue-900 transition-all cursor-pointer active:scale-95"
@@ -848,14 +959,37 @@ export const RoomDetailView: React.FC<RoomDetailViewProps> = ({
       {/* TAB 2: INVENTORY & FIXTURES */}
       {activeTab === 'inventory' && (
         <div className="bg-white border border-slate-300 rounded-3xl shadow-sm overflow-hidden">
-          <div className="p-5 border-b border-slate-200 flex items-center justify-between">
-            <div><h2 className="text-base font-black text-slate-900 flex items-center gap-2"><span className="w-9 h-9 rounded-xl bg-blue-50 border border-blue-100 flex items-center justify-center"><Package className="w-4.5 h-4.5 text-[#1e3a8a]" /></span><span>Oda Zimmetli Demirbaşlar</span></h2><p className="text-xs text-slate-500 font-semibold mt-1">Toplam {roomInventories.length} demirbaş kaydı</p></div>
+          <div className="p-5 border-b border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div>
+              <h2 className="text-base font-black text-slate-900 flex items-center gap-2">
+                <span className="w-9 h-9 rounded-xl bg-blue-50 border border-blue-100 flex items-center justify-center">
+                  <Package className="w-4.5 h-4.5 text-[#1e3a8a]" />
+                </span>
+                <span>Oda Zimmetli Demirbaşlar & Sakin Şahsi Eşyaları</span>
+              </h2>
+              <p className="text-xs text-slate-500 font-semibold mt-1">
+                Odaya özel tanımlı demirbaşlar ve oda sakinlerinin şahsi cihaz beyanları
+              </p>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => {
+                setAddInventoryForm({ itemName: '', location: 'GENEL', quantity: 1, status: 'HEALTHY', notes: '' });
+                setShowAddInventoryModal(true);
+              }}
+              className="px-3.5 py-2 rounded-xl bg-[#1e3a8a] hover:bg-blue-900 text-white font-bold text-xs flex items-center gap-1.5 cursor-pointer shadow-md self-start sm:self-auto"
+            >
+              <Plus className="w-4 h-4" />
+              <span>Yeni Demirbaş Ekle</span>
+            </button>
           </div>
+
           {roomInventories.length === 0 ? (
             <div className="m-5 p-8 text-center bg-slate-50 rounded-2xl border border-slate-200 text-slate-500">
               <Package className="w-10 h-10 text-slate-400 mx-auto mb-2" />
               <p className="font-bold text-xs text-slate-700">Bu odaya ait tanımlı zimmetli demirbaş bulunmamaktadır.</p>
-              <p className="text-[11px] text-slate-500 mt-0.5">Odadaki sakinlere zimmetlenen eşyalar ve lojman demirbaşları burada gösterilir.</p>
+              <p className="text-[11px] text-slate-500 mt-0.5">Yarıda bırakmadan odaya klima, televizyon, buzdolabı vb. demirbaş ekleyebilirsiniz.</p>
             </div>
           ) : (
             <div className="room-table-shell m-5 mt-4">
@@ -863,9 +997,11 @@ export const RoomDetailView: React.FC<RoomDetailViewProps> = ({
                 <thead>
                   <tr>
                     <th>Sabit Oda Demirbaşı</th>
-                    <th className="w-36">Adet / Miktar</th>
-                    <th className="w-40">Tesis Tarihi</th>
-                    <th className="w-56">Demirbaş Durumu</th>
+                    <th className="w-32">Konum / Odası</th>
+                    <th className="w-28">Adet / Miktar</th>
+                    <th className="w-36">Tesis Tarihi</th>
+                    <th className="w-48">Demirbaş Durumu</th>
+                    <th className="w-16 text-right">İşlem</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -874,10 +1010,13 @@ export const RoomDetailView: React.FC<RoomDetailViewProps> = ({
 
                     return (
                       <tr key={inv.id}>
-                        <td className="font-extrabold text-slate-900"><div className="flex items-center gap-2">
-                          <Package className="w-3.5 h-3.5 text-[#1e3a8a] shrink-0" />
-                          <span>{inv.itemName}</span>
-                        </div></td>
+                        <td className="font-extrabold text-slate-900">
+                          <div className="flex items-center gap-2">
+                            <Package className="w-3.5 h-3.5 text-[#1e3a8a] shrink-0" />
+                            <span>{inv.itemName}</span>
+                          </div>
+                        </td>
+                        <td className="font-semibold text-slate-700">{inv.location || 'GENEL'}</td>
                         <td className="font-bold text-slate-900">
                           <span className="bg-blue-50 text-blue-900 border border-blue-200 px-2 py-0.5 rounded-md text-[11px] font-extrabold">
                             {inv.quantity} Adet
@@ -911,6 +1050,16 @@ export const RoomDetailView: React.FC<RoomDetailViewProps> = ({
                               </option>
                             ))}
                           </select>
+                        </td>
+                        <td className="text-right">
+                          <button
+                            type="button"
+                            onClick={() => setInventoryToDelete(inv)}
+                            title="Demirbaş Kaydını Sil"
+                            className="p-1.5 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-600 border border-rose-200 cursor-pointer transition-colors"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
                         </td>
                       </tr>
                     );
@@ -1838,6 +1987,302 @@ export const RoomDetailView: React.FC<RoomDetailViewProps> = ({
                 className="py-2 px-5 bg-[#1e3a8a] hover:bg-[#172554] text-white text-xs font-extrabold rounded-xl cursor-pointer transition-colors shadow-xs"
               >
                 Kapat
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* EDIT ROOM MODAL */}
+      {showEditRoomModal && (
+        <div
+          onClick={() => setShowEditRoomModal(false)}
+          className="fixed inset-0 z-[350] bg-slate-950/70 backdrop-blur-sm flex items-center justify-center p-4 animate-fadeIn"
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="bg-white border border-slate-300 rounded-3xl p-6 max-w-md w-full shadow-2xl space-y-4"
+          >
+            <div className="flex items-center justify-between border-b border-slate-200 pb-3">
+              <h3 className="font-extrabold text-slate-900 text-sm flex items-center gap-2">
+                <Edit className="w-4 h-4 text-amber-600" />
+                <span>Oda Bilgilerini Düzenle ({currentRoom.block.name})</span>
+              </h3>
+              <button
+                type="button"
+                onClick={() => setShowEditRoomModal(false)}
+                className="p-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-600 cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <form onSubmit={handleEditRoomSubmit} className="space-y-4 text-xs">
+              <div>
+                <label className="block font-bold text-slate-800 mb-1">Oda Numarası *</label>
+                <input
+                  type="text"
+                  required
+                  value={editRoomForm.roomNumber}
+                  onChange={(e) => setEditRoomForm({ ...editRoomForm, roomNumber: e.target.value })}
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl font-bold text-slate-900 outline-none"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block font-bold text-slate-800 mb-1">Kat Numarası *</label>
+                  <input
+                    type="number"
+                    required
+                    value={editRoomForm.floor}
+                    onChange={(e) => setEditRoomForm({ ...editRoomForm, floor: Number(e.target.value) })}
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl font-bold text-slate-900 outline-none"
+                  />
+                </div>
+
+                <div>
+                  <label className="block font-bold text-slate-800 mb-1">Kapasite (Kişi) *</label>
+                  <input
+                    type="number"
+                    required
+                    min={1}
+                    max={26}
+                    value={editRoomForm.capacity}
+                    onChange={(e) => setEditRoomForm({ ...editRoomForm, capacity: Number(e.target.value) })}
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl font-bold text-slate-900 outline-none"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block font-bold text-slate-800 mb-1">Oda Durumu</label>
+                <select
+                  value={editRoomForm.status}
+                  onChange={(e) => setEditRoomForm({ ...editRoomForm, status: e.target.value as RoomStatusType })}
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl font-bold text-slate-900 outline-none cursor-pointer"
+                >
+                  <option value="READY">🟢 Hazır (Müsait)</option>
+                  <option value="NEEDS_CLEANING">🟡 Temizlik Bekliyor</option>
+                  <option value="OUT_OF_ORDER">🔴 Arızalı / Bakımda</option>
+                </select>
+              </div>
+
+              <div className="pt-2 flex justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setShowEditRoomModal(false)}
+                  className="py-2.5 px-4 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl cursor-pointer"
+                >
+                  Vazgeç
+                </button>
+                <button
+                  type="submit"
+                  disabled={editRoomSubmitting}
+                  className="py-2.5 px-5 bg-amber-600 hover:bg-amber-700 text-white font-bold rounded-xl cursor-pointer shadow-md disabled:bg-amber-400"
+                >
+                  {editRoomSubmitting ? 'Kaydediliyor...' : 'Değişiklikleri Kaydet'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* DELETE ROOM CONFIRMATION MODAL */}
+      {showDeleteRoomModal && (
+        <div
+          onClick={() => setShowDeleteRoomModal(false)}
+          className="fixed inset-0 z-[350] bg-slate-950/70 backdrop-blur-sm flex items-center justify-center p-4 animate-fadeIn"
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="bg-white border border-slate-300 rounded-3xl p-6 max-w-sm w-full shadow-2xl space-y-4"
+          >
+            <div className="flex items-start gap-3.5">
+              <div className="w-11 h-11 rounded-2xl bg-rose-100 text-rose-700 flex items-center justify-center shrink-0 border border-rose-200 shadow-2xs">
+                <Trash2 className="w-5.5 h-5.5" />
+              </div>
+              <div className="space-y-1">
+                <h3 className="text-sm font-extrabold text-slate-900">
+                  Odayı Silmek İstediğinize Emin Misiniz?
+                </h3>
+                <p className="text-xs font-semibold text-slate-600">
+                  <strong>{currentRoom.block.name} - Oda {currentRoom.roomNumber}</strong> kalıcı olarak silinecektir.
+                </p>
+              </div>
+            </div>
+
+            <div className="pt-2 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setShowDeleteRoomModal(false)}
+                className="py-2.5 px-4 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl cursor-pointer text-xs"
+              >
+                Vazgeç
+              </button>
+              <button
+                type="button"
+                disabled={deleteRoomSubmitting}
+                onClick={handleDeleteRoomSubmit}
+                className="py-2.5 px-5 bg-rose-700 hover:bg-rose-800 text-white font-bold rounded-xl cursor-pointer shadow-md text-xs disabled:bg-rose-400"
+              >
+                {deleteRoomSubmitting ? 'Siliniyor...' : 'Evet, Odayı Sil'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ADD ROOM INVENTORY MODAL */}
+      {showAddInventoryModal && (
+        <div
+          onClick={() => setShowAddInventoryModal(false)}
+          className="fixed inset-0 z-[350] bg-slate-950/70 backdrop-blur-sm flex items-center justify-center p-4 animate-fadeIn"
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="bg-white border border-slate-300 rounded-3xl p-6 max-w-md w-full shadow-2xl space-y-4"
+          >
+            <div className="flex items-center justify-between border-b border-slate-200 pb-3">
+              <h3 className="font-extrabold text-slate-900 text-sm flex items-center gap-2">
+                <Package className="w-4 h-4 text-[#1e3a8a]" />
+                <span>Odaya Yeni Demirbaş / Eşya Ekle</span>
+              </h3>
+              <button
+                type="button"
+                onClick={() => setShowAddInventoryModal(false)}
+                className="p-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-600 cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <form onSubmit={handleAddInventorySubmit} className="space-y-4 text-xs">
+              <div>
+                <label className="block font-bold text-slate-800 mb-1">Demirbaş Eşya Adı *</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="Örn: Vestel 43 LED TV, Arçelik Klima, Beko Buzdolabı"
+                  value={addInventoryForm.itemName}
+                  onChange={(e) => setAddInventoryForm({ ...addInventoryForm, itemName: e.target.value })}
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl font-bold text-slate-900 outline-none"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block font-bold text-slate-800 mb-1">Konum / Etiket</label>
+                  <input
+                    type="text"
+                    placeholder="Örn: GENEL, Yatak-A, Banyo"
+                    value={addInventoryForm.location}
+                    onChange={(e) => setAddInventoryForm({ ...addInventoryForm, location: e.target.value })}
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl font-bold text-slate-900 outline-none"
+                  />
+                </div>
+
+                <div>
+                  <label className="block font-bold text-slate-800 mb-1">Adet / Miktar *</label>
+                  <input
+                    type="number"
+                    required
+                    min={1}
+                    value={addInventoryForm.quantity}
+                    onChange={(e) => setAddInventoryForm({ ...addInventoryForm, quantity: Number(e.target.value) })}
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl font-bold text-slate-900 outline-none"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block font-bold text-slate-800 mb-1">Demirbaş Durumu</label>
+                <select
+                  value={addInventoryForm.status}
+                  onChange={(e) => setAddInventoryForm({ ...addInventoryForm, status: e.target.value as RoomInventoryStatus })}
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl font-bold text-slate-900 outline-none cursor-pointer"
+                >
+                  <option value="HEALTHY">🟢 Sağlam & Çalışır</option>
+                  <option value="MAINTENANCE_REQUIRED">🟡 Arızalı / Bakım Bekliyor</option>
+                  <option value="DAMAGED">🔴 Kırık / Hasarlı</option>
+                  <option value="LOST">❓ Kayıp / Zayi</option>
+                  <option value="IN_SERVICE">🛠️ Tamirde / Serviste</option>
+                  <option value="REPLACEMENT_REQUIRED">🔄 Değişim Bekliyor</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block font-bold text-slate-800 mb-1">Açıklama / Not (Opsiyonel)</label>
+                <textarea
+                  rows={2}
+                  placeholder="Ürün seri numarası veya zimmet detayları..."
+                  value={addInventoryForm.notes}
+                  onChange={(e) => setAddInventoryForm({ ...addInventoryForm, notes: e.target.value })}
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl font-semibold text-slate-900 outline-none"
+                />
+              </div>
+
+              <div className="pt-2 flex justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setShowAddInventoryModal(false)}
+                  className="py-2.5 px-4 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl cursor-pointer"
+                >
+                  Vazgeç
+                </button>
+                <button
+                  type="submit"
+                  disabled={addInventorySubmitting}
+                  className="py-2.5 px-5 bg-[#1e3a8a] hover:bg-blue-900 text-white font-bold rounded-xl cursor-pointer shadow-md disabled:bg-blue-300"
+                >
+                  {addInventorySubmitting ? 'Ekleniyor...' : 'Demirbaş Ekle'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* DELETE INVENTORY CONFIRMATION MODAL */}
+      {inventoryToDelete && (
+        <div
+          onClick={() => setInventoryToDelete(null)}
+          className="fixed inset-0 z-[350] bg-slate-950/70 backdrop-blur-sm flex items-center justify-center p-4 animate-fadeIn"
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="bg-white border border-slate-300 rounded-3xl p-6 max-w-sm w-full shadow-2xl space-y-4"
+          >
+            <div className="flex items-start gap-3.5">
+              <div className="w-11 h-11 rounded-2xl bg-rose-100 text-rose-700 flex items-center justify-center shrink-0 border border-rose-200 shadow-2xs">
+                <Trash2 className="w-5.5 h-5.5" />
+              </div>
+              <div className="space-y-1">
+                <h3 className="text-sm font-extrabold text-slate-900">
+                  Demirbaş Kaydını Sil
+                </h3>
+                <p className="text-xs font-semibold text-slate-600">
+                  <strong>{inventoryToDelete.itemName} ({inventoryToDelete.location})</strong> demirbaş kaydı oda zimmetinden kaldırılacaktır.
+                </p>
+              </div>
+            </div>
+
+            <div className="pt-2 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setInventoryToDelete(null)}
+                className="py-2.5 px-4 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl cursor-pointer text-xs"
+              >
+                Vazgeç
+              </button>
+              <button
+                type="button"
+                disabled={deleteInventorySubmitting}
+                onClick={handleDeleteInventorySubmit}
+                className="py-2.5 px-5 bg-rose-700 hover:bg-rose-800 text-white font-bold rounded-xl cursor-pointer shadow-md text-xs disabled:bg-rose-400"
+              >
+                {deleteInventorySubmitting ? 'Siliniyor...' : 'Evet, Sil'}
               </button>
             </div>
           </div>

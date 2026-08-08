@@ -17,6 +17,14 @@ export interface Bed {
   };
 }
 
+export interface UserAccountInfo {
+  id: string;
+  username: string;
+  email: string;
+  role: 'ADMIN' | 'HOUSING_MANAGER' | 'SECURITY' | 'STAFF';
+  isActive: boolean;
+}
+
 export interface Employee {
   id: string;
   tcNo?: string;
@@ -43,10 +51,21 @@ export interface Employee {
   createdAt: string;
   checkInDate?: string | null;
   checkOutDate?: string | null;
+  userId?: string | null;
+  user?: UserAccountInfo | null;
+  generatedAccountInfo?: { username: string; password: string };
   beds?: Bed[];
   inventories?: any[];
   disciplinaryNotes?: any[];
   occupancies?: any[];
+}
+
+export interface SystemUserPayload {
+  createAccount?: boolean;
+  username?: string;
+  email?: string;
+  password?: string;
+  role?: 'ADMIN' | 'HOUSING_MANAGER' | 'SECURITY' | 'STAFF';
 }
 
 export interface CreateEmployeePayload {
@@ -70,6 +89,7 @@ export interface CreateEmployeePayload {
   photoUrl?: string;
   shiftType?: string;
   bedId?: string;
+  systemUser?: SystemUserPayload;
 }
 
 const api = axios.create({
@@ -81,9 +101,16 @@ const api = axios.create({
 });
 
 export const employeeApi = {
-  getEmployees: async (search?: string, status?: string, department?: string): Promise<Employee[]> => {
+  getEmployees: async (
+    search?: string, 
+    status?: string, 
+    department?: string, 
+    gender?: string, 
+    startDate?: string, 
+    endDate?: string
+  ): Promise<Employee[]> => {
     const response = await api.get<{ success: boolean; data: Employee[] }>('/', {
-      params: { search, status, department },
+      params: { search, status, department, gender, startDate, endDate },
     });
     return response.data.data;
   },
@@ -210,6 +237,18 @@ export const employeeApi = {
         msg = error.message;
       }
       throw new Error(msg);
+    }
+  },
+
+  generateAccount: async (id: string): Promise<{ username: string; password: string; role: string }> => {
+    try {
+      const response = await api.post<{ success: boolean; data: { username: string; password: string; role: string } }>(`/${id}/generate-account`);
+      return response.data.data;
+    } catch (error: any) {
+      if (error.response?.data?.message) {
+        throw new Error(error.response.data.message);
+      }
+      throw new Error(error.message || 'Hesap üretilirken hata oluştu.');
     }
   },
 };

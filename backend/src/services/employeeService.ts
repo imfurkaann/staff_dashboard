@@ -1,6 +1,9 @@
+import bcrypt from 'bcryptjs';
+import { Role } from '@prisma/client';
 import prisma from '../db/prisma';
 import { AppError } from '../middleware/errorHandler';
 import { encryptSensitiveData, hashSensitiveData, maskTcNo } from '../utils/crypto';
+import { generateUniqueUsername, generateUniqueEasyPassword } from '../utils/credentialGenerator';
 
 /**
  * Turkish Locale-aware Title Case Normalization
@@ -17,6 +20,33 @@ export function normalizeText(text?: string | null): string | null {
       return word.charAt(0).toLocaleUpperCase('tr-TR') + word.slice(1).toLocaleLowerCase('tr-TR');
     })
     .join(' ');
+}
+
+/**
+ * Validates profile photo URL / Base64 Data URI format and size
+ */
+export function validatePhotoUrl(photoUrl?: string | null): string | null {
+  if (!photoUrl || !photoUrl.trim()) return null;
+  const trimmed = photoUrl.trim();
+  if (trimmed.startsWith('http://') || trimmed.startsWith('https://') || trimmed.startsWith('/')) {
+    return trimmed;
+  }
+  const base64HeaderRegex = /^data:image\/(jpeg|jpg|png|webp);base64,/;
+  if (!base64HeaderRegex.test(trimmed)) {
+    throw new AppError('Geçersiz profil fotoğrafı biçimi. Yalnızca JPEG, PNG veya WEBP resim formatları kabul edilir.', 400);
+  }
+  if (trimmed.length > 2_500_000) {
+    throw new AppError('Profil fotoğrafı boyutu çok yüksek. Lütfen 1.5 MB altında bir resim yükleyin.', 400);
+  }
+  return trimmed;
+}
+
+export interface SystemUserDTO {
+  createAccount?: boolean;
+  username?: string;
+  email?: string;
+  password?: string;
+  role?: Role;
 }
 
 export interface CreateEmployeeDTO {
@@ -41,6 +71,7 @@ export interface CreateEmployeeDTO {
   shiftType?: string;            // Vardiya Tipi
   bedId?: string;                // Optional immediate bed assignment
   createdById?: string;          // User ID who created the employee
+  systemUser?: SystemUserDTO;    // System user account role & credentials
 }
 
 export class EmployeeService {
@@ -71,6 +102,12 @@ export class EmployeeService {
           returnedById: deletedById || null,
         },
       });
+      if (employee.userId) {
+        await tx.user.update({
+          where: { id: employee.userId },
+          data: { isActive: false },
+        });
+      }
       await tx.employee.update({
         where: { id: employeeId },
         data: {
@@ -90,6 +127,7 @@ export class EmployeeService {
     const employee = await prisma.employee.findUnique({
       where: { id: employeeId, isDeleted: false },
       include: {
+        user: { select: { id: true, username: true, email: true, role: true, isActive: true } },
         beds: {
           include: {
             room: {
@@ -136,18 +174,41 @@ export class EmployeeService {
   /**
    * Get list of employees with optional search & filters
    */
-  public static async getAllEmployees(search?: string, status?: string, department?: string) {
+  public static async getAllEmployees(search?: string, status?: string, department?: string, gender?: string, startDate?: string, endDate?: string) {
     const where: any = { isDeleted: false };
 
     if (status && status !== 'ALL') {
-      if (!['PENDING_ASSIGNMENT', 'RESIDENT', 'ON_LEAVE', 'CHECKED_OUT'].includes(status)) {
-        throw new AppError('Geçersiz personel durum filtresi.', 400);
+      if (['PENDING_ASSIGNMENT', 'RESIDENT', 'ON_LEAVE', 'CHECKED_OUT'].includes(status)) {
+        where.status = status;
       }
-      where.status = status;
     }
 
     if (department && department !== 'ALL') {
       where.department = department;
+    }
+
+    if (gender && gender !== 'ALL') {
+      if (['Male', 'Female'].includes(gender)) {
+        where.gender = gender;
+      }
+    }
+
+    if (startDate || endDate) {
+      const dateFilter: any = {};
+      if (startDate) {
+        dateFilter.gte = new Date(`${startDate}T00:00:00.000Z`);
+      }
+      if (endDate) {
+        dateFilter.lte = new Date(`${endDate}T23:59:59.999Z`);
+      }
+
+      where.AND = where.AND || [];
+      where.AND.push({
+        OR: [
+          { createdAt: dateFilter },
+          { occupancies: { some: { checkInDate: dateFilter } } },
+        ],
+      });
     }
 
     if (search && search.trim() !== '') {
@@ -166,6 +227,7 @@ export class EmployeeService {
     const employees = await prisma.employee.findMany({
       where,
       include: {
+        user: { select: { id: true, username: true, email: true, role: true, isActive: true } },
         beds: {
           include: {
             room: {
@@ -299,6 +361,55 @@ export class EmployeeService {
     // Encrypt TC before saving
     const encryptedTc = cleanTc !== '' ? encryptSensitiveData(cleanTc) : null;
 
+    // System User Account creation (Auto-generated unique credentials for every employee)
+    let createdUserId: string | null = null;
+    let generatedAccountInfo: { username: string; password: string } | null = null;
+
+    if (data.systemUser?.createAccount !== false) {
+      let targetUsername = data.systemUser?.username?.trim().toLowerCase();
+      let targetEmail = data.systemUser?.email?.trim().toLowerCase();
+      let targetPassword = data.systemUser?.password;
+      let targetRole = data.systemUser?.role && ['ADMIN', 'HOUSING_MANAGER', 'SECURITY', 'STAFF'].includes(data.systemUser.role)
+        ? data.systemUser.role
+        : Role.STAFF;
+
+      if (!targetUsername) {
+        targetUsername = await generateUniqueUsername(normalizedFirstName, normalizedLastName);
+      }
+      if (!targetPassword) {
+        targetPassword = await generateUniqueEasyPassword();
+      }
+      if (!targetEmail) {
+        targetEmail = `${targetUsername}@lojman.local`;
+      }
+
+      const existingUser = await prisma.user.findFirst({
+        where: { OR: [{ username: targetUsername }, { email: targetEmail }] },
+      });
+      if (existingUser) {
+        targetEmail = `${targetUsername}.${Date.now().toString().slice(-4)}@lojman.local`;
+      }
+
+      const passwordHash = await bcrypt.hash(targetPassword, 12);
+
+      const newUser = await prisma.user.create({
+        data: {
+          username: targetUsername,
+          email: targetEmail,
+          passwordHash,
+          fullName: `${normalizedFirstName} ${normalizedLastName}`,
+          role: targetRole,
+          isActive: true,
+        },
+      });
+
+      createdUserId = newUser.id;
+      generatedAccountInfo = {
+        username: targetUsername,
+        password: targetPassword,
+      };
+    }
+
     // Determine initial status
     const initialStatus = bedId ? 'RESIDENT' : 'PENDING_ASSIGNMENT';
     const now = new Date(); // Exact DateTime timestamp
@@ -326,9 +437,10 @@ export class EmployeeService {
           emergencyContactName: normalizedEmergencyName,
           emergencyRelation: emergencyRelation || null,
           emergencyContactPhone: emergencyContactPhone?.trim() || null,
-          photoUrl: photoUrl || null,
+          photoUrl: validatePhotoUrl(photoUrl),
           shiftType: shiftType || 'Gündüz',
           status: initialStatus,
+          userId: createdUserId,
           createdById: createdById || null,
           createdAt: now,
         },
@@ -353,18 +465,45 @@ export class EmployeeService {
           throw new AppError('Seçilen yatak zaten dolu.', 400);
         }
 
-        // Verify gender compatibility with Block policy
-        if (bed.room.block.genderPolicy !== 'Mixed') {
-          const isGenderMatch = 
-            (gender === 'Male' && bed.room.block.genderPolicy === 'Male') ||
-            (gender === 'Female' && bed.room.block.genderPolicy === 'Female');
+        if (bed.room.status !== 'READY') {
+          throw new AppError(
+            `Seçilen oda hazır durumda değil (${bed.room.status === 'NEEDS_CLEANING' ? 'Temizlik Bekliyor' : 'Arızalı/Bakımda'}). Yalnızca hazır durumdaki odalara personel yerleştirilebilir.`,
+            400
+          );
+        }
 
-          if (!isGenderMatch) {
-            throw new AppError(
-              `Personel cinsiyeti (${gender === 'Male' ? 'Erkek' : 'Kadın'}) seçilen lojman bloğu politikasıyla (${bed.room.block.name}) uyusmuyor.`,
-              400
-            );
-          }
+        // Verify gender compatibility with Block policy
+        if (bed.room.block.genderPolicy !== 'Mixed' && bed.room.block.genderPolicy !== gender) {
+          throw new AppError(
+            `Personel cinsiyeti (${gender === 'Male' ? 'Erkek' : 'Kadın'}), seçilen lojman bloğu politikasıyla (${bed.room.block.name}) uyuşmuyor.`,
+            400
+          );
+        }
+
+        // Check for conflicting gender in the same room
+        const otherBedsInRoom = await tx.bed.findMany({
+          where: { roomId: bed.roomId, isOccupied: true, NOT: { currentEmployeeId: newEmployee.id } },
+          include: { currentEmployee: { select: { gender: true, firstName: true, lastName: true } } },
+        });
+
+        const conflictingOccupant = otherBedsInRoom.find(
+          (b) => b.currentEmployee && b.currentEmployee.gender !== gender
+        );
+
+        if (conflictingOccupant) {
+          throw new AppError(
+            `Seçilen odada (${bed.room.block.name} Oda ${bed.room.roomNumber}) halen ${conflictingOccupant.currentEmployee?.gender === 'Male' ? 'Erkek' : 'Kadın'} bir personel (${conflictingOccupant.currentEmployee?.firstName} ${conflictingOccupant.currentEmployee?.lastName}) ikamet etmektedir. Aynı odaya karşı cinsiyette personel yerleştirilemez.`,
+            400
+          );
+        }
+
+        // Verify room capacity limit
+        const occupiedCountInRoom = otherBedsInRoom.length;
+        if (occupiedCountInRoom >= bed.room.capacity) {
+          throw new AppError(
+            `Seçilen oda (${bed.room.block.name} Oda ${bed.room.roomNumber}) maksimum ${bed.room.capacity} kişilik doluluğa ulaşmıştır. Yeni personel yerleştirilemez.`,
+            400
+          );
         }
 
         // Claim the bed atomically to prevent concurrent double assignment.
@@ -396,6 +535,7 @@ export class EmployeeService {
       const created = await tx.employee.findUnique({
         where: { id: newEmployee.id },
         include: {
+          user: { select: { id: true, username: true, email: true, role: true, isActive: true } },
           beds: {
             include: {
               room: {
@@ -429,6 +569,7 @@ export class EmployeeService {
         tcNoMasked: maskTcNo(storedTcNo),
         checkInDate: latestOccupancy ? latestOccupancy.checkInDate : null,
         checkOutDate: latestOccupancy ? latestOccupancy.checkOutDate : null,
+        generatedAccountInfo,
       };
     });
   }
@@ -464,7 +605,7 @@ export class EmployeeService {
     if (data.emergencyContactName !== undefined) updateData.emergencyContactName = normalizeText(data.emergencyContactName);
     if (data.emergencyRelation !== undefined) updateData.emergencyRelation = data.emergencyRelation || null;
     if (data.emergencyContactPhone !== undefined) updateData.emergencyContactPhone = data.emergencyContactPhone?.trim() || null;
-    if (data.photoUrl !== undefined) updateData.photoUrl = data.photoUrl || null;
+    if (data.photoUrl !== undefined) updateData.photoUrl = validatePhotoUrl(data.photoUrl);
     if (data.tcNo && data.tcNo.trim() !== '') {
       const cleanTc = data.tcNo.trim();
       const duplicate = await prisma.employee.findFirst({
@@ -474,6 +615,57 @@ export class EmployeeService {
       if (duplicate) throw new AppError('Bu TC/Pasaport numarası başka bir personelde kayıtlı.', 409);
       updateData.tcNo = encryptSensitiveData(cleanTc);
       updateData.tcNoHash = hashSensitiveData(cleanTc);
+    }
+
+    // System User Account Update / Creation
+    if (data.systemUser) {
+      if (data.systemUser.createAccount) {
+        if (employee.userId) {
+          const updateUserData: any = {};
+          if (data.systemUser.username) updateUserData.username = data.systemUser.username.trim().toLowerCase();
+          if (data.systemUser.email) updateUserData.email = data.systemUser.email.trim().toLowerCase();
+          if (data.systemUser.role) updateUserData.role = data.systemUser.role;
+          if (data.systemUser.password && data.systemUser.password.trim().length >= 8) {
+            updateUserData.passwordHash = await bcrypt.hash(data.systemUser.password.trim(), 12);
+          }
+          if (Object.keys(updateUserData).length > 0) {
+            await prisma.user.update({
+              where: { id: employee.userId },
+              data: updateUserData,
+            });
+          }
+        } else {
+          const { username, email, password, role } = data.systemUser;
+          if (!username || !username.trim()) throw new AppError('Sistem kullanıcısı için kullanıcı adı zorunludur.', 400);
+          if (!email || !email.trim()) throw new AppError('Sistem kullanıcısı için e-posta adresi zorunludur.', 400);
+          if (!password || password.length < 8) throw new AppError('Sistem kullanıcısı şifresi en az 8 karakter olmalıdır.', 400);
+
+          const cleanUsername = username.trim().toLowerCase();
+          const cleanEmail = email.trim().toLowerCase();
+          const existingUser = await prisma.user.findFirst({
+            where: { OR: [{ username: cleanUsername }, { email: cleanEmail }] },
+          });
+          if (existingUser) throw new AppError('Girilen kullanıcı adı veya e-posta adresi sistemde zaten kayıtlı.', 409);
+
+          const passwordHash = await bcrypt.hash(password, 12);
+          const userRole = role && ['ADMIN', 'HOUSING_MANAGER', 'SECURITY', 'STAFF'].includes(role) ? role : Role.STAFF;
+
+          const targetFirstName = data.firstName ? normalizeText(data.firstName) : employee.firstName;
+          const targetLastName = data.lastName ? normalizeText(data.lastName)?.toLocaleUpperCase('tr-TR') : employee.lastName;
+
+          const newUser = await prisma.user.create({
+            data: {
+              username: cleanUsername,
+              email: cleanEmail,
+              passwordHash,
+              fullName: `${targetFirstName} ${targetLastName}`,
+              role: userRole,
+              isActive: true,
+            },
+          });
+          updateData.userId = newUser.id;
+        }
+      }
     }
 
     return prisma.$transaction(async (tx) => {
@@ -489,10 +681,45 @@ export class EmployeeService {
           throw new AppError('Seçilen yatak başka bir personel tarafından dolu.', 400);
         }
 
-        if (bed.room.status !== 'READY') throw new AppError('Hazır durumda olmayan bir odaya personel atanamaz.', 400);
-        if (bed.room.block.genderPolicy !== 'Mixed') {
-          const targetGender = data.gender || employee.gender;
-          if (bed.room.block.genderPolicy !== targetGender) throw new AppError('Personel cinsiyeti seçilen blok politikasıyla uyuşmuyor.', 400);
+        if (bed.room.status !== 'READY') {
+          throw new AppError(
+            `Seçilen oda hazır durumda değil (${bed.room.status === 'NEEDS_CLEANING' ? 'Temizlik Bekliyor' : 'Arızalı/Bakımda'}). Yalnızca hazır durumdaki odalara personel ataması yapılabilir.`,
+            400
+          );
+        }
+
+        const targetGender = data.gender || employee.gender;
+        if (bed.room.block.genderPolicy !== 'Mixed' && bed.room.block.genderPolicy !== targetGender) {
+          throw new AppError(
+            `Personel cinsiyeti (${targetGender === 'Male' ? 'Erkek' : 'Kadın'}), seçilen lojman bloğu politikasıyla (${bed.room.block.name}) uyuşmuyor.`,
+            400
+          );
+        }
+
+        // Check for conflicting gender in the same room
+        const otherBedsInRoom = await tx.bed.findMany({
+          where: { roomId: bed.roomId, isOccupied: true, NOT: { currentEmployeeId: employeeId } },
+          include: { currentEmployee: { select: { gender: true, firstName: true, lastName: true } } },
+        });
+
+        const conflictingOccupant = otherBedsInRoom.find(
+          (b) => b.currentEmployee && b.currentEmployee.gender !== targetGender
+        );
+
+        if (conflictingOccupant) {
+          throw new AppError(
+            `Seçilen odada (${bed.room.block.name} Oda ${bed.room.roomNumber}) halen ${conflictingOccupant.currentEmployee?.gender === 'Male' ? 'Erkek' : 'Kadın'} bir personel (${conflictingOccupant.currentEmployee?.firstName} ${conflictingOccupant.currentEmployee?.lastName}) ikamet etmektedir. Aynı odaya karşı cinsiyette personel yerleştirilemez.`,
+            400
+          );
+        }
+
+        // Verify room capacity limit
+        const occupiedCountInRoom = otherBedsInRoom.length;
+        if (occupiedCountInRoom >= bed.room.capacity) {
+          throw new AppError(
+            `Seçilen oda (${bed.room.block.name} Oda ${bed.room.roomNumber}) maksimum ${bed.room.capacity} kişilik doluluğa ulaşmıştır. Yeni personel yerleştirilemez.`,
+            400
+          );
         }
 
         const now = new Date();
@@ -537,6 +764,7 @@ export class EmployeeService {
         where: { id: employeeId },
         data: updateData,
         include: {
+          user: { select: { id: true, username: true, email: true, role: true, isActive: true } },
           beds: {
             include: {
               room: {
@@ -688,7 +916,7 @@ export class EmployeeService {
   }
 
   /**
-   * Get available unoccupied beds compatible with gender
+   * Get available unoccupied beds compatible with gender and room occupation policy
    */
   public static async getAvailableBeds(gender?: string) {
     const where: any = {
@@ -710,12 +938,18 @@ export class EmployeeService {
       };
     }
 
-    return prisma.bed.findMany({
+    const availableBeds = await prisma.bed.findMany({
       where,
       include: {
         room: {
           include: {
             block: true,
+            beds: {
+              where: { isOccupied: true },
+              include: {
+                currentEmployee: { select: { gender: true } },
+              },
+            },
           },
         },
       },
@@ -725,6 +959,18 @@ export class EmployeeService {
         { bedLabel: 'asc' },
       ],
     });
+
+    if (gender) {
+      return availableBeds.filter((bed) => {
+        const roomOccupants = bed.room.beds;
+        const hasOppositeGender = roomOccupants.some(
+          (b) => b.currentEmployee && b.currentEmployee.gender !== gender
+        );
+        return !hasOppositeGender;
+      });
+    }
+
+    return availableBeds;
   }
 
   /**
@@ -862,15 +1108,22 @@ export class EmployeeService {
         data: { isOccupied: false, currentEmployeeId: null },
       });
 
-      // 3. Update employee status to PENDING_ASSIGNMENT & record checkout user
+      // 3. Update employee status to CHECKED_OUT & record checkout user
+      if (employee.userId) {
+        await tx.user.update({
+          where: { id: employee.userId },
+          data: { isActive: false },
+        });
+      }
+
       const updated = await tx.employee.update({
         where: { id: employeeId },
         data: { 
-          status: 'PENDING_ASSIGNMENT',
+          status: 'CHECKED_OUT',
           checkedOutById: checkedOutById || null,
-          checkedOutAt: now,
         },
         include: {
+          user: { select: { id: true, username: true, email: true, role: true, isActive: true } },
           beds: {
             include: {
               room: {
@@ -908,4 +1161,47 @@ export class EmployeeService {
       };
     });
   }
+
+  /**
+   * Generates a unique username and easy password for an existing employee who has no user account
+   */
+  public static async generateAccountForEmployee(employeeId: string) {
+    const employee = await prisma.employee.findUnique({
+      where: { id: employeeId, isDeleted: false },
+      include: { user: true },
+    });
+
+    if (!employee) throw new AppError('Personel bulunamadı.', 404);
+    if (employee.userId || employee.user) {
+      throw new AppError('Bu personelin zaten tanımlı bir kullanıcı hesabı var.', 400);
+    }
+
+    const username = await generateUniqueUsername(employee.firstName, employee.lastName);
+    const password = await generateUniqueEasyPassword();
+    const email = `${username}@lojman.local`;
+    const passwordHash = await bcrypt.hash(password, 12);
+
+    const newUser = await prisma.user.create({
+      data: {
+        username,
+        email,
+        passwordHash,
+        fullName: `${employee.firstName} ${employee.lastName}`,
+        role: Role.STAFF,
+        isActive: true,
+      },
+    });
+
+    await prisma.employee.update({
+      where: { id: employeeId },
+      data: { userId: newUser.id },
+    });
+
+    return {
+      username,
+      password,
+      role: Role.STAFF,
+    };
+  }
 }
+

@@ -10,6 +10,7 @@ import {
   LogOut,
   ChevronRight,
   UserCheck,
+  Bell,
   User as UserIcon
 } from 'lucide-react';
 import { User } from '../api/authApi';
@@ -36,6 +37,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     { id: 'rooms', label: 'Oda Kayıtları', icon: BedDouble },
     { id: 'visitors', label: 'Ziyaretçi Takibi', icon: UserCheck },
     { id: 'issues', label: 'Arıza Yönetimi', icon: Wrench },
+    { id: 'notifications', label: 'Bildirim Gönder', icon: Bell },
   ];
 
   return (<>

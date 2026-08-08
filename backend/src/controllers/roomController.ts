@@ -349,4 +349,71 @@ export const roomController = {
       next(error);
     }
   },
+
+  updateRoom: async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { id } = req.params;
+      const { roomNumber, floor, capacity, status } = req.body;
+      if (!isUuid(id)) return res.status(400).json({ success: false, message: 'Geçersiz oda kimliği.' });
+
+      const updatedRoom = await roomService.updateRoom(id, {
+        roomNumber: roomNumber !== undefined ? cleanString(roomNumber, 20) : undefined,
+        floor: floor !== undefined ? Number(floor) : undefined,
+        capacity: capacity !== undefined ? Number(capacity) : undefined,
+        status: status ? (status as RoomStatus) : undefined,
+      });
+
+      res.status(200).json({ success: true, data: updatedRoom, message: 'Oda bilgileri güncellendi.' });
+    } catch (error) {
+      next(error);
+    }
+  },
+
+  deleteRoom: async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { id } = req.params;
+      if (!isUuid(id)) return res.status(400).json({ success: false, message: 'Geçersiz oda kimliği.' });
+
+      const result = await roomService.deleteRoom(id);
+      res.status(200).json({ success: true, message: result.message });
+    } catch (error) {
+      next(error);
+    }
+  },
+
+  createRoomInventory: async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { id } = req.params;
+      const { itemName, location, quantity, status, notes } = req.body;
+      if (!isUuid(id)) return res.status(400).json({ success: false, message: 'Geçersiz oda kimliği.' });
+
+      if (!itemName || !cleanString(itemName, 100)) {
+        return res.status(400).json({ success: false, message: 'Demirbaş eşya adı zorunludur.' });
+      }
+
+      const newInventory = await roomService.createRoomInventory(id, {
+        itemName: cleanString(itemName, 100),
+        location: cleanString(location, 100) || undefined,
+        quantity: quantity !== undefined ? Number(quantity) : 1,
+        status: status ? (status as RoomInventoryStatus) : 'HEALTHY',
+        notes: cleanString(notes, 1000) || undefined,
+      });
+
+      res.status(201).json({ success: true, data: newInventory, message: 'Yeni demirbaş eşya odaya eklendi.' });
+    } catch (error) {
+      next(error);
+    }
+  },
+
+  deleteRoomInventory: async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { inventoryId } = req.params;
+      if (!isUuid(inventoryId)) return res.status(400).json({ success: false, message: 'Geçersiz zimmet kaydı kimliği.' });
+
+      await roomService.deleteRoomInventory(inventoryId);
+      res.status(200).json({ success: true, message: 'Demirbaş eşya kaydı silindi.' });
+    } catch (error) {
+      next(error);
+    }
+  },
 };

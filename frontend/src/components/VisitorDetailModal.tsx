@@ -93,6 +93,7 @@ export const VisitorDetailModal: React.FC<VisitorDetailModalProps> = ({
 
   const createdByName = visitor.createdBy?.fullName || 'Bilinmeyen Kullanıcı';
   const updatedByName = visitor.updatedBy?.fullName || 'Bilinmeyen Kullanıcı';
+  const deletedByName = visitor.deletedBy?.fullName || 'Bilinmeyen Kullanıcı';
 
   return (
     <div
@@ -226,15 +227,24 @@ export const VisitorDetailModal: React.FC<VisitorDetailModalProps> = ({
               <p className="text-xs font-extrabold text-slate-900">{createdByName}</p>
             </div>
 
-            {/* Son Güncelleyen Personel */}
-            <div className="p-3.5 rounded-2xl bg-white border border-slate-200 shadow-2xs space-y-1">
-              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block flex items-center gap-1">
-                <User className="w-3.5 h-3.5 text-slate-500" /> Son Güncelleyen
-              </span>
-              <p className="text-xs font-extrabold text-slate-900">
-                {visitor.updatedAt !== visitor.createdAt ? updatedByName : '-'}
-              </p>
-            </div>
+            {/* Son Güncelleyen VEYA Arşivleyen Yetkili */}
+            {visitor.isDeleted ? (
+              <div className="p-3.5 rounded-2xl bg-rose-50 border border-rose-200 shadow-2xs space-y-1">
+                <span className="text-[10px] font-bold text-rose-500 uppercase tracking-wider block flex items-center gap-1">
+                  <User className="w-3.5 h-3.5 text-rose-600" /> Arşivleyen / Silen Yetkili
+                </span>
+                <p className="text-xs font-extrabold text-rose-900">{deletedByName}</p>
+              </div>
+            ) : (
+              <div className="p-3.5 rounded-2xl bg-white border border-slate-200 shadow-2xs space-y-1">
+                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block flex items-center gap-1">
+                  <User className="w-3.5 h-3.5 text-slate-500" /> Son Güncelleyen
+                </span>
+                <p className="text-xs font-extrabold text-slate-900">
+                  {visitor.updatedAt !== visitor.createdAt ? updatedByName : '-'}
+                </p>
+              </div>
+            )}
           </div>
 
           {/* Notlar */}
