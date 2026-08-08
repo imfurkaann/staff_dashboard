@@ -15,10 +15,10 @@ router.get('/', EmployeeController.getAll);
 router.get('/export.xlsx', authorizeRoles('ADMIN', 'HOUSING_MANAGER'), EmployeeController.exportExcel);
 
 // GET /api/employees/available-beds (Get list of available beds for placement)
-router.get('/available-beds', EmployeeController.getAvailableBeds);
+router.get('/available-beds', authorizeRoles('ADMIN', 'HOUSING_MANAGER'), EmployeeController.getAvailableBeds);
 
 // GET /api/employees/:id (Get single employee details)
-router.get('/:id', EmployeeController.getById);
+router.get('/:id', authorizeRoles('ADMIN', 'HOUSING_MANAGER'), EmployeeController.getById);
 
 // POST /api/employees (Create new employee)
 router.post('/', authorizeRoles('ADMIN', 'HOUSING_MANAGER'), EmployeeController.create);

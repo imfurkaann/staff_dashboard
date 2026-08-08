@@ -1,6 +1,7 @@
 import prisma from '../db/prisma';
 import { AppError } from '../middleware/errorHandler';
 import { MaintenancePriority, MaintenanceStatus, Prisma, RoomInventoryStatus, RoomStatus } from '@prisma/client';
+import { assertDateRange, parseIstanbulDateBoundary } from '../utils/dateTime';
 
 const roomEmployeeSelect = {
   id: true,
@@ -290,6 +291,7 @@ export const roomService = {
    * Update room status (READY, NEEDS_CLEANING, OUT_OF_ORDER)
    */
   async updateRoomStatus(roomId: string, status: RoomStatus, userFullName: string = 'Lojman Yönetimi') {
+    if (!Object.values(RoomStatus).includes(status)) throw new AppError('Geçersiz oda durumu.', 400);
     const room = await prisma.room.findUnique({ where: { id: roomId } });
     if (!room) {
       throw new AppError('Oda bulunamadı.', 404);
@@ -302,8 +304,8 @@ export const roomService = {
           data: {
             roomId,
             status: 'NEEDS_CLEANING',
-            requestedBy: userFullName,
-            notes: 'Oda durumu Temizlik Bekliyor olarak güncellendi.',
+            requestedBy: userFullName.toLocaleUpperCase('tr-TR'),
+            notes: 'ODA DURUMU TEMİZLİK BEKLİYOR OLARAK GÜNCELLENDİ.',
             requestedAt: new Date(),
           },
         });
@@ -319,7 +321,7 @@ export const roomService = {
             data: {
               status: 'CLEANED',
               cleanedAt: new Date(),
-              cleanedBy: userFullName,
+              cleanedBy: userFullName.toLocaleUpperCase('tr-TR'),
             },
           });
         } else {
@@ -328,9 +330,9 @@ export const roomService = {
             data: {
               roomId,
               status: 'CLEANED',
-              requestedBy: userFullName,
-              cleanedBy: userFullName,
-              notes: 'Oda durumu Hazır olarak güncellendi.',
+              requestedBy: userFullName.toLocaleUpperCase('tr-TR'),
+              cleanedBy: userFullName.toLocaleUpperCase('tr-TR'),
+              notes: 'ODA DURUMU HAZIR OLARAK GÜNCELLENDİ.',
               requestedAt: new Date(),
               cleanedAt: new Date(),
             },
@@ -352,15 +354,22 @@ export const roomService = {
     if (!room) throw new AppError('Oda bulunamadı.', 404);
 
     const logStatus = data.status || 'NEEDS_CLEANING';
+    if (!['NEEDS_CLEANING', 'IN_PROGRESS', 'CLEANED'].includes(logStatus)) {
+      throw new AppError('Geçersiz temizlik durumu.', 400);
+    }
     const isCleaned = logStatus === 'CLEANED';
+    if (!isCleaned) {
+      const activeLog = await prisma.roomCleaningLog.findFirst({ where: { roomId, status: { not: 'CLEANED' } }, select: { id: true } });
+      if (activeLog) throw new AppError('Bu oda için zaten açık bir temizlik kaydı bulunuyor.', 409);
+    }
 
     await prisma.roomCleaningLog.create({
       data: {
         roomId,
         status: logStatus,
-        requestedBy: data.requestedBy || 'Lojman Yönetimi',
-        cleanedBy: data.cleanedBy || (isCleaned ? 'Lojman Yönetimi' : null),
-        notes: data.notes || null,
+        requestedBy: (data.requestedBy || 'Lojman Yönetimi').toLocaleUpperCase('tr-TR'),
+        cleanedBy: (data.cleanedBy || (isCleaned ? 'Lojman Yönetimi' : null))?.toLocaleUpperCase('tr-TR') || null,
+        notes: data.notes?.trim().toLocaleUpperCase('tr-TR') || null,
         requestedAt: new Date(),
         cleanedAt: isCleaned ? new Date() : null,
       },
@@ -376,9 +385,12 @@ export const roomService = {
   },
 
   /** Update an existing room cleaning log */
-  async updateCleaningLog(logId: string, data: { status?: string; cleanedBy?: string; notes?: string; requestedBy?: string }) {
+  async updateCleaningLog(logId: string, data: { status?: string; cleanedBy?: string | null; notes?: string; requestedBy?: string }) {
     const existing = await prisma.roomCleaningLog.findUnique({ where: { id: logId } });
     if (!existing) throw new AppError('Temizlik kaydı bulunamadı.', 404);
+    if (data.status !== undefined && !['NEEDS_CLEANING', 'IN_PROGRESS', 'CLEANED'].includes(data.status)) {
+      throw new AppError('Geçersiz temizlik durumu.', 400);
+    }
 
     const isCleaned = data.status === 'CLEANED';
     const cleanedAt = isCleaned && !existing.cleanedAt ? new Date() : (data.status && !isCleaned ? null : existing.cleanedAt);
@@ -387,9 +399,9 @@ export const roomService = {
       where: { id: logId },
       data: {
         status: data.status !== undefined ? data.status : existing.status,
-        requestedBy: data.requestedBy !== undefined ? data.requestedBy : existing.requestedBy,
-        cleanedBy: data.cleanedBy !== undefined ? data.cleanedBy : existing.cleanedBy,
-        notes: data.notes !== undefined ? data.notes : existing.notes,
+        requestedBy: data.requestedBy !== undefined ? data.requestedBy.toLocaleUpperCase('tr-TR') : existing.requestedBy,
+        cleanedBy: data.cleanedBy !== undefined ? data.cleanedBy?.toLocaleUpperCase('tr-TR') || null : (data.status && !isCleaned ? null : existing.cleanedBy),
+        notes: data.notes !== undefined ? data.notes.toLocaleUpperCase('tr-TR') : existing.notes,
         cleanedAt,
       },
     });
@@ -422,6 +434,12 @@ export const roomService = {
    */
   async createRoom(data: CreateRoomInput) {
     const { blockId, floor, roomNumber, capacity = 2 } = data;
+    const normalizedRoomNumber = typeof roomNumber === 'string' ? roomNumber.trim().toLocaleUpperCase('tr-TR') : '';
+    const parsedFloor = Number(floor);
+    const parsedCapacity = Number(capacity);
+    if (!normalizedRoomNumber || normalizedRoomNumber.length > 20) throw new AppError('Oda numarası zorunludur ve en fazla 20 karakter olabilir.', 400);
+    if (!Number.isInteger(parsedFloor) || parsedFloor < -5 || parsedFloor > 200) throw new AppError('Kat değeri -5 ile 200 arasında tam sayı olmalıdır.', 400);
+    if (!Number.isInteger(parsedCapacity) || parsedCapacity < 1 || parsedCapacity > 26) throw new AppError('Oda kapasitesi 1 ile 26 arasında olmalıdır.', 400);
 
     const block = await prisma.block.findUnique({ where: { id: blockId } });
     if (!block) {
@@ -429,21 +447,21 @@ export const roomService = {
     }
 
     const existing = await prisma.room.findFirst({
-      where: { blockId, roomNumber },
+      where: { blockId, roomNumber: normalizedRoomNumber },
     });
     if (existing) {
       throw new AppError(`${block.name} bloğunda '${roomNumber}' numaralı oda zaten mevcut.`, 400);
     }
 
     // Alphabetical labels: Yatak-A, Yatak-B, Yatak-C, Yatak-D ...
-    const bedLabels = Array.from({ length: capacity }, (_, i) => `Yatak-${String.fromCharCode(65 + i)}`);
+    const bedLabels = Array.from({ length: parsedCapacity }, (_, i) => `YATAK-${String.fromCharCode(65 + i)}`);
 
     const newRoom = await prisma.room.create({
       data: {
         blockId,
-        floor: Number(floor),
-        roomNumber,
-        capacity: Number(capacity),
+        floor: parsedFloor,
+        roomNumber: normalizedRoomNumber,
+        capacity: parsedCapacity,
         status: 'READY',
         beds: {
           create: bedLabels.map((label) => ({
@@ -452,10 +470,15 @@ export const roomService = {
           })),
         },
         inventories: {
-          create: bedLabels.map((label) => ({
-            itemName: label,
-            location: label.toLocaleUpperCase('tr-TR'),
-          })),
+          create: [
+            { itemName: 'TELEVİZYON (SMART LED TV)', location: 'ODA ORTAK' },
+            { itemName: 'MİNİBAR (BUZDOLABI)', location: 'ODA ORTAK' },
+            { itemName: 'KLİMA (İNVERTER)', location: 'ODA ORTAK' },
+            ...bedLabels.flatMap((label) => [
+              { itemName: 'YATAK (ORTOPEDİK)', location: label.toLocaleUpperCase('tr-TR') },
+              { itemName: 'BAZA (SANDIKLI)', location: label.toLocaleUpperCase('tr-TR') },
+            ]),
+          ],
         },
       },
       include: {
@@ -472,7 +495,9 @@ export const roomService = {
    */
   async createBlock(data: CreateBlockInput) {
     const { name, genderPolicy } = data;
-    const normalizedName = name.trim().toLocaleUpperCase('tr-TR');
+    const normalizedName = typeof name === 'string' ? name.trim().toLocaleUpperCase('tr-TR') : '';
+    if (!normalizedName || normalizedName.length > 50) throw new AppError('Blok adı zorunludur ve en fazla 50 karakter olabilir.', 400);
+    if (!['Male', 'Female', 'Mixed'].includes(genderPolicy)) throw new AppError('Geçersiz yerleşim politikası.', 400);
 
     const existing = await prisma.block.findFirst({ where: { name: { equals: normalizedName, mode: 'insensitive' } } });
     if (existing) {
@@ -511,13 +536,13 @@ export const roomService = {
     const maintenance = await prisma.maintenanceLog.create({
       data: {
         roomId,
-        title: title.trim(),
+        title: title.trim().toLocaleUpperCase('tr-TR'),
         description: description.trim().toLocaleUpperCase('tr-TR'),
-        category: category?.trim() || null,
+        category: category?.trim().toLocaleUpperCase('tr-TR') || null,
         location: location?.trim().toLocaleUpperCase('tr-TR') || null,
         priority,
         status: 'OPEN',
-        reportedBy,
+        reportedBy: reportedBy.toLocaleUpperCase('tr-TR'),
       },
     });
 
@@ -553,13 +578,13 @@ export const roomService = {
       resolutionNote?: string | null;
       resolvedAt?: Date | null;
     } = {};
-    if (data.title?.trim()) updateData.title = data.title.trim();
+    if (data.title?.trim()) updateData.title = data.title.trim().toLocaleUpperCase('tr-TR');
     if (data.description?.trim()) updateData.description = data.description.trim().toLocaleUpperCase('tr-TR');
     if (data.priority) updateData.priority = data.priority;
-    if (data.assignedTo !== undefined) updateData.assignedTo = data.assignedTo?.trim() || null;
-    if (data.category !== undefined) updateData.category = data.category?.trim() || null;
+    if (data.assignedTo !== undefined) updateData.assignedTo = data.assignedTo?.trim().toLocaleUpperCase('tr-TR') || null;
+    if (data.category !== undefined) updateData.category = data.category?.trim().toLocaleUpperCase('tr-TR') || null;
     if (data.location !== undefined) updateData.location = data.location?.trim().toLocaleUpperCase('tr-TR') || null;
-    if (data.resolutionNote !== undefined) updateData.resolutionNote = data.resolutionNote?.trim() || null;
+    if (data.resolutionNote !== undefined) updateData.resolutionNote = data.resolutionNote?.trim().toLocaleUpperCase('tr-TR') || null;
     if (data.status) {
       updateData.status = data.status;
       updateData.resolvedAt = data.status === 'RESOLVED' || data.status === 'CLOSED' ? new Date() : null;
@@ -602,13 +627,14 @@ export const roomService = {
   async updateRoom(roomId: string, data: { roomNumber?: string; floor?: number; capacity?: number; status?: RoomStatus }) {
     const room = await prisma.room.findUnique({
       where: { id: roomId },
-      include: { beds: { orderBy: { bedLabel: 'asc' } }, block: true },
+      include: { beds: { orderBy: { bedLabel: 'asc' }, include: { _count: { select: { occupancies: true } } } }, block: true },
     });
     if (!room) throw new AppError('Oda bulunamadı.', 404);
 
     const updateData: any = {};
 
-    if (data.roomNumber && data.roomNumber.trim() !== '') {
+    if (data.roomNumber !== undefined) {
+      if (!data.roomNumber.trim()) throw new AppError('Oda numarası boş bırakılamaz.', 400);
       const normalizedRoomNumber = data.roomNumber.trim().toLocaleUpperCase('tr-TR');
       if (normalizedRoomNumber !== room.roomNumber) {
         const duplicate = await prisma.room.findFirst({
@@ -621,24 +647,27 @@ export const roomService = {
       }
     }
 
-    if (data.floor !== undefined && !isNaN(data.floor)) {
-      updateData.floor = Number(data.floor);
+    if (data.floor !== undefined) {
+      const floor = Number(data.floor);
+      if (!Number.isInteger(floor) || floor < -5 || floor > 200) throw new AppError('Kat değeri -5 ile 200 arasında tam sayı olmalıdır.', 400);
+      updateData.floor = floor;
     }
 
-    if (data.status && Object.values(RoomStatus).includes(data.status)) {
+    if (data.status !== undefined) {
+      if (!Object.values(RoomStatus).includes(data.status)) throw new AppError('Geçersiz oda durumu.', 400);
       updateData.status = data.status;
     }
 
     if (data.capacity !== undefined && Number(data.capacity) !== room.capacity) {
       const newCapacity = Number(data.capacity);
-      if (newCapacity < 1 || newCapacity > 26) {
+      if (!Number.isInteger(newCapacity) || newCapacity < 1 || newCapacity > 26) {
         throw new AppError('Oda kapasitesi 1 ile 26 arasında olmalıdır.', 400);
       }
 
       const currentBeds = room.beds;
       if (newCapacity > room.capacity) {
         const newBedCount = newCapacity - room.capacity;
-        const newBedLabels = Array.from({ length: newBedCount }, (_, i) => `Yatak-${String.fromCharCode(65 + room.capacity + i)}`);
+        const newBedLabels = Array.from({ length: newBedCount }, (_, i) => `YATAK-${String.fromCharCode(65 + room.capacity + i)}`);
 
         await prisma.$transaction([
           prisma.bed.createMany({
@@ -649,15 +678,14 @@ export const roomService = {
             })),
           }),
           prisma.roomInventory.createMany({
-            data: newBedLabels.map((label) => ({
-              roomId,
-              itemName: label,
-              location: label.toLocaleUpperCase('tr-TR'),
-            })),
+            data: newBedLabels.flatMap((label) => [
+              { roomId, itemName: 'YATAK (ORTOPEDİK)', location: label.toLocaleUpperCase('tr-TR') },
+              { roomId, itemName: 'BAZA (SANDIKLI)', location: label.toLocaleUpperCase('tr-TR') },
+            ]),
             skipDuplicates: true,
           }),
+          prisma.room.update({ where: { id: roomId }, data: { capacity: newCapacity } }),
         ]);
-        updateData.capacity = newCapacity;
       } else if (newCapacity < room.capacity) {
         const bedsToRemove = currentBeds.slice(newCapacity);
         const occupiedBedsToRemove = bedsToRemove.filter((b) => b.isOccupied);
@@ -667,6 +695,10 @@ export const roomService = {
             400
           );
         }
+        const historicalBeds = bedsToRemove.filter((b) => b._count.occupancies > 0);
+        if (historicalBeds.length > 0) {
+          throw new AppError(`Kapasite düşürülemez. ${historicalBeds.map((b) => b.bedLabel).join(', ')} yataklarında geçmiş konaklama kaydı bulunmaktadır. Denetim geçmişini korumak için odayı arşivleyin.`, 409);
+        }
 
         const bedIdsToRemove = bedsToRemove.map((b) => b.id);
         const bedLabelsToRemove = bedsToRemove.map((b) => b.bedLabel.toLocaleUpperCase('tr-TR'));
@@ -674,8 +706,8 @@ export const roomService = {
         await prisma.$transaction([
           prisma.bed.deleteMany({ where: { id: { in: bedIdsToRemove } } }),
           prisma.roomInventory.deleteMany({ where: { roomId, location: { in: bedLabelsToRemove } } }),
+          prisma.room.update({ where: { id: roomId }, data: { capacity: newCapacity } }),
         ]);
-        updateData.capacity = newCapacity;
       }
     }
 
@@ -694,7 +726,7 @@ export const roomService = {
     const room = await prisma.room.findUnique({
       where: { id: roomId },
       include: {
-        beds: { select: { id: true, bedLabel: true, isOccupied: true } },
+        beds: { select: { id: true, bedLabel: true, isOccupied: true, _count: { select: { occupancies: true } } } },
         block: { select: { name: true } },
       },
     });
@@ -706,6 +738,10 @@ export const roomService = {
         `'${room.block.name} - Oda ${room.roomNumber}' silinemez. Odadaki yataklarda (${occupiedBeds.map((b) => b.bedLabel).join(', ')}) halen ikamet eden personel bulunmaktadır.`,
         400
       );
+    }
+    const occupancyHistoryCount = room.beds.reduce((sum, bed) => sum + bed._count.occupancies, 0);
+    if (occupancyHistoryCount > 0) {
+      throw new AppError(`Bu oda ${occupancyHistoryCount} geçmiş konaklama kaydı içerdiği için silinemez. Denetim geçmişini korumak için odayı kullanım dışı durumuna alın.`, 409);
     }
 
     await prisma.room.delete({ where: { id: roomId } });
@@ -776,8 +812,9 @@ export const roomService = {
       where.AND = where.AND || [];
 
       if (startDate && endDate) {
-        const start = new Date(`${startDate}T00:00:00.000Z`);
-        const end = new Date(`${endDate}T23:59:59.999Z`);
+        const start = parseIstanbulDateBoundary(startDate, false)!;
+        const end = parseIstanbulDateBoundary(endDate, true)!;
+        assertDateRange(start, end);
         where.AND.push({
           checkInDate: { lte: end },
           OR: [
@@ -786,7 +823,7 @@ export const roomService = {
           ],
         });
       } else if (startDate) {
-        const start = new Date(`${startDate}T00:00:00.000Z`);
+        const start = parseIstanbulDateBoundary(startDate, false)!;
         where.AND.push({
           OR: [
             { checkOutDate: null },
@@ -794,7 +831,7 @@ export const roomService = {
           ],
         });
       } else if (endDate) {
-        const end = new Date(`${endDate}T23:59:59.999Z`);
+        const end = parseIstanbulDateBoundary(endDate, true)!;
         where.AND.push({
           checkInDate: { lte: end },
         });

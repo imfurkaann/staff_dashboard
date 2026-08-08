@@ -34,6 +34,11 @@ export const config = {
     saltRounds: parseInt(process.env.BCRYPT_SALT_ROUNDS || '10', 10),
     encryptionKey: process.env.DATA_ENCRYPTION_KEY || process.env.JWT_SECRET || 'development_only_encryption_key',
   },
+  push: {
+    publicKey: process.env.VAPID_PUBLIC_KEY || '',
+    privateKey: process.env.VAPID_PRIVATE_KEY || '',
+    subject: process.env.VAPID_SUBJECT || 'mailto:admin@example.com',
+  },
 };
 
 export function validateConfig(): void {
@@ -44,6 +49,8 @@ export function validateConfig(): void {
     ['COOKIE_SECRET', process.env.COOKIE_SECRET],
     ['DATA_ENCRYPTION_KEY', process.env.DATA_ENCRYPTION_KEY],
     ['CORS_ALLOWED_ORIGINS', process.env.CORS_ALLOWED_ORIGINS],
+    ['VAPID_PUBLIC_KEY', config.push.publicKey],
+    ['VAPID_PRIVATE_KEY', config.push.privateKey],
   ].filter(([, value]) => !value).map(([name]) => name);
   if (missing.length > 0) throw new Error(`Eksik production ortam değişkenleri: ${missing.join(', ')}`);
   if (config.jwt.secret.length < 32 || config.cookie.secret.length < 32) {
@@ -52,4 +59,10 @@ export function validateConfig(): void {
   if (config.security.encryptionKey.length < 32) throw new Error('DATA_ENCRYPTION_KEY en az 32 karakter olmalıdır.');
   if (!Number.isInteger(config.port) || config.port < 1 || config.port > 65535) throw new Error('PORT değeri geçersiz.');
   if (!Number.isInteger(config.rateLimit.apiMax) || config.rateLimit.apiMax < 10) throw new Error('API_RATE_LIMIT_MAX değeri en az 10 olmalıdır.');
+  if (!Number.isInteger(config.security.saltRounds) || config.security.saltRounds < 10 || config.security.saltRounds > 14) {
+    throw new Error('BCRYPT_SALT_ROUNDS 10-14 arasında olmalıdır.');
+  }
+  if (!Number.isFinite(config.cookie.maxAgeMs) || config.cookie.maxAgeMs < 60_000 || config.cookie.maxAgeMs > 31 * 24 * 60 * 60 * 1000) {
+    throw new Error('COOKIE_MAX_AGE_DAYS 1 dakika ile 31 gün arasında olmalıdır.');
+  }
 }

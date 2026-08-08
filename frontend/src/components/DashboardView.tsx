@@ -19,7 +19,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ currentUser, onNav
   useEffect(() => { load(); }, []);
 
   const occupancy = summary?.totalBeds ? Math.round((summary.occupiedBeds / summary.totalBeds) * 100) : 0;
-  const date = new Date().toLocaleDateString('tr-TR', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+  const date = new Date().toLocaleDateString('tr-TR', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', timeZone: 'Europe/Istanbul' });
 
   if (loading) return <div className="min-h-[50vh] flex items-center justify-center text-sm font-bold text-slate-600">Dashboard yükleniyor…</div>;
   if (error || !summary) return <div role="alert" className="bg-rose-50 border border-rose-200 rounded-3xl p-8 text-center"><p className="font-bold text-rose-900">{error}</p><button onClick={load} className="mt-4 px-4 py-2 rounded-xl bg-rose-700 text-white text-xs font-bold"><RefreshCw className="inline w-4 h-4 mr-2"/>Yeniden dene</button></div>;

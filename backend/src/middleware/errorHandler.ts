@@ -18,6 +18,14 @@ export const errorHandler = (
 ) => {
   let statusCode = err instanceof AppError ? err.statusCode : 500;
   let message = err instanceof AppError ? err.message : 'Beklenmeyen bir sunucu hatası oluştu.';
+  const expressError = err as Error & { type?: string; status?: number };
+  if (expressError.type === 'entity.parse.failed') {
+    statusCode = 400;
+    message = 'İstek gövdesi geçerli JSON biçiminde değildir.';
+  } else if (expressError.type === 'entity.too.large' || expressError.status === 413) {
+    statusCode = 413;
+    message = 'Gönderilen veri izin verilen boyutu aşıyor.';
+  }
   if (err instanceof Prisma.PrismaClientKnownRequestError) {
     if (err.code === 'P2002') {
       statusCode = 409;
@@ -25,6 +33,9 @@ export const errorHandler = (
     } else if (err.code === 'P2025') {
       statusCode = 404;
       message = 'İşlem yapılmak istenen kayıt bulunamadı.';
+    } else if (err.code === 'P2003' || err.code === 'P2014') {
+      statusCode = 409;
+      message = 'Bu kayıt ilişkili veriler bulunduğu için değiştirilemez veya silinemez.';
     }
   }
 

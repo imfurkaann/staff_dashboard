@@ -1,6 +1,7 @@
 import prisma from '../db/prisma';
 import { AppError } from '../middleware/errorHandler';
 import { MaintenancePriority, MaintenanceStatus, Prisma } from '@prisma/client';
+import { assertDateRange, parseIstanbulDateBoundary } from '../utils/dateTime';
 
 export interface MaintenanceFilterOptions {
   status?: MaintenanceStatus | 'ALL';
@@ -64,13 +65,10 @@ export const maintenanceService = {
     }
 
     if (dateStart || dateEnd) {
-      whereCondition.createdAt = {};
-      if (dateStart) {
-        whereCondition.createdAt.gte = new Date(`${dateStart}T00:00:00.000Z`);
-      }
-      if (dateEnd) {
-        whereCondition.createdAt.lte = new Date(`${dateEnd}T23:59:59.999Z`);
-      }
+      const start = parseIstanbulDateBoundary(dateStart, false);
+      const end = parseIstanbulDateBoundary(dateEnd, true);
+      assertDateRange(start, end);
+      whereCondition.createdAt = { ...(start && { gte: start }), ...(end && { lte: end }) };
     }
 
     if (search && search.trim() !== '') {
@@ -165,34 +163,21 @@ export const maintenanceService = {
   async createMaintenance(data: CreateMaintenanceInput) {
     const { roomId, title, description, priority = 'MEDIUM', category, location, reportedBy, assignedTo } = data;
 
-    let targetRoomId = roomId;
-
-    if (roomId) {
-      const room = await prisma.room.findUnique({ where: { id: roomId } });
-      if (!room) {
-        throw new AppError('Seçilen oda bulunamadı.', 404);
-      }
-    } else {
-      // If no roomId provided, attach to a default/first room or require room selection
-      const firstRoom = await prisma.room.findFirst({ orderBy: { roomNumber: 'asc' } });
-      if (firstRoom) {
-        targetRoomId = firstRoom.id;
-      } else {
-        throw new AppError('Arıza kaydı için sistemde en az bir oda tanımlı olmalıdır.', 400);
-      }
-    }
+    if (!roomId) throw new AppError('Arıza kaydı için oda seçilmelidir.', 400);
+    const room = await prisma.room.findUnique({ where: { id: roomId } });
+    if (!room) throw new AppError('Seçilen oda bulunamadı.', 404);
 
     const maintenance = await prisma.maintenanceLog.create({
       data: {
-        roomId: targetRoomId!,
-        title: title?.trim() || category?.trim() || description.trim().slice(0, 50) || 'Arıza Bildirimi',
+        roomId,
+        title: (title?.trim() || category?.trim() || description.trim().slice(0, 50) || 'Arıza Bildirimi').toLocaleUpperCase('tr-TR'),
         description: description.trim().toLocaleUpperCase('tr-TR'),
         priority,
         status: 'OPEN',
-        reportedBy: reportedBy?.trim() || 'Lojman Yönetimi',
-        category: category?.trim() || null,
+        reportedBy: (reportedBy?.trim() || 'Lojman Yönetimi').toLocaleUpperCase('tr-TR'),
+        category: category?.trim().toLocaleUpperCase('tr-TR') || null,
         location: location?.trim().toLocaleUpperCase('tr-TR') || null,
-        assignedTo: assignedTo?.trim() || null,
+        assignedTo: assignedTo?.trim().toLocaleUpperCase('tr-TR') || null,
       },
       include: {
         room: {
@@ -225,13 +210,13 @@ export const maintenanceService = {
 
     const updateData: Prisma.MaintenanceLogUpdateInput = {};
 
-    if (data.title?.trim()) updateData.title = data.title.trim();
+    if (data.title?.trim()) updateData.title = data.title.trim().toLocaleUpperCase('tr-TR');
     if (data.description?.trim()) updateData.description = data.description.trim().toLocaleUpperCase('tr-TR');
     if (data.priority) updateData.priority = data.priority;
-    if (data.category !== undefined) updateData.category = data.category?.trim() || null;
+    if (data.category !== undefined) updateData.category = data.category?.trim().toLocaleUpperCase('tr-TR') || null;
     if (data.location !== undefined) updateData.location = data.location?.trim().toLocaleUpperCase('tr-TR') || null;
-    if (data.assignedTo !== undefined) updateData.assignedTo = data.assignedTo?.trim() || null;
-    if (data.resolutionNote !== undefined) updateData.resolutionNote = data.resolutionNote?.trim() || null;
+    if (data.assignedTo !== undefined) updateData.assignedTo = data.assignedTo?.trim().toLocaleUpperCase('tr-TR') || null;
+    if (data.resolutionNote !== undefined) updateData.resolutionNote = data.resolutionNote?.trim().toLocaleUpperCase('tr-TR') || null;
 
     if (data.status) {
       updateData.status = data.status;

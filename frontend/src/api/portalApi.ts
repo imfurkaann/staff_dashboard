@@ -57,6 +57,46 @@ export interface StaffPortalData {
 }
 
 export const portalApi = {
+  getPushPublicKey: async (): Promise<string> => {
+    const res = await fetch(`${API_BASE_URL}/portal/push/public-key`, { credentials: 'include' });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.message || 'Push yapılandırması alınamadı.');
+    return data.data.publicKey;
+  },
+
+  subscribePush: async (subscription: PushSubscription) => {
+    const res = await fetch(`${API_BASE_URL}/portal/push/subscribe`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(subscription.toJSON()),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.message || 'Telefon bildirimi etkinleştirilemedi.');
+    return data;
+  },
+
+  unsubscribePush: async (endpoint: string) => {
+    const res = await fetch(`${API_BASE_URL}/portal/push/subscribe`, {
+      method: 'DELETE',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ endpoint }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.message || 'Telefon bildirimi kapatılamadı.');
+    return data;
+  },
+
+  testPush: async () => {
+    const res = await fetch(`${API_BASE_URL}/portal/push/test`, {
+      method: 'POST',
+      credentials: 'include',
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.message || 'Test bildirimi gönderilemedi.');
+    return data.data as { sent: number; failed: number; disabled: boolean };
+  },
   getPortalData: async (): Promise<StaffPortalData> => {
     const res = await fetch(`${API_BASE_URL}/portal/me`, { credentials: 'include' });
     const data = await res.json();

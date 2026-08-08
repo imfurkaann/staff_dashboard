@@ -100,8 +100,6 @@ export class PortalService {
     }
 
     // Safe Employee profile object
-    const { tcNo, tcNoHash: _tcNoHash, ...safeEmployee } = employee;
-
     // Notifications
     const notificationData = await NotificationService.getUserNotifications(userId);
 
@@ -110,8 +108,16 @@ export class PortalService {
 
     return {
       profile: {
-        ...safeEmployee,
-        tcNoMasked: maskTcNo(tcNo),
+        id: employee.id,
+        firstName: employee.firstName,
+        lastName: employee.lastName,
+        department: employee.department,
+        title: employee.title,
+        phone: employee.phone,
+        photoUrl: employee.photoUrl,
+        shiftType: employee.shiftType,
+        status: employee.status,
+        tcNoMasked: maskTcNo(employee.tcNo),
       },
       roomInfo: currentRoom && currentBed ? {
         blockName: currentRoom.block.name,

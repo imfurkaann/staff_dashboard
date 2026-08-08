@@ -530,7 +530,7 @@ export const RoomDetailView: React.FC<RoomDetailViewProps> = ({
     const mins = diffMins % 60;
     return `${hours} sa ${mins > 0 ? `${mins} dk` : ''}`;
   };
-  const formatDateTime = (value?: string | null) => value ? new Date(value).toLocaleString('tr-TR', { dateStyle: 'short', timeStyle: 'short' }) : '-';
+  const formatDateTime = (value?: string | null) => value ? new Date(value).toLocaleString('tr-TR', { dateStyle: 'short', timeStyle: 'short', timeZone: 'Europe/Istanbul' }) : '-';
   const printTitle: Record<RoomPrintType, string> = { maintenance: 'ODA ARIZA VE BAKIM DÖKÜMÜ', history: 'ODA KONAKLAMA GEÇMİŞİ DÖKÜMÜ', inventory: 'ODA ZİMMET VE DEMİRBAŞ DÖKÜMÜ', all: 'GENEL ODA DETAY DÖKÜMÜ' };
 
   return (
@@ -538,7 +538,7 @@ export const RoomDetailView: React.FC<RoomDetailViewProps> = ({
       <div className="official-print-document hidden print:block text-black font-sans text-[9px] leading-tight">
         <header className="border-b-2 border-slate-900 pb-3 mb-3 flex items-start justify-between">
           <div><p className="font-black text-[13px] tracking-wide">DOSINIA RESORT LOJMAN YÖNETİMİ</p><h1 className="font-black text-[15px] mt-1">{printTitle[printType]}</h1><p className="mt-1 text-slate-600">Kurumsal oda kayıt ve takip belgesi</p></div>
-          <div className="text-right"><p className="font-black text-[18px]">ODA {currentRoom.roomNumber}</p><p>{currentRoom.block?.name} BLOĞU</p><p className="mt-1">Döküm: {new Date().toLocaleString('tr-TR', { dateStyle: 'short', timeStyle: 'short' })}</p></div>
+          <div className="text-right"><p className="font-black text-[18px]">ODA {currentRoom.roomNumber}</p><p>{currentRoom.block?.name} BLOĞU</p><p className="mt-1">Döküm: {new Date().toLocaleString('tr-TR', { dateStyle: 'short', timeStyle: 'short', timeZone: 'Europe/Istanbul' })}</p></div>
         </header>
         <section className="mb-3"><h2 className="print-section-title">1. ODA GENEL BİLGİLERİ</h2><table className="print-table"><tbody><tr><th>Oda / Blok</th><td>{currentRoom.roomNumber} / {currentRoom.block?.name}</td><th>Kapasite</th><td>{currentRoom.capacity} Kişi</td></tr><tr><th>Doluluk</th><td>{occupiedCount} Dolu / {vacantCount} Boş</td><th>Oda Durumu</th><td>{currentRoom.status}</td></tr></tbody></table></section>
         {(printType === 'inventory' || printType === 'all') && <section className="mb-3"><h2 className="print-section-title">2. ODA ZİMMET VE DEMİRBAŞLARI</h2><table className="print-table"><thead><tr><th>Demirbaş</th><th>Konum</th><th>Adet</th><th>Tesis Tarihi</th><th>Durum</th></tr></thead><tbody>{roomInventories.map((item) => <tr key={item.id}><td>{item.itemName}</td><td>{item.location}</td><td>{item.quantity}</td><td>{formatDateTime(item.installedAt)}</td><td>{inventoryStatusLabels[item.status]}</td></tr>)}</tbody></table></section>}
@@ -1541,7 +1541,7 @@ export const RoomDetailView: React.FC<RoomDetailViewProps> = ({
                         try {
                           const d = new Date(dateVal);
                           if (isNaN(d.getTime())) return '-';
-                          return d.toLocaleString('tr-TR', { dateStyle: 'short', timeStyle: 'short' });
+                          return d.toLocaleString('tr-TR', { dateStyle: 'short', timeStyle: 'short', timeZone: 'Europe/Istanbul' });
                         } catch (e) {
                           return '-';
                         }

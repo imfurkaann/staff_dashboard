@@ -2,6 +2,7 @@ import { Request, Response, NextFunction } from 'express';
 import { roomService } from '../services/roomService';
 import { MaintenancePriority, MaintenanceStatus, RoomInventoryStatus, RoomStatus } from '@prisma/client';
 import { AuthenticatedRequest } from '../middleware/authMiddleware';
+import { formatIstanbulDate } from '../utils/dateTime';
 import { createOccupancyWorkbook, createRoomInventoryWorkbook } from '../services/roomExportService';
 
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -254,23 +255,15 @@ export const roomController = {
   createCleaningLog: async (req: Request, res: Response, next: NextFunction) => {
     try {
       const { id } = req.params;
-      const { requestedBy, cleanedBy, notes, status } = req.body;
+      const { notes, status } = req.body;
       if (!isUuid(id)) return res.status(400).json({ success: false, message: 'Geçersiz oda kimliği.' });
 
       const authReq = req as AuthenticatedRequest;
       const userFullName = authReq.user?.fullName || 'Lojman Yönetimi';
 
-      const finalRequestedBy = (!requestedBy || requestedBy === 'Lojman Yönetimi')
-        ? userFullName
-        : requestedBy;
-
-      const finalCleanedBy = (cleanedBy === 'Lojman Yönetimi')
-        ? userFullName
-        : cleanedBy;
-
       const updatedRoom = await roomService.createCleaningLog(id, {
-        requestedBy: cleanString(finalRequestedBy, 100) || undefined,
-        cleanedBy: cleanString(finalCleanedBy, 100) || undefined,
+        requestedBy: userFullName,
+        cleanedBy: status === 'CLEANED' ? userFullName : undefined,
         notes: cleanString(notes, 1000) || undefined,
         status: status ? cleanString(status, 30) : undefined,
       });
@@ -281,25 +274,16 @@ export const roomController = {
   updateCleaningLog: async (req: Request, res: Response, next: NextFunction) => {
     try {
       const { cleaningId } = req.params;
-      const { status, cleanedBy, notes, requestedBy } = req.body;
+      const { status, notes } = req.body;
       if (!isUuid(cleaningId)) return res.status(400).json({ success: false, message: 'Geçersiz temizlik kaydı kimliği.' });
 
       const authReq = req as AuthenticatedRequest;
       const userFullName = authReq.user?.fullName || 'Lojman Yönetimi';
 
-      const finalRequestedBy = (requestedBy === 'Lojman Yönetimi')
-        ? userFullName
-        : requestedBy;
-
-      const finalCleanedBy = (cleanedBy === 'Lojman Yönetimi')
-        ? userFullName
-        : cleanedBy;
-
       const updatedRoom = await roomService.updateCleaningLog(cleaningId, {
         status: status ? cleanString(status, 30) : undefined,
-        cleanedBy: cleanedBy !== undefined ? (cleanString(finalCleanedBy, 100) || undefined) : undefined,
+        cleanedBy: status === 'CLEANED' ? userFullName : undefined,
         notes: notes !== undefined ? (cleanString(notes, 1000) || undefined) : undefined,
-        requestedBy: requestedBy !== undefined ? (cleanString(finalRequestedBy, 100) || undefined) : undefined,
       });
       res.status(200).json({ success: true, data: updatedRoom, message: 'Temizlik kaydı güncellendi.' });
     } catch (error) { next(error); }
@@ -326,7 +310,7 @@ export const roomController = {
       const buffer = await createOccupancyWorkbook(rows, generatedBy);
 
       res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-      res.setHeader('Content-Disposition', `attachment; filename=Konaklayanlar_Listesi_${new Date().toISOString().split('T')[0]}.xlsx`);
+      res.setHeader('Content-Disposition', `attachment; filename=Konaklayanlar_Listesi_${formatIstanbulDate()}.xlsx`);
       res.status(200).send(buffer);
     } catch (error) {
       next(error);
@@ -343,7 +327,7 @@ export const roomController = {
       const buffer = await createRoomInventoryWorkbook(rows, generatedBy);
 
       res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-      res.setHeader('Content-Disposition', `attachment; filename=Oda_Demirbas_Zimmetleri_${new Date().toISOString().split('T')[0]}.xlsx`);
+      res.setHeader('Content-Disposition', `attachment; filename=Oda_Demirbas_Zimmetleri_${formatIstanbulDate()}.xlsx`);
       res.status(200).send(buffer);
     } catch (error) {
       next(error);

@@ -1,22 +1,28 @@
-import React, { useEffect, useState } from 'react';
+import React, { lazy, Suspense, useEffect, useState } from 'react';
 import { LoginPage } from './components/LoginPage';
 import { StaffLoginView } from './components/StaffLoginView';
 import { authApi, User } from './api/authApi';
 import { Sidebar } from './components/Sidebar';
-import { DashboardView } from './components/DashboardView';
-import { EmployeeManagementView } from './components/EmployeeManagementView';
-import { RoomManagementView } from './components/RoomManagementView';
-import { VisitorManagementView } from './components/VisitorManagementView';
-import { MaintenanceManagementView } from './components/MaintenanceManagementView';
-import { StaffPortalView } from './components/StaffPortalView';
-import { NotificationManagementView } from './components/NotificationManagementView';
+
+const DashboardView = lazy(() => import('./components/DashboardView').then((m) => ({ default: m.DashboardView })));
+const EmployeeManagementView = lazy(() => import('./components/EmployeeManagementView').then((m) => ({ default: m.EmployeeManagementView })));
+const RoomManagementView = lazy(() => import('./components/RoomManagementView').then((m) => ({ default: m.RoomManagementView })));
+const VisitorManagementView = lazy(() => import('./components/VisitorManagementView').then((m) => ({ default: m.VisitorManagementView })));
+const MaintenanceManagementView = lazy(() => import('./components/MaintenanceManagementView').then((m) => ({ default: m.MaintenanceManagementView })));
+const StaffPortalView = lazy(() => import('./components/StaffPortalView').then((m) => ({ default: m.StaffPortalView })));
+const NotificationManagementView = lazy(() => import('./components/NotificationManagementView').then((m) => ({ default: m.NotificationManagementView })));
+
+const PageLoader = () => <div className="min-h-[50vh] flex items-center justify-center"><div className="w-9 h-9 border-4 border-[#1e3a8a]/20 border-t-[#1e3a8a] rounded-full animate-spin" /></div>;
 
 export const App: React.FC = () => {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [isInitialChecking, setIsInitialChecking] = useState(true);
   const [loginMode, setLoginMode] = useState<'staff' | 'admin'>(() => {
-    const isStaffUrl = window.location.search.includes('portal=staff') || window.location.hash.includes('staff');
-    return isStaffUrl ? 'staff' : 'staff';
+    const params = new URLSearchParams(window.location.search);
+    const requestedPortal = params.get('portal');
+    if (requestedPortal === 'admin' || window.location.hash.includes('admin')) return 'admin';
+    if (requestedPortal === 'staff' || window.location.hash.includes('staff')) return 'staff';
+    return window.matchMedia('(max-width: 767px)').matches ? 'staff' : 'admin';
   });
 
   const [activeTab, setActiveTab] = useState<string>(() => {
@@ -91,8 +97,12 @@ export const App: React.FC = () => {
 
   // Strict Role Guard: Staff users ONLY see the Staff Mobile Portal
   if (currentUser.role === 'STAFF') {
-    return <StaffPortalView currentUser={currentUser} onLogout={handleLogout} />;
+    return <Suspense fallback={<PageLoader />}><StaffPortalView currentUser={currentUser} onLogout={handleLogout} /></Suspense>;
   }
+
+  const permittedTab = currentUser.role === 'SECURITY' && !['dashboard', 'rooms', 'visitors', 'issues', 'maintenance'].includes(activeTab)
+    ? 'dashboard'
+    : activeTab;
 
   // Management / Admin Users Dashboard
   return (
@@ -100,41 +110,42 @@ export const App: React.FC = () => {
       {/* Collapsible Hover Sidebar */}
       <Sidebar
         currentUser={currentUser}
-        activeTab={activeTab}
+        activeTab={permittedTab}
         onTabChange={handleTabChange}
         onLogout={handleLogout}
       />
 
       {/* Main Content Area */}
       <div className="flex-1 ml-0 sm:ml-20 min-h-screen p-4 pb-24 sm:p-6 lg:p-8 transition-all duration-300">
-        {activeTab === 'dashboard' && (
+        <Suspense fallback={<PageLoader />}>
+        {permittedTab === 'dashboard' && (
           <DashboardView
             currentUser={currentUser}
             onNavigateTo={handleTabChange}
           />
         )}
 
-        {activeTab === 'employees' && (
+        {permittedTab === 'employees' && (
           <EmployeeManagementView />
         )}
 
-        {activeTab === 'rooms' && (
+        {permittedTab === 'rooms' && (
           <RoomManagementView onNavigateTo={handleTabChange} />
         )}
 
-        {activeTab === 'visitors' && (
+        {permittedTab === 'visitors' && (
           <VisitorManagementView currentUser={currentUser} />
         )}
 
-        {(activeTab === 'issues' || activeTab === 'maintenance') && (
+        {(permittedTab === 'issues' || permittedTab === 'maintenance') && (
           <MaintenanceManagementView currentUser={currentUser} />
         )}
 
-        {activeTab === 'notifications' && (
+        {permittedTab === 'notifications' && (
           <NotificationManagementView currentUser={currentUser} />
         )}
 
-        {activeTab === 'inventory' && (
+        {permittedTab === 'inventory' && (
           <div className="bg-white border border-slate-300 rounded-3xl p-8 shadow-sm">
             <h2 className="text-xl font-bold text-slate-900">Zimmet & Envanter Modülü</h2>
             <p className="text-xs text-slate-600 mt-1 font-semibold">
@@ -143,7 +154,7 @@ export const App: React.FC = () => {
           </div>
         )}
 
-        {activeTab === 'kbs' && (
+        {permittedTab === 'kbs' && (
           <div className="bg-white border border-slate-300 rounded-3xl p-8 shadow-sm">
             <h2 className="text-xl font-bold text-slate-900">Emniyet KBS Modülü</h2>
             <p className="text-xs text-slate-600 mt-1 font-semibold">
@@ -151,6 +162,7 @@ export const App: React.FC = () => {
             </p>
           </div>
         )}
+        </Suspense>
       </div>
     </div>
   );

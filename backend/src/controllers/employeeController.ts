@@ -2,6 +2,8 @@ import { Request, Response, NextFunction } from 'express';
 import { EmployeeService } from '../services/employeeService';
 import { AuthenticatedRequest } from '../middleware/authMiddleware';
 import { createEmployeeWorkbook } from '../services/employeeExportService';
+import { AppError } from '../middleware/errorHandler';
+import { formatIstanbulDate } from '../utils/dateTime';
 
 export class EmployeeController {
   public static async remove(req: AuthenticatedRequest, res: Response, next: NextFunction) {
@@ -54,7 +56,7 @@ export class EmployeeController {
       const buffer = await createEmployeeWorkbook(employees, generatedBy);
 
       res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-      res.setHeader('Content-Disposition', `attachment; filename=Personel_Listesi_${new Date().toISOString().split('T')[0]}.xlsx`);
+      res.setHeader('Content-Disposition', `attachment; filename=Personel_Listesi_${formatIstanbulDate()}.xlsx`);
       res.status(200).send(buffer);
     } catch (error) {
       next(error);
@@ -67,6 +69,9 @@ export class EmployeeController {
   public static async create(req: AuthenticatedRequest, res: Response, next: NextFunction) {
     try {
       const createdById = req.user?.id;
+      if (req.user?.role !== 'ADMIN' && req.body?.systemUser?.role && req.body.systemUser.role !== 'STAFF') {
+        throw new AppError('Yalnızca sistem yöneticisi yetkili hesap oluşturabilir.', 403);
+      }
       const employee = await EmployeeService.createEmployee({
         ...req.body,
         createdById,
@@ -89,6 +94,9 @@ export class EmployeeController {
     try {
       const { id } = req.params;
       const createdById = req.user?.id;
+      if (req.user?.role !== 'ADMIN' && req.body?.systemUser?.role && req.body.systemUser.role !== 'STAFF') {
+        throw new AppError('Yalnızca sistem yöneticisi hesap yetkisini değiştirebilir.', 403);
+      }
       const employee = await EmployeeService.updateEmployee(id, {
         ...req.body,
         createdById,

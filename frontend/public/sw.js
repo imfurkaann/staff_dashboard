@@ -1,4 +1,4 @@
-const CACHE_NAME = 'lojman-portal-v2';
+const CACHE_NAME = 'lojman-portal-v3';
 const ASSETS_TO_CACHE = [
   '/',
   '/index.html',
@@ -38,6 +38,25 @@ self.addEventListener('fetch', (event) => {
   );
 });
 
+self.addEventListener('push', (event) => {
+  let data = {};
+  try {
+    data = event.data ? event.data.json() : {};
+  } catch (_error) {
+    data = { body: event.data ? event.data.text() : '' };
+  }
+
+  event.waitUntil(self.registration.showNotification(data.title || 'Lojman Yönetimi', {
+    body: data.body || '',
+    icon: '/app-icon.svg',
+    tag: data.notificationId ? `lojman-${data.notificationId}` : undefined,
+    renotify: data.priority === 'URGENT',
+    requireInteraction: data.priority === 'URGENT',
+    vibrate: data.priority === 'URGENT' ? [300, 100, 300, 100, 300] : [200, 100, 200],
+    data: { url: data.url || '/?tab=notifications' }
+  }));
+});
+
 // Handle Notification Click (opens app when user taps phone notification)
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
@@ -46,7 +65,7 @@ self.addEventListener('notificationclick', (event) => {
       for (const client of clientList) {
         if ('focus' in client) return client.focus();
       }
-      if (clients.openWindow) return clients.openWindow('/');
+      if (clients.openWindow) return clients.openWindow(event.notification.data?.url || '/?tab=notifications');
     })
   );
 });

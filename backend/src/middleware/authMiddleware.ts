@@ -3,6 +3,7 @@ import jwt from 'jsonwebtoken';
 import { AppError } from './errorHandler';
 import prisma from '../db/prisma';
 import { config } from '../config';
+import { AuthService } from '../services/authService';
 
 export interface AuthenticatedRequest extends Request {
   user?: {
@@ -35,7 +36,7 @@ export const authenticateToken = async (
     }
 
     // Verify token payload
-    const decoded = jwt.verify(token, config.jwt.secret) as { id: string; role: string };
+    const decoded = jwt.verify(token, config.jwt.secret) as { id: string; role: string; pwd?: string };
 
     // Verify active user status in database
     const user = await prisma.user.findUnique({
@@ -47,6 +48,7 @@ export const authenticateToken = async (
         fullName: true,
         role: true,
         isActive: true,
+        passwordHash: true,
       },
     });
 
@@ -58,7 +60,12 @@ export const authenticateToken = async (
       throw new AppError('Kullanıcı hesabı dondurulmuş. Lütfen sistem yöneticinizle iletişime geçin.', 403);
     }
 
-    req.user = user;
+    if (!decoded.pwd || decoded.pwd !== AuthService.passwordVersion(user.passwordHash)) {
+      throw new AppError('Oturum güvenlik bilgileri değişti. Lütfen tekrar giriş yapın.', 401);
+    }
+
+    const { passwordHash: _passwordHash, isActive: _isActive, ...safeUser } = user;
+    req.user = safeUser;
     next();
   } catch (error: any) {
     if (error.name === 'JsonWebTokenError' || error.name === 'TokenExpiredError') {

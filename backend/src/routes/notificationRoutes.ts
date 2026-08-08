@@ -15,6 +15,6 @@ router.get('/', NotificationController.getAllSent);
 router.post('/send', NotificationController.send);
 
 // DELETE /api/notifications/:id (Delete notification)
-router.delete('/:id', NotificationController.remove);
+router.delete('/:id', authorizeRoles('ADMIN'), NotificationController.remove);
 
 export default router;

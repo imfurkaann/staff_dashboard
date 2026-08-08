@@ -37,6 +37,9 @@ services:
       API_RATE_LIMIT_MAX: ${API_RATE_LIMIT_MAX:-500}
       VISITOR_EXPORT_MAX_ROWS: ${VISITOR_EXPORT_MAX_ROWS:-5000}
       BCRYPT_SALT_ROUNDS: ${BCRYPT_SALT_ROUNDS:-12}
+      VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY:?VAPID_PUBLIC_KEY zorunludur}
+      VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY:?VAPID_PRIVATE_KEY zorunludur}
+      VAPID_SUBJECT: ${VAPID_SUBJECT:-mailto:admin@example.com}
     depends_on:
       db:
         condition: service_healthy

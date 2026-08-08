@@ -36,7 +36,7 @@ export const AddVisitorModal: React.FC<AddVisitorModalProps> = ({ isOpen, onClos
 
   const filteredEmployees = useMemo(() => {
     const query = form.hostSearch.toLocaleLowerCase('tr-TR').trim();
-    return employees.filter((employee) => !query || `${employee.firstName} ${employee.lastName} ${employee.department}`.toLocaleLowerCase('tr-TR').includes(query)).slice(0, 20);
+    return employees.filter((employee) => !query || `${employee.firstName} ${employee.lastName} ${employee.department}`.toLocaleLowerCase('tr-TR').includes(query));
   }, [employees, form.hostSearch]);
 
   if (!isOpen) return null;

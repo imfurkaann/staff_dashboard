@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertCircle,
   AlertTriangle,
@@ -76,6 +76,7 @@ export const MaintenanceManagementView: React.FC<MaintenanceManagementViewProps>
   const [dateEnd, setDateEnd] = useState<string>('');
 
   const [page, setPage] = useState<number>(1);
+  const requestIdRef = useRef(0);
   const [hasMore, setHasMore] = useState<boolean>(false);
   const [isLoadingMore, setIsLoadingMore] = useState<boolean>(false);
 
@@ -134,6 +135,7 @@ export const MaintenanceManagementView: React.FC<MaintenanceManagementViewProps>
   }, [selectedStatus, selectedPriority, selectedCategory, selectedBlockId, search, dateStart, dateEnd]);
 
   const loadData = async (isInitial = false, pageToFetch = 1) => {
+    const requestId = ++requestIdRef.current;
     if (pageToFetch === 1) {
       if (isInitial) setIsInitialLoading(true);
       setIsFetching(true);
@@ -147,6 +149,7 @@ export const MaintenanceManagementView: React.FC<MaintenanceManagementViewProps>
         ...queryFilters,
         page: pageToFetch,
       });
+      if (requestId !== requestIdRef.current) return;
 
       if (pageToFetch === 1) {
         setMaintenances(result.items);
@@ -158,11 +161,13 @@ export const MaintenanceManagementView: React.FC<MaintenanceManagementViewProps>
       setHasMore(result.pagination.page < result.pagination.totalPages);
       setSummary(result.summary);
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'Arıza kayıtları yüklenemedi.');
+      if (requestId === requestIdRef.current) setError(caught instanceof Error ? caught.message : 'Arıza kayıtları yüklenemedi.');
     } finally {
-      setIsInitialLoading(false);
-      setIsFetching(false);
-      setIsLoadingMore(false);
+      if (requestId === requestIdRef.current) {
+        setIsInitialLoading(false);
+        setIsFetching(false);
+        setIsLoadingMore(false);
+      }
     }
   };
 
@@ -240,6 +245,7 @@ export const MaintenanceManagementView: React.FC<MaintenanceManagementViewProps>
       year: 'numeric',
       hour: '2-digit',
       minute: '2-digit',
+      timeZone: 'Europe/Istanbul',
     });
   };
 

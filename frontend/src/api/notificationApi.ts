@@ -24,12 +24,17 @@ export interface SendNotificationPayload {
   targetValue?: string;
 }
 
+export interface NotificationPage {
+  items: SentNotification[];
+  pagination: { page: number; pageSize: number; total: number; totalPages: number };
+}
+
 export const notificationApi = {
-  getSentNotifications: async (): Promise<SentNotification[]> => {
-    const res = await fetch(`${API_BASE_URL}/notifications`, { credentials: 'include' });
+  getSentNotifications: async (page = 1): Promise<NotificationPage> => {
+    const res = await fetch(`${API_BASE_URL}/notifications?page=${page}&pageSize=25`, { credentials: 'include' });
     const data = await res.json();
     if (!res.ok) throw new Error(data.message || 'Gönderilen bildirimler alınamadı.');
-    return data.data;
+    return { items: data.data, pagination: data.pagination };
   },
 
   sendNotification: async (payload: SendNotificationPayload) => {

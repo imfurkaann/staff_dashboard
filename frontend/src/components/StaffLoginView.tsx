@@ -127,6 +127,16 @@ export const StaffLoginView: React.FC<StaffLoginViewProps> = ({ onLoginSuccess, 
               )}
             </button>
           </form>
+
+          <div className="mt-6 pt-5 border-t border-slate-200 text-center">
+            <button
+              type="button"
+              onClick={onSwitchToAdminLogin}
+              className="text-xs font-bold text-slate-700 hover:text-[#1e3a8a] inline-flex items-center gap-1.5 transition py-2 px-3 rounded-xl hover:bg-slate-200/60"
+            >
+              <span>💻 Yönetim / Kullanıcı Girişine Geç</span>
+            </button>
+          </div>
         </div>
       </div>
     </div>

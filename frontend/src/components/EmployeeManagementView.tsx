@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   Users, 
   UserPlus, 
@@ -50,12 +50,10 @@ export function formatDateTime(isoString?: string | null): string {
   try {
     const d = new Date(isoString);
     if (isNaN(d.getTime())) return isoString;
-    const day = String(d.getDate()).padStart(2, '0');
-    const month = String(d.getMonth() + 1).padStart(2, '0');
-    const year = d.getFullYear();
-    const hours = String(d.getHours()).padStart(2, '0');
-    const minutes = String(d.getMinutes()).padStart(2, '0');
-    return `${day}.${month}.${year} • ${hours}:${minutes}`;
+    return new Intl.DateTimeFormat('tr-TR', {
+      day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit',
+      hourCycle: 'h23', timeZone: 'Europe/Istanbul',
+    }).format(d).replace(' ', ' • ');
   } catch (e) {
     return isoString;
   }
@@ -145,9 +143,11 @@ export const EmployeeManagementView: React.FC = () => {
   const [activeEmployeeDetail, setActiveEmployeeDetail] = useState<Employee | null>(null);
   const [assignRoomEmployee, setAssignRoomEmployee] = useState<Employee | null>(null);
 
-  const openEmployeeDetail = (emp: Employee) => {
-    setActiveEmployeeDetail(emp);
+  const openEmployeeDetail = async (emp: Employee) => {
     localStorage.setItem('staff_app_active_emp_id', emp.id);
+    const detail = await employeeApi.getEmployeeById(emp.id);
+    if (detail) setActiveEmployeeDetail(detail);
+    else setLoadError('Personel detayı yüklenemedi. Lütfen yeniden deneyin.');
   };
 
   const closeEmployeeDetail = () => {
@@ -181,8 +181,10 @@ export const EmployeeManagementView: React.FC = () => {
 
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
+  const employeeRequestId = useRef(0);
 
   const fetchEmployees = async () => {
+    const requestId = ++employeeRequestId.current;
     setIsLoading(true);
     setLoadError(null);
     try {
@@ -194,16 +196,17 @@ export const EmployeeManagementView: React.FC = () => {
         dateRangeStart,
         dateRangeEnd
       );
-      setEmployees(data);
+      if (requestId === employeeRequestId.current) setEmployees(data);
     } catch (err) {
-      setLoadError('Personel kayıtları yüklenemedi. Bağlantınızı kontrol edip yeniden deneyin.');
+      if (requestId === employeeRequestId.current) setLoadError('Personel kayıtları yüklenemedi. Bağlantınızı kontrol edip yeniden deneyin.');
     } finally {
-      setIsLoading(false);
+      if (requestId === employeeRequestId.current) setIsLoading(false);
     }
   };
 
   useEffect(() => {
-    fetchEmployees();
+    const timer = window.setTimeout(fetchEmployees, search.trim() ? 250 : 0);
+    return () => window.clearTimeout(timer);
   }, [search, statusFilter, departmentFilter, genderFilter, dateRangeStart, dateRangeEnd]);
 
   // Reset pagination to page 1 on filter changes
@@ -216,60 +219,13 @@ export const EmployeeManagementView: React.FC = () => {
     const savedEmpId = localStorage.getItem('staff_app_active_emp_id');
     if (savedEmpId && employees.length > 0) {
       const found = employees.find(e => e.id === savedEmpId);
-      if (found) {
-        setActiveEmployeeDetail(found);
-      }
+      if (found) void openEmployeeDetail(found);
     }
   }, [employees]);
 
-  // Client-side instant filtering across all parameters
-  const filteredEmployees = employees.filter((emp) => {
-    // 0. Status Filter
-    if (statusFilter !== 'ALL') {
-      if (statusFilter === 'RESIDENT' && emp.status !== 'RESIDENT') return false;
-      if (statusFilter === 'PENDING_ASSIGNMENT' && emp.status !== 'PENDING_ASSIGNMENT') return false;
-      if (statusFilter === 'ON_LEAVE' && emp.status !== 'ON_LEAVE') return false;
-      if (statusFilter === 'CHECKED_OUT' && emp.status !== 'CHECKED_OUT') return false;
-    }
-
-    // 0b. Department Filter
-    if (departmentFilter !== 'ALL') {
-      if (emp.department !== departmentFilter) return false;
-    }
-
-    // 1. Search Query
-    if (search.trim()) {
-      const q = search.toLowerCase().trim();
-      const matchName = `${emp.firstName} ${emp.lastName}`.toLowerCase().includes(q);
-      const matchTc = (emp.tcNo || emp.tcNoMasked || '').toLowerCase().includes(q);
-      const matchReg = (emp.registrationNo || '').toLowerCase().includes(q);
-      const matchPlate = (emp.vehiclePlate || '').toLowerCase().includes(q);
-      const matchPhone = (emp.phone || '').toLowerCase().includes(q);
-      const matchDept = (emp.department || '').toLowerCase().includes(q);
-      const matchCompany = (emp.company || '').toLowerCase().includes(q);
-      const matchTitle = (emp.title || '').toLowerCase().includes(q);
-      if (!matchName && !matchTc && !matchReg && !matchPlate && !matchPhone && !matchDept && !matchCompany && !matchTitle) {
-        return false;
-      }
-    }
-
-    // 2. Gender Filter
-    if (genderFilter !== 'ALL') {
-      const empGender = emp.gender === 'Female' ? 'Female' : 'Male';
-      if (empGender !== genderFilter) return false;
-    }
-
-    // 3. Lojmana Kayıt Tarihi (Check-in / Registration Date) Range Filter
-    if (dateRangeStart || dateRangeEnd) {
-      const regDateVal = emp.checkInDate || emp.createdAt;
-      if (!regDateVal) return false;
-      const empDate = regDateVal.slice(0, 10);
-      if (dateRangeStart && empDate < dateRangeStart) return false;
-      if (dateRangeEnd && empDate > dateRangeEnd) return false;
-    }
-
-    return true;
-  });
+  // The API is the single source of truth for filters. Re-filtering the returned
+  // page in the browser could hide valid records (especially Turkish casing and dates).
+  const filteredEmployees = employees;
 
   // Apply Column Sorting (Personel Bilgisi, Oda Konumu, Lojmana Kayıt Tarihi)
   const sortedEmployees = [...filteredEmployees].sort((a, b) => {

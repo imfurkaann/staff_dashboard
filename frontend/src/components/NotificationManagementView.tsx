@@ -8,9 +8,11 @@ interface NotificationManagementViewProps {
   currentUser: User;
 }
 
-export const NotificationManagementView: React.FC<NotificationManagementViewProps> = ({ currentUser: _currentUser }) => {
+export const NotificationManagementView: React.FC<NotificationManagementViewProps> = ({ currentUser }) => {
   const [history, setHistory] = useState<SentNotification[]>([]);
   const [isLoadingHistory, setIsLoadingHistory] = useState(true);
+  const [historyPage, setHistoryPage] = useState(1);
+  const [historyPagination, setHistoryPagination] = useState({ page: 1, pageSize: 25, total: 0, totalPages: 1 });
   const [selectedDetailNotif, setSelectedDetailNotif] = useState<SentNotification | null>(null);
   
   // Form State
@@ -31,11 +33,13 @@ export const NotificationManagementView: React.FC<NotificationManagementViewProp
   const [isSending, setIsSending] = useState(false);
   const [statusMessage, setStatusMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
-  const fetchHistory = async () => {
+  const fetchHistory = async (page = historyPage) => {
     try {
       setIsLoadingHistory(true);
-      const data = await notificationApi.getSentNotifications();
-      setHistory(data);
+      const data = await notificationApi.getSentNotifications(page);
+      setHistory(data.items);
+      setHistoryPagination(data.pagination);
+      setHistoryPage(data.pagination.page);
     } catch (err: any) {
       console.error(err);
     } finally {
@@ -68,7 +72,7 @@ export const NotificationManagementView: React.FC<NotificationManagementViewProp
   };
 
   useEffect(() => {
-    fetchHistory();
+    fetchHistory(1);
     fetchOptions();
   }, []);
 
@@ -122,7 +126,7 @@ export const NotificationManagementView: React.FC<NotificationManagementViewProp
       setTitle('');
       setMessage('');
       setSelectedUserIds([]);
-      fetchHistory();
+      fetchHistory(1);
     } catch (err: any) {
       setStatusMessage({ type: 'error', text: err.message || 'Bildirim gönderilemedi.' });
     } finally {
@@ -134,7 +138,7 @@ export const NotificationManagementView: React.FC<NotificationManagementViewProp
     if (!window.confirm('Bu duyuru/bildirim kaydını silmek istediğinize emin misiniz?')) return;
     try {
       await notificationApi.deleteNotification(id);
-      fetchHistory();
+      fetchHistory(historyPage);
     } catch (err: any) {
       alert(err.message || 'Silme işlemi başarısız.');
     }
@@ -371,7 +375,7 @@ export const NotificationManagementView: React.FC<NotificationManagementViewProp
               Gönderilen Bildirim Geçmişi & Audit Log
             </h2>
             <span className="px-2.5 py-0.5 bg-[#1e3a8a]/10 text-[#1e3a8a] text-xs font-extrabold rounded-full border border-[#1e3a8a]/20">
-              {history.length} Kayıt
+              {historyPagination.total} Kayıt
             </span>
           </div>
 
@@ -397,6 +401,7 @@ export const NotificationManagementView: React.FC<NotificationManagementViewProp
                   year: 'numeric',
                   hour: '2-digit',
                   minute: '2-digit',
+                  timeZone: 'Europe/Istanbul',
                 });
 
                 return (
@@ -424,13 +429,15 @@ export const NotificationManagementView: React.FC<NotificationManagementViewProp
                         >
                           👁️ Detay Gör
                         </button>
-                        <button
-                          onClick={() => handleDelete(item.id)}
-                          className="text-red-500 hover:text-red-700 text-xs font-bold hover:underline px-1"
-                          title="Bildirim Kaydını Sil"
-                        >
-                          Sil
-                        </button>
+                        {currentUser.role === 'ADMIN' && (
+                          <button
+                            onClick={() => handleDelete(item.id)}
+                            className="text-red-500 hover:text-red-700 text-xs font-bold hover:underline px-1"
+                            title="Bildirimi Aktif Listeden Kaldır"
+                          >
+                            Kaldır
+                          </button>
+                        )}
                       </div>
                     </div>
 
@@ -451,6 +458,13 @@ export const NotificationManagementView: React.FC<NotificationManagementViewProp
             </div>
           ) : (
             <p className="text-xs text-slate-500 italic text-center py-8">Henüz gönderilmiş duyuru kaydı bulunmuyor.</p>
+          )}
+          {historyPagination.totalPages > 1 && (
+            <div className="flex items-center justify-between border-t border-slate-200 pt-3 text-xs font-bold text-slate-600">
+              <button type="button" disabled={historyPage <= 1 || isLoadingHistory} onClick={() => fetchHistory(historyPage - 1)} className="px-3 py-2 rounded-xl border border-slate-300 disabled:opacity-40">Önceki</button>
+              <span>Sayfa {historyPage} / {historyPagination.totalPages}</span>
+              <button type="button" disabled={historyPage >= historyPagination.totalPages || isLoadingHistory} onClick={() => fetchHistory(historyPage + 1)} className="px-3 py-2 rounded-xl border border-slate-300 disabled:opacity-40">Sonraki</button>
+            </div>
           )}
         </div>
       </div>
@@ -490,6 +504,7 @@ export const NotificationManagementView: React.FC<NotificationManagementViewProp
                       hour: '2-digit',
                       minute: '2-digit',
                       second: '2-digit',
+                      timeZone: 'Europe/Istanbul',
                     })}
                   </span>
                 </div>

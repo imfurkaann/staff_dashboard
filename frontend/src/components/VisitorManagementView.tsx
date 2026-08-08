@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { CalendarDays, History, Plus, Search, ShieldCheck, UserCheck, Users, X } from 'lucide-react';
 import { User } from '../api/authApi';
 import { Visitor, VisitorQuery, visitorApi } from '../api/visitorApi';
@@ -26,6 +26,7 @@ export const VisitorManagementView: React.FC<Props> = ({ currentUser }) => {
   const [hasMore, setHasMore] = useState(false);
   const [isInitialLoading, setIsInitialLoading] = useState(true);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const requestIdRef = useRef(0);
 
   const baseQuery = useMemo<VisitorQuery>(() => {
     const isInsideTab = status === 'INSIDE';
@@ -41,6 +42,7 @@ export const VisitorManagementView: React.FC<Props> = ({ currentUser }) => {
   }, [search, status]);
 
   const load = async (isInitial = false, pageToFetch = 1) => {
+    const requestId = ++requestIdRef.current;
     if (pageToFetch === 1) {
       if (isInitial) setIsInitialLoading(true);
     } else {
@@ -50,6 +52,7 @@ export const VisitorManagementView: React.FC<Props> = ({ currentUser }) => {
 
     try {
       const result = await visitorApi.getVisitors({ ...baseQuery, page: pageToFetch });
+      if (requestId !== requestIdRef.current) return;
       if (pageToFetch === 1) {
         setVisitors(result.items);
       } else {
@@ -59,10 +62,12 @@ export const VisitorManagementView: React.FC<Props> = ({ currentUser }) => {
       setHasMore(result.pagination.page < result.pagination.totalPages);
       setSummary(result.summary);
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'Ziyaretçi kayıtları yüklenemedi.');
+      if (requestId === requestIdRef.current) setError(caught instanceof Error ? caught.message : 'Ziyaretçi kayıtları yüklenemedi.');
     } finally {
-      setIsInitialLoading(false);
-      setIsLoadingMore(false);
+      if (requestId === requestIdRef.current) {
+        setIsInitialLoading(false);
+        setIsLoadingMore(false);
+      }
     }
   };
 

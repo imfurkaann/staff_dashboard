@@ -1,6 +1,8 @@
 import { NotificationPriority, NotificationTargetType } from '@prisma/client';
 import prisma from '../db/prisma';
 import { AppError } from '../middleware/errorHandler';
+import { boundedText } from '../utils/normalization';
+import { PushService } from './pushService';
 
 export interface SendNotificationDTO {
   title: string;
@@ -18,19 +20,17 @@ export class NotificationService {
   public static async sendNotification(data: SendNotificationDTO) {
     const { title, message, priority = 'NORMAL', targetType, targetValue, createdById } = data;
 
-    if (!title || !title.trim()) {
-      throw new AppError('Bildirim başlığı zorunludur.', 400);
-    }
-    if (!message || !message.trim()) {
-      throw new AppError('Bildirim mesajı zorunludur.', 400);
-    }
+    const normalizedTitle = boundedText(title, 'Bildirim başlığı', 120, { required: true, casing: 'upper' })!;
+    const normalizedMessage = boundedText(message, 'Bildirim mesajı', 2000, { required: true, casing: 'upper' })!;
+    if (!Object.values(NotificationPriority).includes(priority)) throw new AppError('Geçersiz bildirim önceliği.', 400);
+    if (!Object.values(NotificationTargetType).includes(targetType)) throw new AppError('Geçersiz hedef kitle türü.', 400);
 
     // Resolve target User IDs
     let targetUserIds: string[] = [];
 
     if (targetType === 'ALL') {
       const users = await prisma.user.findMany({
-        where: { isActive: true },
+        where: { isActive: true, role: 'STAFF' },
         select: { id: true },
       });
       targetUserIds = users.map((u) => u.id);
@@ -72,7 +72,7 @@ export class NotificationService {
 
       const employees = await prisma.employee.findMany({
         where: {
-          department: targetValue.trim(),
+          department: { equals: targetValue.trim(), mode: 'insensitive' },
           isDeleted: false,
           userId: { not: null },
         },
@@ -96,20 +96,29 @@ export class NotificationService {
       } catch (_e) {
         targetUserIds = targetValue.split(',').map((id) => id.trim()).filter(Boolean);
       }
+    } else {
+      throw new AppError('Geçersiz hedef kitle türü.', 400);
     }
 
     // Filter out duplicates and invalid IDs
-    targetUserIds = Array.from(new Set(targetUserIds));
+    targetUserIds = Array.from(new Set(targetUserIds.filter((id): id is string => typeof id === 'string' && id.length > 0)));
+    if (targetUserIds.length > 1000) throw new AppError('Tek seferde en fazla 1000 özel kullanıcı seçilebilir.', 400);
+
+    const validUsers = await prisma.user.findMany({
+      where: { id: { in: targetUserIds }, isActive: true, role: 'STAFF' },
+      select: { id: true },
+    });
+    targetUserIds = validUsers.map((user) => user.id);
 
     if (targetUserIds.length === 0) {
       throw new AppError('Seçilen filtre kriterine uyan kayıtlı personel kullanıcısı bulunamadı.', 400);
     }
 
-    return prisma.$transaction(async (tx) => {
+    const result = await prisma.$transaction(async (tx) => {
       const notification = await tx.notification.create({
         data: {
-          title: title.trim(),
-          message: message.trim(),
+          title: normalizedTitle,
+          message: normalizedMessage,
           priority,
           targetType,
           targetValue: targetValue || null,
@@ -130,14 +139,30 @@ export class NotificationService {
         recipientCount: targetUserIds.length,
       };
     });
+
+    const pushDelivery = await PushService.sendToUsers(targetUserIds, {
+      title: result.title,
+      body: result.message,
+      priority: result.priority,
+      notificationId: result.id,
+      url: '/?tab=notifications',
+    });
+
+    return { ...result, pushDelivery };
   }
 
   /**
    * Get list of sent notifications with statistics for management view
    */
-  public static async getSentNotifications() {
-    const notifications = await prisma.notification.findMany({
+  public static async getSentNotifications(page = 1, pageSize = 25) {
+    const safePage = Number.isInteger(page) && page > 0 ? page : 1;
+    const safePageSize = Number.isInteger(pageSize) ? Math.min(Math.max(pageSize, 1), 100) : 25;
+    const [notifications, total] = await prisma.$transaction([
+      prisma.notification.findMany({
+      where: { isDeleted: false },
       orderBy: { createdAt: 'desc' },
+      skip: (safePage - 1) * safePageSize,
+      take: safePageSize,
       include: {
         createdBy: {
           select: { id: true, fullName: true, username: true, role: true },
@@ -148,9 +173,11 @@ export class NotificationService {
           },
         },
       },
-    });
+      }),
+      prisma.notification.count({ where: { isDeleted: false } }),
+    ]);
 
-    return notifications.map((item) => {
+    const items = notifications.map((item) => {
       const totalRecipients = item.recipients.length;
       const readCount = item.recipients.filter((r) => r.isRead).length;
       const readRatio = totalRecipients > 0 ? Math.round((readCount / totalRecipients) * 100) : 0;
@@ -171,25 +198,28 @@ export class NotificationService {
         recipientNames,
       };
     });
+    return { items, pagination: { page: safePage, pageSize: safePageSize, total, totalPages: Math.ceil(total / safePageSize) } };
   }
 
   /**
    * Delete notification record
    */
-  public static async deleteNotification(notificationId: string) {
-    const existing = await prisma.notification.findUnique({ where: { id: notificationId } });
-    if (!existing) throw new AppError('Bildirim bulunamadı.', 404);
-
-    await prisma.notification.delete({ where: { id: notificationId } });
-    return { success: true, message: 'Bildirim silindi.' };
+  public static async deleteNotification(notificationId: string, deletedById: string) {
+    const result = await prisma.notification.updateMany({
+      where: { id: notificationId, isDeleted: false },
+      data: { isDeleted: true, deletedAt: new Date(), deletedById },
+    });
+    if (result.count === 0) throw new AppError('Bildirim bulunamadı veya daha önce arşivlenmiş.', 404);
+    return { success: true, message: 'Bildirim aktif listeden kaldırıldı; denetim kaydı korundu.' };
   }
 
   /**
    * Get notifications for a specific user (Staff Portal view)
    */
   public static async getUserNotifications(userId: string) {
-    const recipients = await prisma.notificationRecipient.findMany({
-      where: { userId },
+    const [recipients, total, unreadCount] = await prisma.$transaction([
+      prisma.notificationRecipient.findMany({
+      where: { userId, notification: { isDeleted: false } }, take: 100,
       include: {
         notification: {
           include: {
@@ -198,9 +228,10 @@ export class NotificationService {
         },
       },
       orderBy: { notification: { createdAt: 'desc' } },
-    });
-
-    const unreadCount = recipients.filter((r) => !r.isRead).length;
+      }),
+      prisma.notificationRecipient.count({ where: { userId, notification: { isDeleted: false } } }),
+      prisma.notificationRecipient.count({ where: { userId, isRead: false, notification: { isDeleted: false } } }),
+    ]);
 
     const items = recipients.map((r) => ({
       recipientId: r.id,
@@ -216,6 +247,8 @@ export class NotificationService {
 
     return {
       unreadCount,
+      total,
+      hasMore: total > recipients.length,
       items,
     };
   }
@@ -226,9 +259,10 @@ export class NotificationService {
   public static async markAsRead(recipientId: string, userId: string) {
     const recipient = await prisma.notificationRecipient.findUnique({
       where: { id: recipientId },
+      include: { notification: { select: { isDeleted: true } } },
     });
 
-    if (!recipient || recipient.userId !== userId) {
+    if (!recipient || recipient.userId !== userId || recipient.notification.isDeleted) {
       throw new AppError('Bildirim kaydı bulunamadı veya bu işlem için yetkiniz yok.', 404);
     }
 
@@ -243,7 +277,7 @@ export class NotificationService {
    */
   public static async markAllAsRead(userId: string) {
     await prisma.notificationRecipient.updateMany({
-      where: { userId, isRead: false },
+      where: { userId, isRead: false, notification: { isDeleted: false } },
       data: { isRead: true, readAt: new Date() },
     });
 

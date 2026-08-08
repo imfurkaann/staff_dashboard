@@ -4,22 +4,47 @@ import prisma from '../db/prisma';
 import { AppError } from '../middleware/errorHandler';
 import { encryptSensitiveData, hashSensitiveData, maskTcNo } from '../utils/crypto';
 import { generateUniqueUsername, generateUniqueEasyPassword } from '../utils/credentialGenerator';
+import { assertDateRange, parseIstanbulDateBoundary } from '../utils/dateTime';
+import { boundedText, normalizeIdentifier, normalizeInventoryItemName, normalizePhone, normalizeUpper, strictBoolean } from '../utils/normalization';
+import { AGE_GROUPS, canonicalChoice, EMERGENCY_RELATIONS, EMPLOYEE_DEPARTMENTS, EMPLOYEE_TITLES, LANGUAGE_NATIONALITIES, SHIFT_TYPES } from '../utils/employeeDomain';
+import { config } from '../config';
 
 /**
  * Turkish Locale-aware Title Case Normalization
  * E.g. "usta cam" -> "Usta Cam", "USTA CAM" -> "Usta Cam"
  */
 export function normalizeText(text?: string | null): string | null {
-  if (!text || !text.trim()) return null;
-  
-  return text
-    .trim()
-    .split(/\s+/)
-    .map(word => {
-      if (!word) return '';
-      return word.charAt(0).toLocaleUpperCase('tr-TR') + word.slice(1).toLocaleLowerCase('tr-TR');
-    })
-    .join(' ');
+  return normalizeUpper(text);
+}
+
+const GENDERS = new Set(['Male', 'Female']);
+const USER_ROLES = new Set<Role>([Role.ADMIN, Role.HOUSING_MANAGER, Role.SECURITY, Role.STAFF]);
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+function validateEmail(email: string): string {
+  const clean = email.trim().toLocaleLowerCase('en-US');
+  if (clean.length > 254 || !EMAIL_PATTERN.test(clean)) throw new AppError('Geçerli bir e-posta adresi giriniz.', 400);
+  return clean;
+}
+
+function applyEmployeeSearch(where: any, search?: string): void {
+  const query = search?.trim().replace(/\s+/g, ' ');
+  if (!query) return;
+  if (query.length > 100) throw new AppError('Arama metni en fazla 100 karakter olabilir.', 400);
+  const fields = ['firstName', 'lastName', 'registrationNo', 'department', 'company', 'title', 'vehiclePlate', 'phone'];
+  const sensitiveIdentifier = query.replace(/\s+/g, '');
+  where.AND = where.AND || [];
+  if (/^\d{11}$/.test(sensitiveIdentifier)) {
+    where.AND.push({ OR: [
+      ...fields.map((field) => ({ [field]: { contains: query, mode: 'insensitive' } })),
+      { tcNoHash: hashSensitiveData(sensitiveIdentifier) },
+    ] });
+    return;
+  }
+  const terms = query.split(' ').slice(0, 8);
+  for (const term of terms) {
+    where.AND.push({ OR: fields.map((field) => ({ [field]: { contains: term, mode: 'insensitive' } })) });
+  }
 }
 
 /**
@@ -28,14 +53,23 @@ export function normalizeText(text?: string | null): string | null {
 export function validatePhotoUrl(photoUrl?: string | null): string | null {
   if (!photoUrl || !photoUrl.trim()) return null;
   const trimmed = photoUrl.trim();
-  if (trimmed.startsWith('http://') || trimmed.startsWith('https://') || trimmed.startsWith('/')) {
-    return trimmed;
+  if (trimmed.startsWith('/')) return trimmed;
+  if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
+    let parsed: URL;
+    try { parsed = new URL(trimmed); } catch { throw new AppError('Geçersiz fotoğraf adresi.', 400); }
+    if (parsed.username || parsed.password) throw new AppError('Fotoğraf adresinde kullanıcı bilgisi bulunamaz.', 400);
+    if (parsed.protocol !== 'https:' && process.env.NODE_ENV === 'production') throw new AppError('Fotoğraf adresi HTTPS kullanmalıdır.', 400);
+    if (trimmed.length > 2048) throw new AppError('Fotoğraf adresi çok uzun.', 400);
+    return parsed.toString();
   }
   const base64HeaderRegex = /^data:image\/(jpeg|jpg|png|webp);base64,/;
   if (!base64HeaderRegex.test(trimmed)) {
     throw new AppError('Geçersiz profil fotoğrafı biçimi. Yalnızca JPEG, PNG veya WEBP resim formatları kabul edilir.', 400);
   }
-  if (trimmed.length > 2_500_000) {
+  const encoded = trimmed.slice(trimmed.indexOf(',') + 1);
+  if (!/^[A-Za-z0-9+/]+={0,2}$/.test(encoded) || encoded.length % 4 !== 0) throw new AppError('Fotoğraf verisi geçerli Base64 biçiminde değildir.', 400);
+  const byteLength = Buffer.byteLength(encoded, 'base64');
+  if (byteLength > 1_500_000) {
     throw new AppError('Profil fotoğrafı boyutu çok yüksek. Lütfen 1.5 MB altında bir resim yükleyin.', 400);
   }
   return trimmed;
@@ -194,13 +228,10 @@ export class EmployeeService {
     }
 
     if (startDate || endDate) {
-      const dateFilter: any = {};
-      if (startDate) {
-        dateFilter.gte = new Date(`${startDate}T00:00:00.000Z`);
-      }
-      if (endDate) {
-        dateFilter.lte = new Date(`${endDate}T23:59:59.999Z`);
-      }
+      const start = parseIstanbulDateBoundary(startDate, false);
+      const end = parseIstanbulDateBoundary(endDate, true);
+      assertDateRange(start, end);
+      const dateFilter: any = { ...(start && { gte: start }), ...(end && { lte: end }) };
 
       where.AND = where.AND || [];
       where.AND.push({
@@ -211,51 +242,30 @@ export class EmployeeService {
       });
     }
 
-    if (search && search.trim() !== '') {
-      const query = search.trim();
-      where.OR = [
-        { firstName: { contains: query, mode: 'insensitive' } },
-        { lastName: { contains: query, mode: 'insensitive' } },
-        { registrationNo: { contains: query, mode: 'insensitive' } },
-        { department: { contains: query, mode: 'insensitive' } },
-        { company: { contains: query, mode: 'insensitive' } },
-        { title: { contains: query, mode: 'insensitive' } },
-        { vehiclePlate: { contains: query, mode: 'insensitive' } },
-      ];
-    }
+    applyEmployeeSearch(where, search);
 
     const employees = await prisma.employee.findMany({
       where,
-      include: {
-        user: { select: { id: true, username: true, email: true, role: true, isActive: true } },
+      select: {
+        id: true, tcNo: true, registrationNo: true, firstName: true, lastName: true, gender: true,
+        department: true, title: true, company: true, phone: true, isSmoker: true,
+        hasSnoring: true, vehiclePlate: true, photoUrl: true, shiftType: true, status: true,
+        createdAt: true, updatedAt: true, userId: true,
         beds: {
-          include: {
+          select: {
+            id: true, bedLabel: true, isOccupied: true,
             room: {
-              include: {
-                block: true,
+              select: {
+                id: true, roomNumber: true, floor: true,
+                block: { select: { id: true, name: true, genderPolicy: true } },
               },
             },
           },
-        },
-        inventories: {
-          orderBy: { createdAt: 'desc' },
-        },
-        disciplinaryNotes: {
-          orderBy: { createdAt: 'desc' },
         },
         occupancies: {
           orderBy: { checkInDate: 'desc' },
-          include: {
-            bed: {
-              include: {
-                room: {
-                  include: {
-                    block: true,
-                  },
-                },
-              },
-            },
-          },
+          take: 1,
+          select: { checkInDate: true, checkOutDate: true },
         },
       },
       orderBy: { createdAt: 'desc' },
@@ -263,7 +273,7 @@ export class EmployeeService {
 
     return employees.map(emp => {
       const latestOccupancy = emp.occupancies && emp.occupancies.length > 0 ? emp.occupancies[0] : null;
-      const { tcNo, tcNoHash: _tcNoHash, ...safeEmployee } = emp;
+      const { tcNo, ...safeEmployee } = emp;
       return {
         ...safeEmployee,
         tcNoMasked: maskTcNo(tcNo),
@@ -302,20 +312,18 @@ export class EmployeeService {
     } = data;
 
     // 1. Temel Zorunlu Alan Kontrolleri
-    if (!firstName || !firstName.trim() || !lastName || !lastName.trim()) {
-      throw new AppError('Personel Adı ve Soyadı zorunludur.', 400);
-    }
+    const normalizedFirstName = boundedText(firstName, 'Personel adı', 80, { required: true, minLength: 2, casing: 'upper' })!;
+    const normalizedLastName = boundedText(lastName, 'Personel soyadı', 80, { required: true, minLength: 2, casing: 'upper' })!;
 
-    if (!gender || (gender !== 'Male' && gender !== 'Female')) {
+    if (!GENDERS.has(gender)) {
       throw new AppError('Geçerli bir cinsiyet (Erkek / Kadın) seçilmelidir.', 400);
     }
 
-    if (!department || !department.trim()) {
-      throw new AppError('Departman seçimi zorunludur.', 400);
-    }
+    const normalizedDepartment = canonicalChoice(department, EMPLOYEE_DEPARTMENTS, 'Departman', true)!;
 
-    const cleanTc = tcNo ? tcNo.trim() : '';
-    const cleanRegNo = registrationNo ? registrationNo.trim().toUpperCase() : '';
+    const cleanTc = tcNo ? tcNo.trim().replace(/\s+/g, '') : '';
+    const cleanRegNo = normalizeIdentifier(registrationNo) || '';
+    if (cleanTc && !/^[A-Z0-9]{5,20}$/i.test(cleanTc)) throw new AppError('TC/Pasaport numarası 5-20 harf veya rakamdan oluşmalıdır.', 400);
 
     if (!cleanTc && !cleanRegNo) {
       throw new AppError('Mükerrer personel kaydını engellemek için lütfen TC Kimlik No veya Sicil No bilgilerinden en az birini giriniz.', 400);
@@ -350,13 +358,16 @@ export class EmployeeService {
       }
     }
 
-    // Normalization
-    const normalizedFirstName = normalizeText(firstName)!;
-    const normalizedLastName = normalizeText(lastName)!.toLocaleUpperCase('tr-TR');
-    const normalizedCompany = normalizeText(company);
-    const normalizedEmergencyName = normalizeText(emergencyContactName);
-    const normalizedPlate = vehiclePlate ? vehiclePlate.trim().toUpperCase() : null;
-    const cleanPhone = phone ? phone.trim() : null;
+    const normalizedCompany = boundedText(company, 'Şirket', 120, { casing: 'upper' });
+    const normalizedEmergencyName = boundedText(emergencyContactName, 'Acil durum yakını', 120, { casing: 'upper' });
+    const normalizedPlate = normalizeIdentifier(vehiclePlate);
+    const cleanPhone = normalizePhone(phone);
+    const cleanEmergencyPhone = normalizePhone(emergencyContactPhone, 'Acil durum telefonu');
+    const normalizedTitle = canonicalChoice(title, EMPLOYEE_TITLES, 'Unvan');
+    const normalizedAgeGroup = canonicalChoice(ageGroup, AGE_GROUPS, 'Yaş grubu');
+    const normalizedLanguage = canonicalChoice(languageNationality, LANGUAGE_NATIONALITIES, 'Dil / uyruk');
+    const normalizedRelation = canonicalChoice(emergencyRelation, EMERGENCY_RELATIONS, 'Yakınlık derecesi');
+    const normalizedShift = canonicalChoice(shiftType, SHIFT_TYPES, 'Vardiya tipi');
 
     // Encrypt TC before saving
     const encryptedTc = cleanTc !== '' ? encryptSensitiveData(cleanTc) : null;
@@ -364,12 +375,13 @@ export class EmployeeService {
     // System User Account creation (Auto-generated unique credentials for every employee)
     let createdUserId: string | null = null;
     let generatedAccountInfo: { username: string; password: string } | null = null;
+    let accountCreateData: { username: string; email: string; passwordHash: string; fullName: string; role: Role } | null = null;
 
     if (data.systemUser?.createAccount !== false) {
       let targetUsername = data.systemUser?.username?.trim().toLowerCase();
-      let targetEmail = data.systemUser?.email?.trim().toLowerCase();
+      let targetEmail = data.systemUser?.email ? validateEmail(data.systemUser.email) : undefined;
       let targetPassword = data.systemUser?.password;
-      let targetRole = data.systemUser?.role && ['ADMIN', 'HOUSING_MANAGER', 'SECURITY', 'STAFF'].includes(data.systemUser.role)
+      let targetRole = data.systemUser?.role && USER_ROLES.has(data.systemUser.role)
         ? data.systemUser.role
         : Role.STAFF;
 
@@ -379,6 +391,10 @@ export class EmployeeService {
       if (!targetPassword) {
         targetPassword = await generateUniqueEasyPassword();
       }
+      if (targetPassword.length < 10 || !/[A-ZÇĞİÖŞÜ]/.test(targetPassword) || !/\d/.test(targetPassword)) {
+        throw new AppError('Sistem kullanıcısı şifresi en az 10 karakter, bir büyük harf ve bir rakam içermelidir.', 400);
+      }
+      if (!/^[a-z0-9._-]{3,50}$/.test(targetUsername)) throw new AppError('Kullanıcı adı 3-50 karakter olmalı ve yalnızca küçük harf, rakam, nokta, tire veya alt çizgi içermelidir.', 400);
       if (!targetEmail) {
         targetEmail = `${targetUsername}@lojman.local`;
       }
@@ -390,20 +406,14 @@ export class EmployeeService {
         targetEmail = `${targetUsername}.${Date.now().toString().slice(-4)}@lojman.local`;
       }
 
-      const passwordHash = await bcrypt.hash(targetPassword, 12);
-
-      const newUser = await prisma.user.create({
-        data: {
-          username: targetUsername,
-          email: targetEmail,
-          passwordHash,
-          fullName: `${normalizedFirstName} ${normalizedLastName}`,
-          role: targetRole,
-          isActive: true,
-        },
-      });
-
-      createdUserId = newUser.id;
+      const passwordHash = await bcrypt.hash(targetPassword, config.security.saltRounds);
+      accountCreateData = {
+        username: targetUsername,
+        email: targetEmail,
+        passwordHash,
+        fullName: `${normalizedFirstName} ${normalizedLastName}`,
+        role: targetRole,
+      };
       generatedAccountInfo = {
         username: targetUsername,
         password: targetPassword,
@@ -416,29 +426,34 @@ export class EmployeeService {
 
     // Transaction to create employee and optional bed placement with exact timestamps
     return prisma.$transaction(async (tx) => {
+      if (accountCreateData) {
+        const newUser = await tx.user.create({ data: { ...accountCreateData, isActive: true } });
+        createdUserId = newUser.id;
+      }
+
       // 1. Create Employee
       const newEmployee = await tx.employee.create({
         data: {
           firstName: normalizedFirstName,
           lastName: normalizedLastName,
           gender,
-          department: department.trim(),
-          title: title?.trim() || null,
+          department: normalizedDepartment,
+          title: normalizedTitle,
           company: normalizedCompany,
           tcNo: encryptedTc,
           tcNoHash: cleanTc !== '' ? hashSensitiveData(cleanTc) : null,
           registrationNo: cleanRegNo !== '' ? cleanRegNo : null,
           phone: cleanPhone,
-          isSmoker: isSmoker || false,
-          hasSnoring: hasSnoring || false,
+          isSmoker: isSmoker === undefined ? false : strictBoolean(isSmoker, 'Sigara kullanımı'),
+          hasSnoring: hasSnoring === undefined ? false : strictBoolean(hasSnoring, 'Horlama durumu'),
           vehiclePlate: normalizedPlate,
-          ageGroup: ageGroup || '26-40 Yaş (Orta Yaş)',
-          languageNationality: languageNationality || 'Türkçe (T.C.)',
+          ageGroup: normalizedAgeGroup || '26-40 Yaş (Orta Yaş)',
+          languageNationality: normalizedLanguage || 'Türkçe (T.C.)',
           emergencyContactName: normalizedEmergencyName,
-          emergencyRelation: emergencyRelation || null,
-          emergencyContactPhone: emergencyContactPhone?.trim() || null,
+          emergencyRelation: normalizedRelation,
+          emergencyContactPhone: cleanEmergencyPhone,
           photoUrl: validatePhotoUrl(photoUrl),
-          shiftType: shiftType || 'Gündüz',
+          shiftType: normalizedShift || 'Gündüz',
           status: initialStatus,
           userId: createdUserId,
           createdById: createdById || null,
@@ -521,12 +536,12 @@ export class EmployeeService {
           data: {
             employeeId: newEmployee.id,
             employeeName: `${newEmployee.firstName} ${newEmployee.lastName}`,
-            employeeDepartment: newEmployee.department,
-            employeeTitle: newEmployee.title,
-            employeeCompany: newEmployee.company,
+            employeeDepartment: newEmployee.department.toLocaleUpperCase('tr-TR'),
+            employeeTitle: newEmployee.title?.toLocaleUpperCase('tr-TR') || null,
+            employeeCompany: newEmployee.company?.toLocaleUpperCase('tr-TR') || null,
             bedId: bed.id,
             checkInDate: now,
-            transferReason: 'İlk Kayıtta Doğrudan Yerleştirme',
+            transferReason: 'İLK KAYITTA DOĞRUDAN YERLEŞTİRME',
             createdById: createdById || null,
           },
         });
@@ -582,29 +597,35 @@ export class EmployeeService {
     if (!employee) throw new AppError('Personel bulunamadı.', 404);
 
     const updateData: any = {};
-    if (data.firstName) updateData.firstName = normalizeText(data.firstName);
-    if (data.lastName) updateData.lastName = normalizeText(data.lastName)?.toLocaleUpperCase('tr-TR');
-    if (data.gender) updateData.gender = data.gender;
-    if (data.department) updateData.department = data.department.trim();
-    if (data.title !== undefined) updateData.title = data.title?.trim() || null;
-    if (data.company !== undefined) updateData.company = normalizeText(data.company);
+    let pendingUserUpdate: Record<string, unknown> | null = null;
+    let pendingUserCreate: { username: string; email: string; passwordHash: string; fullName: string; role: Role; isActive: boolean } | null = null;
+    if (data.firstName !== undefined) updateData.firstName = boundedText(data.firstName, 'Personel adı', 80, { required: true, minLength: 2, casing: 'upper' });
+    if (data.lastName !== undefined) updateData.lastName = boundedText(data.lastName, 'Personel soyadı', 80, { required: true, minLength: 2, casing: 'upper' });
+    if (data.gender !== undefined) {
+      if (!GENDERS.has(data.gender)) throw new AppError('Geçerli bir cinsiyet seçilmelidir.', 400);
+      updateData.gender = data.gender;
+    }
+    if (data.department !== undefined) updateData.department = canonicalChoice(data.department, EMPLOYEE_DEPARTMENTS, 'Departman', true);
+    if (data.title !== undefined) updateData.title = canonicalChoice(data.title, EMPLOYEE_TITLES, 'Unvan');
+    if (data.company !== undefined) updateData.company = boundedText(data.company, 'Şirket', 120, { casing: 'upper' });
     if (data.registrationNo !== undefined) {
-      const registrationNo = data.registrationNo?.trim().toUpperCase() || null;
+      const registrationNo = normalizeIdentifier(data.registrationNo);
       if (registrationNo) {
         const duplicate = await prisma.employee.findFirst({ where: { registrationNo, NOT: { id: employeeId } }, select: { id: true } });
         if (duplicate) throw new AppError('Bu sicil numarası başka bir personelde kayıtlı.', 409);
       }
       updateData.registrationNo = registrationNo;
     }
-    if (data.phone !== undefined) updateData.phone = data.phone?.trim() || null;
-    if (data.isSmoker !== undefined) updateData.isSmoker = Boolean(data.isSmoker);
-    if (data.hasSnoring !== undefined) updateData.hasSnoring = Boolean(data.hasSnoring);
-    if (data.vehiclePlate !== undefined) updateData.vehiclePlate = data.vehiclePlate?.trim().toUpperCase() || null;
-    if (data.ageGroup) updateData.ageGroup = data.ageGroup;
-    if (data.languageNationality) updateData.languageNationality = data.languageNationality;
-    if (data.emergencyContactName !== undefined) updateData.emergencyContactName = normalizeText(data.emergencyContactName);
-    if (data.emergencyRelation !== undefined) updateData.emergencyRelation = data.emergencyRelation || null;
-    if (data.emergencyContactPhone !== undefined) updateData.emergencyContactPhone = data.emergencyContactPhone?.trim() || null;
+    if (data.phone !== undefined) updateData.phone = normalizePhone(data.phone);
+    if (data.isSmoker !== undefined) updateData.isSmoker = strictBoolean(data.isSmoker, 'Sigara kullanımı');
+    if (data.hasSnoring !== undefined) updateData.hasSnoring = strictBoolean(data.hasSnoring, 'Horlama durumu');
+    if (data.vehiclePlate !== undefined) updateData.vehiclePlate = normalizeIdentifier(data.vehiclePlate);
+    if (data.ageGroup !== undefined) updateData.ageGroup = canonicalChoice(data.ageGroup, AGE_GROUPS, 'Yaş grubu');
+    if (data.languageNationality !== undefined) updateData.languageNationality = canonicalChoice(data.languageNationality, LANGUAGE_NATIONALITIES, 'Dil / uyruk');
+    if (data.emergencyContactName !== undefined) updateData.emergencyContactName = boundedText(data.emergencyContactName, 'Acil durum yakını', 120, { casing: 'upper' });
+    if (data.emergencyRelation !== undefined) updateData.emergencyRelation = canonicalChoice(data.emergencyRelation, EMERGENCY_RELATIONS, 'Yakınlık derecesi');
+    if (data.emergencyContactPhone !== undefined) updateData.emergencyContactPhone = normalizePhone(data.emergencyContactPhone, 'Acil durum telefonu');
+    if (data.shiftType !== undefined) updateData.shiftType = canonicalChoice(data.shiftType, SHIFT_TYPES, 'Vardiya tipi');
     if (data.photoUrl !== undefined) updateData.photoUrl = validatePhotoUrl(data.photoUrl);
     if (data.tcNo && data.tcNo.trim() !== '') {
       const cleanTc = data.tcNo.trim();
@@ -616,6 +637,11 @@ export class EmployeeService {
       updateData.tcNo = encryptSensitiveData(cleanTc);
       updateData.tcNoHash = hashSensitiveData(cleanTc);
     }
+    if (employee.userId && (data.firstName !== undefined || data.lastName !== undefined)) {
+      pendingUserUpdate = {
+        fullName: `${updateData.firstName || employee.firstName} ${updateData.lastName || employee.lastName}`,
+      };
+    }
 
     // System User Account Update / Creation
     if (data.systemUser) {
@@ -623,52 +649,55 @@ export class EmployeeService {
         if (employee.userId) {
           const updateUserData: any = {};
           if (data.systemUser.username) updateUserData.username = data.systemUser.username.trim().toLowerCase();
-          if (data.systemUser.email) updateUserData.email = data.systemUser.email.trim().toLowerCase();
+          if (data.systemUser.email) updateUserData.email = validateEmail(data.systemUser.email);
           if (data.systemUser.role) updateUserData.role = data.systemUser.role;
-          if (data.systemUser.password && data.systemUser.password.trim().length >= 8) {
-            updateUserData.passwordHash = await bcrypt.hash(data.systemUser.password.trim(), 12);
+          if (data.systemUser.password && data.systemUser.password.trim().length >= 10 && /[A-ZÇĞİÖŞÜ]/.test(data.systemUser.password) && /\d/.test(data.systemUser.password)) {
+            updateUserData.passwordHash = await bcrypt.hash(data.systemUser.password.trim(), config.security.saltRounds);
+          } else if (data.systemUser.password) {
+            throw new AppError('Sistem kullanıcısı şifresi en az 10 karakter, bir büyük harf ve bir rakam içermelidir.', 400);
           }
           if (Object.keys(updateUserData).length > 0) {
-            await prisma.user.update({
-              where: { id: employee.userId },
-              data: updateUserData,
-            });
+            pendingUserUpdate = { ...(pendingUserUpdate || {}), ...updateUserData };
           }
         } else {
           const { username, email, password, role } = data.systemUser;
           if (!username || !username.trim()) throw new AppError('Sistem kullanıcısı için kullanıcı adı zorunludur.', 400);
           if (!email || !email.trim()) throw new AppError('Sistem kullanıcısı için e-posta adresi zorunludur.', 400);
-          if (!password || password.length < 8) throw new AppError('Sistem kullanıcısı şifresi en az 8 karakter olmalıdır.', 400);
+          if (!password || password.length < 10 || !/[A-ZÇĞİÖŞÜ]/.test(password) || !/\d/.test(password)) throw new AppError('Sistem kullanıcısı şifresi en az 10 karakter, bir büyük harf ve bir rakam içermelidir.', 400);
 
           const cleanUsername = username.trim().toLowerCase();
-          const cleanEmail = email.trim().toLowerCase();
+          const cleanEmail = validateEmail(email);
           const existingUser = await prisma.user.findFirst({
             where: { OR: [{ username: cleanUsername }, { email: cleanEmail }] },
           });
           if (existingUser) throw new AppError('Girilen kullanıcı adı veya e-posta adresi sistemde zaten kayıtlı.', 409);
 
-          const passwordHash = await bcrypt.hash(password, 12);
-          const userRole = role && ['ADMIN', 'HOUSING_MANAGER', 'SECURITY', 'STAFF'].includes(role) ? role : Role.STAFF;
+          const passwordHash = await bcrypt.hash(password, config.security.saltRounds);
+          const userRole = role && USER_ROLES.has(role) ? role : Role.STAFF;
 
           const targetFirstName = data.firstName ? normalizeText(data.firstName) : employee.firstName;
           const targetLastName = data.lastName ? normalizeText(data.lastName)?.toLocaleUpperCase('tr-TR') : employee.lastName;
 
-          const newUser = await prisma.user.create({
-            data: {
-              username: cleanUsername,
-              email: cleanEmail,
-              passwordHash,
-              fullName: `${targetFirstName} ${targetLastName}`,
-              role: userRole,
-              isActive: true,
-            },
-          });
-          updateData.userId = newUser.id;
+          pendingUserCreate = {
+            username: cleanUsername,
+            email: cleanEmail,
+            passwordHash,
+            fullName: `${targetFirstName} ${targetLastName}`,
+            role: userRole,
+            isActive: true,
+          };
         }
       }
     }
 
     return prisma.$transaction(async (tx) => {
+      if (pendingUserUpdate && employee.userId) {
+        await tx.user.update({ where: { id: employee.userId }, data: pendingUserUpdate });
+      }
+      if (pendingUserCreate) {
+        const newUser = await tx.user.create({ data: pendingUserCreate });
+        updateData.userId = newUser.id;
+      }
       // If bedId is provided, handle bed assignment
       if (data.bedId) {
         const bed = await tx.bed.findUnique({
@@ -749,12 +778,12 @@ export class EmployeeService {
           data: {
             employeeId,
             employeeName: `${employee.firstName} ${employee.lastName}`,
-            employeeDepartment: data.department?.trim() || employee.department,
-            employeeTitle: data.title === undefined ? employee.title : data.title?.trim() || null,
+            employeeDepartment: (data.department?.trim() || employee.department).toLocaleUpperCase('tr-TR'),
+            employeeTitle: (data.title === undefined ? employee.title : data.title?.trim() || null)?.toLocaleUpperCase('tr-TR') || null,
             employeeCompany: data.company === undefined ? employee.company : normalizeText(data.company),
             bedId: data.bedId,
             checkInDate: now,
-            transferReason: 'Personele Oda & Yatak Ataması Yapıldı',
+            transferReason: 'PERSONELE ODA & YATAK ATAMASI YAPILDI',
             createdById: data.createdById || null,
           },
         });
@@ -809,18 +838,21 @@ export class EmployeeService {
   public static async addInventoryItem(employeeId: string, data: { itemName: string; itemCode?: string; category?: string; serialNo?: string; photoUrl?: string; notes?: string; createdById?: string }) {
     const employee = await prisma.employee.findUnique({ where: { id: employeeId, isDeleted: false } });
     if (!employee) throw new AppError('Personel bulunamadı.', 404);
-    if (!data.itemName?.trim()) throw new AppError('Eşya adı zorunludur.', 400);
+    const rawItemName = boundedText(data.itemName, 'Eşya adı', 120, { required: true, casing: 'upper' })!;
+    const itemName = normalizeInventoryItemName(rawItemName)!;
+    const category = data.category || 'LOJMAN_ZİMMETİ';
+    if (!['LOJMAN_ZİMMETİ', 'ŞAHSİ_EŞYA'].includes(category)) throw new AppError('Geçersiz eşya kategorisi.', 400);
 
     return prisma.inventoryItem.create({
       data: {
         employeeId,
-        itemName: data.itemName.trim(),
-        itemCode: data.itemCode?.trim() || null,
-        category: data.category || 'LOJMAN_ZİMMETİ',
-        serialNo: data.serialNo?.trim() || null,
-        photoUrl: data.photoUrl || null,
-        status: data.category === 'ŞAHSİ_EŞYA' ? 'ÇIKIŞ_İZİNLİ_ŞAHSİ_MÜLK' : 'TESLİM_EDİLDİ',
-        notes: data.notes?.trim() || null,
+        itemName,
+        itemCode: boundedText(data.itemCode, 'Eşya kodu', 80, { casing: 'upper' }),
+        category,
+        serialNo: boundedText(data.serialNo, 'Seri numarası', 120, { casing: 'upper' }),
+        photoUrl: validatePhotoUrl(data.photoUrl),
+        status: category === 'ŞAHSİ_EŞYA' ? 'ÇIKIŞ_İZİNLİ_ŞAHSİ_MÜLK' : 'TESLİM_EDİLDİ',
+        notes: boundedText(data.notes, 'Eşya notu', 1000, { casing: 'upper' }),
         createdById: data.createdById || null,
       },
     });
@@ -830,12 +862,14 @@ export class EmployeeService {
    * Update Inventory or Personal Belonging Item
    */
   public static async updateInventoryItem(inventoryId: string, data: { itemName?: string; serialNo?: string; notes?: string }) {
+    const existing = await prisma.inventoryItem.findUnique({ where: { id: inventoryId }, select: { id: true } });
+    if (!existing) throw new AppError('Zimmet/Eşya kaydı bulunamadı.', 404);
     return prisma.inventoryItem.update({
       where: { id: inventoryId },
       data: {
-        ...(data.itemName && { itemName: data.itemName.trim() }),
-        ...(data.serialNo !== undefined && { serialNo: data.serialNo.trim() || null }),
-        ...(data.notes !== undefined && { notes: data.notes.trim() || null }),
+        ...(data.itemName !== undefined && { itemName: normalizeInventoryItemName(boundedText(data.itemName, 'Eşya adı', 120, { required: true, casing: 'upper' }))! }),
+        ...(data.serialNo !== undefined && { serialNo: boundedText(data.serialNo, 'Seri numarası', 120, { casing: 'upper' }) }),
+        ...(data.notes !== undefined && { notes: boundedText(data.notes, 'Eşya notu', 1000, { casing: 'upper' }) }),
       },
     });
   }
@@ -844,14 +878,17 @@ export class EmployeeService {
    * Return / Receive back Inventory Item (Teslim Al / İade Al veya Teslim Alınamadı Kaydı)
    */
   public static async returnInventoryItem(inventoryId: string, returnedById?: string, status?: string, notes?: string) {
+    const existing = await prisma.inventoryItem.findUnique({ where: { id: inventoryId } });
+    if (!existing) throw new AppError('Zimmet/Eşya kaydı bulunamadı.', 404);
+    if (existing.returnedDate) throw new AppError('Bu zimmet daha önce kapatılmış.', 409);
+    const finalStatus = status || 'TAM_İADE_ALINDI';
+    if (!['TAM_İADE_ALINDI', 'TESLİM_ALINAMADI'].includes(finalStatus)) throw new AppError('Geçersiz iade durumu.', 400);
     const dataToUpdate: any = {
-      status: status || 'TAM_İADE_ALINDI',
+      status: finalStatus,
       returnedDate: new Date(),
       returnedById: returnedById || null,
     };
-    if (notes && notes.trim()) {
-      dataToUpdate.notes = notes.trim();
-    }
+    if (notes !== undefined) dataToUpdate.notes = boundedText(notes, 'İade notu', 1000, { casing: 'upper' });
     return prisma.inventoryItem.update({
       where: { id: inventoryId },
       data: dataToUpdate,
@@ -873,14 +910,15 @@ export class EmployeeService {
   public static async addDisciplinaryNote(employeeId: string, data: { title: string; content: string; reportedBy?: string; createdById?: string }) {
     const employee = await prisma.employee.findUnique({ where: { id: employeeId, isDeleted: false } });
     if (!employee) throw new AppError('Personel bulunamadı.', 404);
-    if (!data.title?.trim() || !data.content?.trim()) throw new AppError('Not başlığı ve açıklaması zorunludur.', 400);
+    const title = boundedText(data.title, 'Not başlığı', 150, { required: true, casing: 'upper' })!;
+    const content = boundedText(data.content, 'Not açıklaması', 3000, { required: true, casing: 'upper' })!;
 
     return prisma.disciplinaryNote.create({
       data: {
         employeeId,
-        title: data.title.trim(),
-        content: data.content.trim(),
-        reportedBy: data.reportedBy?.trim() || 'Lojman Amirliği',
+        title,
+        content,
+        reportedBy: boundedText(data.reportedBy, 'Bildiren', 120, { casing: 'upper' }) || 'LOJMAN AMİRLİĞİ',
         status: 'GÖRÜŞÜLDÜ',
         createdById: data.createdById || null,
       },
@@ -897,8 +935,8 @@ export class EmployeeService {
     return prisma.disciplinaryNote.update({
       where: { id: noteId },
       data: {
-        ...(data.title && { title: data.title.trim() }),
-        ...(data.content && { content: data.content.trim() }),
+        ...(data.title !== undefined && { title: boundedText(data.title, 'Not başlığı', 150, { required: true, casing: 'upper' })! }),
+        ...(data.content !== undefined && { content: boundedText(data.content, 'Not açıklaması', 3000, { required: true, casing: 'upper' })! }),
       },
     });
   }
@@ -919,6 +957,7 @@ export class EmployeeService {
    * Get available unoccupied beds compatible with gender and room occupation policy
    */
   public static async getAvailableBeds(gender?: string) {
+    if (gender && !GENDERS.has(gender)) throw new AppError('Geçersiz cinsiyet filtresi.', 400);
     const where: any = {
       isOccupied: false,
       room: {
@@ -996,13 +1035,10 @@ export class EmployeeService {
     }
 
     if (startDate || endDate) {
-      const dateFilter: any = {};
-      if (startDate) {
-        dateFilter.gte = new Date(`${startDate}T00:00:00.000Z`);
-      }
-      if (endDate) {
-        dateFilter.lte = new Date(`${endDate}T23:59:59.999Z`);
-      }
+      const start = parseIstanbulDateBoundary(startDate, false);
+      const end = parseIstanbulDateBoundary(endDate, true);
+      assertDateRange(start, end);
+      const dateFilter: any = { ...(start && { gte: start }), ...(end && { lte: end }) };
 
       where.AND = where.AND || [];
       where.AND.push({
@@ -1013,18 +1049,7 @@ export class EmployeeService {
       });
     }
 
-    if (search && search.trim() !== '') {
-      const query = search.trim();
-      where.OR = [
-        { firstName: { contains: query, mode: 'insensitive' } },
-        { lastName: { contains: query, mode: 'insensitive' } },
-        { registrationNo: { contains: query, mode: 'insensitive' } },
-        { department: { contains: query, mode: 'insensitive' } },
-        { company: { contains: query, mode: 'insensitive' } },
-        { title: { contains: query, mode: 'insensitive' } },
-        { vehiclePlate: { contains: query, mode: 'insensitive' } },
-      ];
-    }
+    applyEmployeeSearch(where, search);
 
     return prisma.employee.findMany({
       where,
@@ -1179,7 +1204,7 @@ export class EmployeeService {
     const username = await generateUniqueUsername(employee.firstName, employee.lastName);
     const password = await generateUniqueEasyPassword();
     const email = `${username}@lojman.local`;
-    const passwordHash = await bcrypt.hash(password, 12);
+    const passwordHash = await bcrypt.hash(password, config.security.saltRounds);
 
     const newUser = await prisma.user.create({
       data: {

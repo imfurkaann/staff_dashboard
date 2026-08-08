@@ -38,7 +38,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     { id: 'visitors', label: 'Ziyaretçi Takibi', icon: UserCheck },
     { id: 'issues', label: 'Arıza Yönetimi', icon: Wrench },
     { id: 'notifications', label: 'Bildirim Gönder', icon: Bell },
-  ];
+  ].filter((item) => currentUser.role !== 'SECURITY' || ['dashboard', 'rooms', 'visitors', 'issues'].includes(item.id));
 
   return (<>
     <aside

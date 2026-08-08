@@ -78,9 +78,16 @@ export class AuthController {
 
       const result = await AuthService.changePassword({ userId, oldPassword, newPassword });
 
+      res.clearCookie(config.cookie.name, {
+        httpOnly: true,
+        secure: config.nodeEnv === 'production',
+        sameSite: 'lax',
+        path: '/',
+      });
+
       res.status(200).json({
         success: true,
-        message: result.message,
+        message: `${result.message} Güvenlik nedeniyle yeniden giriş yapınız.`,
       });
     } catch (error) {
       next(error);

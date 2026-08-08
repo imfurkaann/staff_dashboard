@@ -1,4 +1,5 @@
 import prisma from '../db/prisma';
+import { randomBytes, randomInt } from 'crypto';
 
 /**
  * Normalizes Turkish strings into standard ASCII slug (e.g., "Ahmet Can" "ÖZTÜRK" -> "ahmetcan", "ozturk")
@@ -52,14 +53,6 @@ export async function generateUniqueUsername(firstName: string, lastName: string
  */
 export async function generateUniqueEasyPassword(): Promise<string> {
   const prefixes = ['Lojman', 'Staff', 'Oda', 'Personel'];
-  
-  let attempts = 0;
-  while (attempts < 100) {
-    const prefix = prefixes[Math.floor(Math.random() * prefixes.length)];
-    const randomNum = Math.floor(1000 + Math.random() * 9000); // 4 digit number: 1000 - 9999
-    const candidatePassword = `${prefix}${randomNum}!`;
-    return candidatePassword;
-  }
-  
-  return `Lojman${Math.floor(100000 + Math.random() * 900000)}!`;
+  const prefix = prefixes[randomInt(prefixes.length)];
+  return `${prefix}!${randomBytes(8).toString('hex')}${randomInt(10)}`;
 }

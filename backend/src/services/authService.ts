@@ -3,6 +3,9 @@ import jwt from 'jsonwebtoken';
 import prisma from '../db/prisma';
 import { AppError } from '../middleware/errorHandler';
 import { config } from '../config';
+import crypto from 'crypto';
+
+const DUMMY_PASSWORD_HASH = '$2a$12$FKrZcHDuELT40ixHK1a1TOYqRGHrJYlQ5nlA/ApxePTb090ZkgZo6';
 
 export interface LoginDTO {
   usernameOrEmail: string;
@@ -19,8 +22,12 @@ export class AuthService {
   /**
    * Generates secure JWT token for authenticated user using central config
    */
-  public static generateToken(userId: string, role: string): string {
-    return jwt.sign({ id: userId, role }, config.jwt.secret, { expiresIn: config.jwt.expiresIn as any });
+  public static passwordVersion(passwordHash: string): string {
+    return crypto.createHash('sha256').update(passwordHash).digest('base64url').slice(0, 22);
+  }
+
+  public static generateToken(userId: string, role: string, passwordHash: string): string {
+    return jwt.sign({ id: userId, role, pwd: this.passwordVersion(passwordHash) }, config.jwt.secret, { expiresIn: config.jwt.expiresIn as any });
   }
 
   /**
@@ -46,17 +53,18 @@ export class AuthService {
     });
 
     if (!user) {
+      await bcrypt.compare(password, DUMMY_PASSWORD_HASH);
       throw new AppError('Kullanıcı adı veya şifre hatalı.', 401);
-    }
-
-    if (!user.isActive) {
-      throw new AppError('Hesabınız dondurulmuş. Lütfen sistem yöneticinizle iletişime geçin.', 403);
     }
 
     // Verify password with bcrypt
     const isPasswordValid = await bcrypt.compare(password, user.passwordHash);
     if (!isPasswordValid) {
       throw new AppError('Kullanıcı adı veya şifre hatalı.', 401);
+    }
+
+    if (!user.isActive) {
+      throw new AppError('Hesabınız dondurulmuş. Lütfen sistem yöneticinizle iletişime geçin.', 403);
     }
 
     // Update last login timestamp asynchronously
@@ -66,7 +74,7 @@ export class AuthService {
     });
 
     // Generate persistent JWT token
-    const token = this.generateToken(user.id, user.role);
+    const token = this.generateToken(user.id, user.role, user.passwordHash);
 
     return {
       user: {

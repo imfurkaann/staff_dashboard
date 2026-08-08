@@ -3,6 +3,7 @@ import { maintenanceService } from '../services/maintenanceService';
 import { createMaintenanceWorkbook } from '../services/maintenanceExportService';
 import { MaintenancePriority, MaintenanceStatus } from '@prisma/client';
 import { AuthenticatedRequest } from '../middleware/authMiddleware';
+import { formatIstanbulDate } from '../utils/dateTime';
 
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const isUuid = (value: unknown): value is string => typeof value === 'string' && uuidPattern.test(value);
@@ -171,7 +172,7 @@ export const maintenanceController = {
       const generatedBy = req.user?.fullName || 'Lojman Yönetimi';
       const buffer = await createMaintenanceWorkbook(result.items, generatedBy);
 
-      const dateStr = new Date().toISOString().split('T')[0];
+      const dateStr = formatIstanbulDate();
       res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
       res.setHeader('Content-Disposition', `attachment; filename=Ariza_Bakim_Kayitlari_${dateStr}.xlsx`);
       res.setHeader('Access-Control-Expose-Headers', 'Content-Disposition');

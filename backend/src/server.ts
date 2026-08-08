@@ -12,8 +12,9 @@ import visitorRoutes from './routes/visitorRoutes';
 import maintenanceRoutes from './routes/maintenanceRoutes';
 import notificationRoutes from './routes/notificationRoutes';
 import portalRoutes from './routes/portalRoutes';
-import { errorHandler } from './middleware/errorHandler';
+import { AppError, errorHandler } from './middleware/errorHandler';
 import { apiRateLimiter } from './middleware/rateLimiter';
+import { originGuard } from './middleware/originGuard';
 
 const app = express();
 validateConfig();
@@ -29,7 +30,7 @@ app.use(
       if (!origin || config.cors.allowedOrigins.includes(origin) || isLocalDevelopmentOrigin) {
         callback(null, true);
       } else {
-        callback(new Error('CORS kısıtlaması nedeniyle erişim engellendi.'));
+        callback(new AppError('CORS kısıtlaması nedeniyle erişim engellendi.', 403));
       }
     },
     credentials: true,
@@ -42,6 +43,7 @@ app.use(express.urlencoded({ extended: true, limit: '2mb' }));
 // Cookie Parser with Cookie Secret from Central Config
 app.use(cookieParser(config.cookie.secret));
 app.use('/api', apiRateLimiter);
+app.use('/api', originGuard);
 
 // API Routes
 app.use('/api/auth', authRoutes);

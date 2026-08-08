@@ -69,8 +69,8 @@ export function formatDateTime(dateStr?: string | null): string {
   if (!dateStr) return 'Tarih Belirtilmedi';
   try {
     const d = new Date(dateStr);
-    const dateFormatted = d.toLocaleDateString('tr-TR', { day: '2-digit', month: '2-digit', year: 'numeric' });
-    const timeFormatted = d.toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' });
+    const dateFormatted = d.toLocaleDateString('tr-TR', { day: '2-digit', month: '2-digit', year: 'numeric', timeZone: 'Europe/Istanbul' });
+    const timeFormatted = d.toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Istanbul' });
     return `${dateFormatted} • ${timeFormatted}`;
   } catch (e) {
     return dateStr;

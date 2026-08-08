@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Lojman Yönetimi">
+  <rect width="512" height="512" rx="96" fill="#1e3a8a"/>
+  <path d="M112 432V190l144-110 144 110v242H112Z" fill="#fff"/>
+  <path d="M176 432V224h160v208" fill="#dbeafe"/>
+  <path d="M216 432V320h80v112" fill="#1e3a8a"/>
+  <path d="M204 248h40v40h-40zm64 0h40v40h-40z" fill="#1e3a8a"/>
+</svg>

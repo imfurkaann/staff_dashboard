@@ -79,7 +79,9 @@ model User {
   inventoriesReturned InventoryItem[] @relation("InventoryReturnedBy")
   disciplinaryNotesCreated DisciplinaryNote[] @relation("DisciplinaryCreatedBy")
   notificationsCreated Notification[] @relation("NotificationCreatedBy")
+  notificationsDeleted Notification[] @relation("NotificationDeletedBy")
   notificationRecipients NotificationRecipient[]
+  pushSubscriptions PushSubscription[]
   employee Employee? @relation("EmployeeUserAccount")
 }
 
@@ -353,11 +355,17 @@ model Notification {
   targetValue  String?
   createdById  String?
   createdBy    User?                  @relation("NotificationCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  isDeleted    Boolean                @default(false)
+  deletedAt    DateTime?
+  deletedById  String?
+  deletedBy    User?                  @relation("NotificationDeletedBy", fields: [deletedById], references: [id], onDelete: SetNull)
   createdAt    DateTime               @default(now())
   recipients   NotificationRecipient[]
 
   @@index([createdAt])
   @@index([createdById])
+  @@index([isDeleted, createdAt])
+  @@index([deletedById])
 }
 
 model NotificationRecipient {
@@ -372,5 +380,19 @@ model NotificationRecipient {
   @@unique([notificationId, userId])
   @@index([userId, isRead])
   @@index([notificationId])
+}
+
+model PushSubscription {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  endpoint  String   @unique
+  p256dh    String
+  auth      String
+  userAgent String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
 }
 

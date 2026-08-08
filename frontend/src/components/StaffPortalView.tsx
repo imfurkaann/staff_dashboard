@@ -38,55 +38,115 @@ export const StaffPortalView: React.FC<StaffPortalViewProps> = ({ currentUser: _
   const [notifPermission, setNotifPermission] = useState<NotificationPermission>(() => {
     return 'Notification' in window ? Notification.permission : 'denied';
   });
+  const [pushEnabled, setPushEnabled] = useState(false);
+  const [pushBusy, setPushBusy] = useState(true);
+  const [pushStatus, setPushStatus] = useState('Telefon bildirimi durumu kontrol ediliyor...');
   const [showIOSNotifGuide, setShowIOSNotifGuide] = useState(false);
 
-  const triggerDeviceNotification = (title: string, body: string) => {
-    if (!('Notification' in window) || Notification.permission !== 'granted') return;
+  const isIOS = /iPhone|iPad|iPod/.test(navigator.userAgent);
+  const isStandalone = window.matchMedia('(display-mode: standalone)').matches || Boolean((navigator as any).standalone);
 
-    try {
-      if ('serviceWorker' in navigator) {
-        navigator.serviceWorker.ready.then((reg) => {
-          reg.showNotification(title, {
-            body,
-            icon: '/manifest.json',
-            tag: 'lojman-notif-' + Date.now(),
-            vibrate: [200, 100, 200],
-          } as any);
-        }).catch(() => {
-          new Notification(title, { body });
-        });
-      } else {
-        new Notification(title, { body });
+  const urlBase64ToUint8Array = (value: string) => {
+    const padding = '='.repeat((4 - (value.length % 4)) % 4);
+    const base64 = (value + padding).replace(/-/g, '+').replace(/_/g, '/');
+    return Uint8Array.from(window.atob(base64), (char) => char.charCodeAt(0));
+  };
+
+  const registerPushSubscription = async (): Promise<PushSubscription> => {
+    if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
+      throw new Error('Bu cihaz push bildirimlerini desteklemiyor.');
+    }
+    const registration = await navigator.serviceWorker.ready;
+    const publicKey = await portalApi.getPushPublicKey();
+    const applicationServerKey = urlBase64ToUint8Array(publicKey);
+    let subscription = await registration.pushManager.getSubscription();
+
+    // A VAPID key change invalidates the old browser subscription. Recreate it
+    // instead of silently saving an unusable endpoint on the server.
+    if (subscription?.options.applicationServerKey) {
+      const currentKey = new Uint8Array(subscription.options.applicationServerKey);
+      const keyMatches = currentKey.length === applicationServerKey.length
+        && currentKey.every((byte, index) => byte === applicationServerKey[index]);
+      if (!keyMatches) {
+        await subscription.unsubscribe();
+        subscription = null;
       }
-    } catch (e) {
-      console.error('System notification error:', e);
+    }
+    if (!subscription) {
+      subscription = await registration.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey,
+      });
+    }
+    await portalApi.subscribePush(subscription);
+    return subscription;
+  };
+
+  const enablePhoneNotifications = async () => {
+    if (isIOS && !isStandalone) {
+      setPushEnabled(false);
+      setPushStatus('iPhone bildirimi için siteyi Ana Ekrana ekleyip uygulama simgesinden açın.');
+      setShowIOSNotifGuide(true);
+      return;
+    }
+    if (!('Notification' in window) || !('serviceWorker' in navigator) || !('PushManager' in window)) {
+      setPushEnabled(false);
+      setPushStatus('Bu cihaz telefon bildirimlerini desteklemiyor.');
+      return;
+    }
+    setPushBusy(true);
+    try {
+      const perm = Notification.permission === 'granted'
+        ? 'granted'
+        : await Notification.requestPermission();
+      setNotifPermission(perm);
+      if (perm !== 'granted') {
+        setPushEnabled(false);
+        setPushStatus(perm === 'denied'
+          ? 'Bildirim izni kapalı. iPhone Ayarlar bölümünden uygulama bildirimlerine izin verin.'
+          : 'Bildirim izni verilmedi.');
+        return;
+      }
+      await registerPushSubscription();
+      setPushEnabled(true);
+      try {
+        const testResult = await portalApi.testPush();
+        setPushStatus(testResult.sent > 0
+          ? 'Açık — cihaz kaydedildi ve test bildirimi telefona gönderildi.'
+          : 'Açık — cihaz kayıtlı ancak test bildirimi teslim edilemedi.');
+      } catch (testError: any) {
+        setPushStatus(`Açık — cihaz kayıtlı; test sonucu: ${testError?.message || 'teslimat doğrulanamadı.'}`);
+      }
+    } catch (error: any) {
+      setPushEnabled(false);
+      setPushStatus(error?.message || 'Telefon bildirimi etkinleştirilemedi.');
+    } finally {
+      setPushBusy(false);
     }
   };
 
-  const requestNotificationPermission = async () => {
-    const isIOS = /iPhone|iPad|iPod/.test(navigator.userAgent);
-    const isStandalone = window.matchMedia('(display-mode: standalone)').matches || (navigator as any).standalone;
-
-    if (!('Notification' in window)) {
-      if (isIOS && !isStandalone) {
-        setShowIOSNotifGuide(true);
-        return;
-      }
-      alert('Cihazınız web bildirimlerini desteklememektedir.');
-      return;
-    }
-
+  const disablePhoneNotifications = async () => {
+    setPushBusy(true);
     try {
-      const perm = await Notification.requestPermission();
-      setNotifPermission(perm);
-      if (perm === 'granted') {
-        triggerDeviceNotification('📢 Lojman Bildirimleri Aktif!', 'Yöneticinizden gelen duyurular cep telefonunuza anlık olarak bildirilecektir.');
+      const registration = await navigator.serviceWorker.ready;
+      const subscription = await registration.pushManager.getSubscription();
+      if (subscription) {
+        await portalApi.unsubscribePush(subscription.endpoint);
+        await subscription.unsubscribe();
       }
-    } catch (_e) {
-      if (isIOS) {
-        setShowIOSNotifGuide(true);
-      }
+      setPushEnabled(false);
+      setPushStatus('Kapalı — bu cihaza telefon bildirimi gönderilmeyecek.');
+    } catch (error: any) {
+      setPushStatus(error?.message || 'Telefon bildirimi kapatılamadı.');
+    } finally {
+      setPushBusy(false);
     }
+  };
+
+  const togglePhoneNotifications = () => {
+    if (pushBusy) return;
+    if (pushEnabled) void disablePhoneNotifications();
+    else void enablePhoneNotifications();
   };
 
   const fetchPortalData = async () => {
@@ -96,11 +156,6 @@ export const StaffPortalView: React.FC<StaffPortalViewProps> = ({ currentUser: _
       const res = await portalApi.getPortalData();
       setData(res);
 
-      // Trigger phone system notification for the most recent notification if permission is granted
-      if ('Notification' in window && Notification.permission === 'granted' && res.notifications?.items?.length > 0) {
-        const latestNotif = res.notifications.items[0];
-        triggerDeviceNotification(latestNotif.title, latestNotif.message);
-      }
     } catch (err: any) {
       const errMsg = err.message || 'Veriler yüklenirken bir hata oluştu.';
       setError(errMsg);
@@ -117,10 +172,45 @@ export const StaffPortalView: React.FC<StaffPortalViewProps> = ({ currentUser: _
   useEffect(() => {
     fetchPortalData();
 
-    // Auto-request notification permission if supported and default
-    if ('Notification' in window && Notification.permission === 'default') {
-      Notification.requestPermission().then((perm) => setNotifPermission(perm));
-    }
+    // Verify both the browser subscription and its server registration. Permission
+    // alone is not enough to receive a phone notification.
+    const refreshPushState = async () => {
+      if (isIOS && !isStandalone) {
+        setPushStatus('Kapalı — iPhone için önce Ana Ekrana ekleyin.');
+        setPushBusy(false);
+        return;
+      }
+      if (!('Notification' in window) || !('serviceWorker' in navigator) || !('PushManager' in window)) {
+        setPushStatus('Bu cihaz telefon bildirimlerini desteklemiyor.');
+        setPushBusy(false);
+        return;
+      }
+      setNotifPermission(Notification.permission);
+      if (Notification.permission !== 'granted') {
+        setPushStatus(Notification.permission === 'denied'
+          ? 'Kapalı — cihaz ayarlarında bildirim izni engellenmiş.'
+          : 'Kapalı — açmak için anahtara dokunun.');
+        setPushBusy(false);
+        return;
+      }
+      try {
+        const registration = await navigator.serviceWorker.ready;
+        const subscription = await registration.pushManager.getSubscription();
+        if (!subscription) {
+          setPushStatus('Kapalı — izin var ancak bu cihaz sunucuya kayıtlı değil.');
+          return;
+        }
+        await registerPushSubscription();
+        setPushEnabled(true);
+        setPushStatus('Açık — bu cihaz telefon bildirimleri için sunucuya kayıtlı.');
+      } catch (error: any) {
+        setPushEnabled(false);
+        setPushStatus(error?.message || 'Cihaz aboneliği doğrulanamadı.');
+      } finally {
+        setPushBusy(false);
+      }
+    };
+    void refreshPushState();
 
     // Listen for PWA installation prompt
     const handleBeforeInstallPrompt = (e: Event) => {
@@ -410,17 +500,36 @@ export const StaffPortalView: React.FC<StaffPortalViewProps> = ({ currentUser: _
         {/* TAB 2: NOTIFICATIONS */}
         {activeTab === 'notifications' && (
           <div className="space-y-4">
-            <div className="flex items-center justify-between bg-white border border-slate-300 rounded-2xl p-4 shadow-sm">
-              <h3 className="text-sm font-bold text-slate-900">Duyurular & Bildirimler</h3>
-              {notifPermission !== 'granted' && (
+            <div className="bg-white border border-slate-300 rounded-2xl p-4 shadow-sm space-y-3">
+              <div className="flex items-center justify-between gap-4">
+                <div className="flex items-center gap-2 min-w-0">
+                  <BellRing className={`w-4 h-4 shrink-0 ${pushEnabled ? 'text-emerald-600' : 'text-slate-500'}`} />
+                  <div>
+                    <h3 className="text-sm font-bold text-slate-900">Telefon Bildirimleri</h3>
+                    <span className={`text-[10px] font-extrabold ${pushEnabled ? 'text-emerald-700' : 'text-slate-500'}`}>
+                      {pushBusy ? 'KONTROL EDİLİYOR' : pushEnabled ? 'AÇIK' : 'KAPALI'}
+                    </span>
+                  </div>
+                </div>
                 <button
-                  onClick={requestNotificationPermission}
-                  className="px-3 py-1.5 bg-[#1e3a8a] hover:bg-[#152a65] text-white text-xs font-bold rounded-xl transition flex items-center gap-1.5 shadow-sm"
+                  type="button"
+                  role="switch"
+                  aria-checked={pushEnabled}
+                  aria-label="Telefon bildirimlerini aç veya kapat"
+                  disabled={pushBusy}
+                  onClick={togglePhoneNotifications}
+                  className={`relative inline-flex h-7 w-12 shrink-0 items-center rounded-full border-2 transition-colors focus:outline-hidden focus:ring-2 focus:ring-[#1e3a8a]/40 disabled:cursor-wait disabled:opacity-60 ${
+                    pushEnabled ? 'border-emerald-600 bg-emerald-600' : 'border-slate-300 bg-slate-300'
+                  }`}
                 >
-                  <BellRing className="w-3.5 h-3.5" />
-                  <span>Telefon Bildirimini Aç</span>
+                  <span
+                    className={`inline-block h-5 w-5 rounded-full bg-white shadow-sm transition-transform ${pushEnabled ? 'translate-x-5' : 'translate-x-0.5'}`}
+                  />
                 </button>
-              )}
+              </div>
+              <p className={`text-[11px] font-semibold leading-relaxed ${pushEnabled ? 'text-emerald-700' : notifPermission === 'denied' ? 'text-amber-700' : 'text-slate-600'}`}>
+                {pushStatus}
+              </p>
             </div>
 
             {notifications.items.length > 0 ? (
@@ -435,6 +544,7 @@ export const StaffPortalView: React.FC<StaffPortalViewProps> = ({ currentUser: _
                     year: 'numeric',
                     hour: '2-digit',
                     minute: '2-digit',
+                    timeZone: 'Europe/Istanbul',
                   });
 
                   return (
@@ -499,7 +609,7 @@ export const StaffPortalView: React.FC<StaffPortalViewProps> = ({ currentUser: _
                       try {
                         const d = new Date(rawDate);
                         if (!isNaN(d.getTime())) {
-                          displayDate = d.toLocaleDateString('tr-TR', { day: '2-digit', month: '2-digit', year: 'numeric' });
+                          displayDate = d.toLocaleDateString('tr-TR', { day: '2-digit', month: '2-digit', year: 'numeric', timeZone: 'Europe/Istanbul' });
                         }
                       } catch (_e) {}
                     }
@@ -556,7 +666,7 @@ export const StaffPortalView: React.FC<StaffPortalViewProps> = ({ currentUser: _
                       try {
                         const d = new Date(rawDate);
                         if (!isNaN(d.getTime())) {
-                          displayDate = d.toLocaleDateString('tr-TR', { day: '2-digit', month: '2-digit', year: 'numeric' });
+                          displayDate = d.toLocaleDateString('tr-TR', { day: '2-digit', month: '2-digit', year: 'numeric', timeZone: 'Europe/Istanbul' });
                         }
                       } catch (_e) {}
                     }
