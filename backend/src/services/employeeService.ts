@@ -127,7 +127,16 @@ export class EmployeeService {
           data: { checkOutDate: now, checkedOutById: deletedById || null },
         });
       }
-      // Also close active inventories assigned to deleted employee
+      // Also close active inventories assigned to deleted employee and return their stock
+      const activeStockInventories = await tx.inventoryItem.findMany({
+        where: { employeeId, returnedDate: null, stockItemId: { not: null } },
+      });
+      for (const inv of activeStockInventories) {
+        await tx.stockItem.update({
+          where: { id: inv.stockItemId! },
+          data: { usedStock: { decrement: 1 } },
+        });
+      }
       await tx.inventoryItem.updateMany({
         where: { employeeId, returnedDate: null },
         data: {
@@ -403,6 +412,9 @@ export class EmployeeService {
         where: { OR: [{ username: targetUsername }, { email: targetEmail }] },
       });
       if (existingUser) {
+        if (existingUser.username === targetUsername) {
+          throw new AppError(`'${targetUsername}' kullanıcı adı sistemde başka bir personel tarafından zaten kullanılmaktadır. Her kullanıcı adı tek olmalıdır.`, 400);
+        }
         targetEmail = `${targetUsername}.${Date.now().toString().slice(-4)}@lojman.local`;
       }
 
@@ -545,6 +557,19 @@ export class EmployeeService {
             createdById: createdById || null,
           },
         });
+
+        // Automatically create Bed Inventory Item (Zimmet)
+        await tx.inventoryItem.create({
+          data: {
+            employeeId: newEmployee.id,
+            itemName: `${bed.room.block.name} • Oda ${bed.room.roomNumber} - ${bed.bedLabel}`,
+            itemCode: 'YATAK-ZİMMETİ',
+            category: 'LOJMAN_ZİMMETİ',
+            status: 'TESLİM_EDİLDİ',
+            notes: 'Oda yerleşimi ile otomatik olarak atandı.',
+            createdById: createdById || null,
+          },
+        });
       }
 
       const created = await tx.employee.findUnique({
@@ -648,8 +673,26 @@ export class EmployeeService {
       if (data.systemUser.createAccount) {
         if (employee.userId) {
           const updateUserData: any = {};
-          if (data.systemUser.username) updateUserData.username = data.systemUser.username.trim().toLowerCase();
-          if (data.systemUser.email) updateUserData.email = validateEmail(data.systemUser.email);
+          if (data.systemUser.username) {
+            const newUsername = data.systemUser.username.trim().toLowerCase();
+            const duplicate = await prisma.user.findFirst({
+              where: { username: newUsername, NOT: { id: employee.userId } },
+            });
+            if (duplicate) {
+              throw new AppError(`'${newUsername}' kullanıcı adı sistemde başka bir personel tarafından zaten kullanılmaktadır. Her kullanıcı adı tek olmalıdır.`, 400);
+            }
+            updateUserData.username = newUsername;
+          }
+          if (data.systemUser.email) {
+            const newEmail = validateEmail(data.systemUser.email);
+            const duplicate = await prisma.user.findFirst({
+              where: { email: newEmail, NOT: { id: employee.userId } },
+            });
+            if (duplicate) {
+              throw new AppError(`'${newEmail}' e-posta adresi zaten başka bir kullanıcı hesabı tarafından kullanılmaktadır.`, 400);
+            }
+            updateUserData.email = newEmail;
+          }
           if (data.systemUser.role) updateUserData.role = data.systemUser.role;
           if (data.systemUser.password && data.systemUser.password.trim().length >= 10 && /[A-ZÇĞİÖŞÜ]/.test(data.systemUser.password) && /\d/.test(data.systemUser.password)) {
             updateUserData.passwordHash = await bcrypt.hash(data.systemUser.password.trim(), config.security.saltRounds);
@@ -787,6 +830,7 @@ export class EmployeeService {
             createdById: data.createdById || null,
           },
         });
+
       }
 
       const updated = await tx.employee.update({
@@ -835,13 +879,42 @@ export class EmployeeService {
   /**
    * Add Zimmet veya Şahsi Eşya Beyan Kaydı
    */
-  public static async addInventoryItem(employeeId: string, data: { itemName: string; itemCode?: string; category?: string; serialNo?: string; photoUrl?: string; notes?: string; createdById?: string }) {
+  public static async addInventoryItem(employeeId: string, data: { itemName: string; itemCode?: string; category?: string; serialNo?: string; photoUrl?: string; notes?: string; createdById?: string; stockItemId?: string }) {
     const employee = await prisma.employee.findUnique({ where: { id: employeeId, isDeleted: false } });
     if (!employee) throw new AppError('Personel bulunamadı.', 404);
-    const rawItemName = boundedText(data.itemName, 'Eşya adı', 120, { required: true, casing: 'upper' })!;
-    const itemName = normalizeInventoryItemName(rawItemName)!;
     const category = data.category || 'LOJMAN_ZİMMETİ';
     if (!['LOJMAN_ZİMMETİ', 'ŞAHSİ_EŞYA'].includes(category)) throw new AppError('Geçersiz eşya kategorisi.', 400);
+
+    if (category === 'LOJMAN_ZİMMETİ' && data.stockItemId) {
+      return prisma.$transaction(async (tx) => {
+        const stockItem = await tx.stockItem.findUnique({ where: { id: data.stockItemId } });
+        if (!stockItem) throw new AppError('Seçilen stok kalemi bulunamadı.', 404);
+        if (stockItem.totalStock - stockItem.usedStock <= 0) {
+          throw new AppError(`Depoda yeterli miktarda "${stockItem.itemName}" kalmamıştır.`, 400);
+        }
+        await tx.stockItem.update({
+          where: { id: stockItem.id },
+          data: { usedStock: { increment: 1 } },
+        });
+        return tx.inventoryItem.create({
+          data: {
+            employeeId,
+            itemName: stockItem.itemName,
+            itemCode: data.itemCode ? boundedText(data.itemCode, 'Eşya kodu', 80, { casing: 'upper' }) : null,
+            category,
+            serialNo: data.serialNo ? boundedText(data.serialNo, 'Seri numarası', 120, { casing: 'upper' }) : null,
+            photoUrl: validatePhotoUrl(data.photoUrl),
+            status: 'TESLİM_EDİLDİ',
+            notes: data.notes ? boundedText(data.notes, 'Eşya notu', 1000, { casing: 'upper' }) : null,
+            createdById: data.createdById || null,
+            stockItemId: stockItem.id,
+          },
+        });
+      });
+    }
+
+    const rawItemName = boundedText(data.itemName, 'Eşya adı', 120, { required: true, casing: 'upper' })!;
+    const itemName = normalizeInventoryItemName(rawItemName)!;
 
     return prisma.inventoryItem.create({
       data: {
@@ -889,6 +962,20 @@ export class EmployeeService {
       returnedById: returnedById || null,
     };
     if (notes !== undefined) dataToUpdate.notes = boundedText(notes, 'İade notu', 1000, { casing: 'upper' });
+
+    if (existing.stockItemId) {
+      return prisma.$transaction(async (tx) => {
+        await tx.stockItem.update({
+          where: { id: existing.stockItemId! },
+          data: { usedStock: { decrement: 1 } },
+        });
+        return tx.inventoryItem.update({
+          where: { id: inventoryId },
+          data: dataToUpdate,
+        });
+      });
+    }
+
     return prisma.inventoryItem.update({
       where: { id: inventoryId },
       data: dataToUpdate,
@@ -899,6 +986,21 @@ export class EmployeeService {
    * Delete Inventory Item
    */
   public static async deleteInventoryItem(inventoryId: string) {
+    const existing = await prisma.inventoryItem.findUnique({ where: { id: inventoryId } });
+    if (!existing) throw new AppError('Zimmet/Eşya kaydı bulunamadı.', 404);
+
+    if (existing.stockItemId && !existing.returnedDate) {
+      return prisma.$transaction(async (tx) => {
+        await tx.stockItem.update({
+          where: { id: existing.stockItemId! },
+          data: { usedStock: { decrement: 1 } },
+        });
+        return tx.inventoryItem.delete({
+          where: { id: inventoryId },
+        });
+      });
+    }
+
     return prisma.inventoryItem.delete({
       where: { id: inventoryId },
     });

@@ -215,7 +215,7 @@ export const roomService = {
           },
         },
         maintenances: { orderBy: { createdAt: 'desc' }, select: maintenanceSelect },
-        inventories: { orderBy: [{ location: 'asc' }, { itemName: 'asc' }] },
+        inventories: { orderBy: [{ itemName: 'asc' }, { serialNo: 'asc' }] },
         cleaningLogs: { orderBy: { requestedAt: 'desc' } },
       },
     });
@@ -469,17 +469,6 @@ export const roomService = {
             isOccupied: false,
           })),
         },
-        inventories: {
-          create: [
-            { itemName: 'TELEVİZYON (SMART LED TV)', location: 'ODA ORTAK' },
-            { itemName: 'MİNİBAR (BUZDOLABI)', location: 'ODA ORTAK' },
-            { itemName: 'KLİMA (İNVERTER)', location: 'ODA ORTAK' },
-            ...bedLabels.flatMap((label) => [
-              { itemName: 'YATAK (ORTOPEDİK)', location: label.toLocaleUpperCase('tr-TR') },
-              { itemName: 'BAZA (SANDIKLI)', location: label.toLocaleUpperCase('tr-TR') },
-            ]),
-          ],
-        },
       },
       include: {
         block: true,
@@ -611,14 +600,13 @@ export const roomService = {
     return { deleted: true };
   },
 
-  async updateInventory(inventoryId: string, data: { status?: RoomInventoryStatus; notes?: string | null }) {
+  async updateInventory(inventoryId: string, data: { status?: RoomInventoryStatus }) {
     const existing = await prisma.roomInventory.findUnique({ where: { id: inventoryId } });
     if (!existing) throw new AppError('Oda zimmet kaydı bulunamadı.', 404);
     return prisma.roomInventory.update({
       where: { id: inventoryId },
       data: {
         ...(data.status && { status: data.status }),
-        ...(data.notes !== undefined && { notes: data.notes?.trim().toLocaleUpperCase('tr-TR') || null }),
       },
     });
   },
@@ -677,13 +665,6 @@ export const roomService = {
               isOccupied: false,
             })),
           }),
-          prisma.roomInventory.createMany({
-            data: newBedLabels.flatMap((label) => [
-              { roomId, itemName: 'YATAK (ORTOPEDİK)', location: label.toLocaleUpperCase('tr-TR') },
-              { roomId, itemName: 'BAZA (SANDIKLI)', location: label.toLocaleUpperCase('tr-TR') },
-            ]),
-            skipDuplicates: true,
-          }),
           prisma.room.update({ where: { id: roomId }, data: { capacity: newCapacity } }),
         ]);
       } else if (newCapacity < room.capacity) {
@@ -701,11 +682,9 @@ export const roomService = {
         }
 
         const bedIdsToRemove = bedsToRemove.map((b) => b.id);
-        const bedLabelsToRemove = bedsToRemove.map((b) => b.bedLabel.toLocaleUpperCase('tr-TR'));
 
         await prisma.$transaction([
           prisma.bed.deleteMany({ where: { id: { in: bedIdsToRemove } } }),
-          prisma.roomInventory.deleteMany({ where: { roomId, location: { in: bedLabelsToRemove } } }),
           prisma.room.update({ where: { id: roomId }, data: { capacity: newCapacity } }),
         ]);
       }
@@ -749,7 +728,7 @@ export const roomService = {
   },
 
   /** Add custom fixture / inventory item to a room */
-  async createRoomInventory(roomId: string, data: { itemName: string; location?: string; quantity?: number; status?: RoomInventoryStatus; notes?: string }) {
+  async createRoomInventory(roomId: string, data: { itemName: string; brand?: string; serialNo?: string; quantity?: number; status?: RoomInventoryStatus; stockItemId?: string }) {
     const room = await prisma.room.findUnique({ where: { id: roomId } });
     if (!room) throw new AppError('Oda bulunamadı.', 404);
 
@@ -758,33 +737,54 @@ export const roomService = {
     }
 
     const cleanItemName = data.itemName.trim().toLocaleUpperCase('tr-TR');
-    const cleanLocation = (data.location?.trim() || 'GENEL').toLocaleUpperCase('tr-TR');
+    const cleanBrand = data.brand?.trim() ? data.brand.trim().toLocaleUpperCase('tr-TR') : null;
+    const cleanSerialNo = data.serialNo?.trim() ? data.serialNo.trim().toLocaleUpperCase('tr-TR') : null;
     const quantity = data.quantity && data.quantity > 0 ? Number(data.quantity) : 1;
 
-    const existing = await prisma.roomInventory.findFirst({
-      where: { roomId, itemName: cleanItemName, location: cleanLocation },
-    });
+    return prisma.$transaction(async (tx) => {
+      if (data.stockItemId) {
+        const stockItem = await tx.stockItem.findUnique({ where: { id: data.stockItemId } });
+        if (!stockItem) throw new AppError('Seçilen stok kalemi depoda bulunamadı.', 404);
 
-    if (existing) {
-      return prisma.roomInventory.update({
-        where: { id: existing.id },
+        const available = stockItem.totalStock - (stockItem.usedStock + stockItem.usedInRooms);
+        if (available < quantity) {
+          throw new AppError(`Depoda yeterli stok yok. Müsait: ${available} Adet. İstenen: ${quantity} Adet.`, 400);
+        }
+
+        // Increment usedInRooms in stock item
+        await tx.stockItem.update({
+          where: { id: data.stockItemId },
+          data: { usedInRooms: { increment: quantity } },
+        });
+      }
+
+      const existing = await tx.roomInventory.findFirst({
+        where: { roomId, itemName: cleanItemName, serialNo: cleanSerialNo },
+      });
+
+      if (existing) {
+        return tx.roomInventory.update({
+          where: { id: existing.id },
+          data: {
+            quantity: existing.quantity + quantity,
+            status: data.status || existing.status,
+            brand: cleanBrand || existing.brand,
+            stockItemId: data.stockItemId || existing.stockItemId,
+          },
+        });
+      }
+
+      return tx.roomInventory.create({
         data: {
-          quantity: existing.quantity + quantity,
-          status: data.status || existing.status,
-          notes: data.notes ? data.notes.trim().toLocaleUpperCase('tr-TR') : existing.notes,
+          roomId,
+          itemName: cleanItemName,
+          brand: cleanBrand,
+          serialNo: cleanSerialNo,
+          quantity,
+          status: data.status || 'HEALTHY',
+          stockItemId: data.stockItemId || null,
         },
       });
-    }
-
-    return prisma.roomInventory.create({
-      data: {
-        roomId,
-        itemName: cleanItemName,
-        location: cleanLocation,
-        quantity,
-        status: data.status || 'HEALTHY',
-        notes: data.notes ? data.notes.trim().toLocaleUpperCase('tr-TR') : null,
-      },
     });
   },
 
@@ -793,7 +793,20 @@ export const roomService = {
     const existing = await prisma.roomInventory.findUnique({ where: { id: inventoryId } });
     if (!existing) throw new AppError('Demirbaş eşya kaydı bulunamadı.', 404);
 
-    await prisma.roomInventory.delete({ where: { id: inventoryId } });
+    await prisma.$transaction(async (tx) => {
+      if (existing.stockItemId) {
+        // Find stockItem to check usedInRooms count safely
+        const stockItem = await tx.stockItem.findUnique({ where: { id: existing.stockItemId } });
+        if (stockItem) {
+          await tx.stockItem.update({
+            where: { id: existing.stockItemId },
+            data: { usedInRooms: { decrement: Math.min(existing.quantity, stockItem.usedInRooms) } },
+          });
+        }
+      }
+      await tx.roomInventory.delete({ where: { id: inventoryId } });
+    });
+
     return { deleted: true };
   },
 

@@ -41,7 +41,6 @@ export interface StaffPortalData {
     assignedDate: string;
   }>;
   notifications: {
-    unreadCount: number;
     items: Array<{
       recipientId: string;
       notificationId: string;
@@ -50,8 +49,6 @@ export interface StaffPortalData {
       priority: 'NORMAL' | 'IMPORTANT' | 'URGENT';
       createdAt: string;
       senderName: string;
-      isRead: boolean;
-      readAt?: string | null;
     }>;
   };
 }
@@ -102,25 +99,5 @@ export const portalApi = {
     const data = await res.json();
     if (!res.ok) throw new Error(data.message || 'Portal verileri alınamadı.');
     return data.data;
-  },
-
-  markNotificationRead: async (recipientId: string) => {
-    const res = await fetch(`${API_BASE_URL}/portal/notifications/${recipientId}/read`, {
-      method: 'PATCH',
-      credentials: 'include',
-    });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.message || 'Bildirim okundu olarak işaretlenemedi.');
-    return data;
-  },
-
-  markAllNotificationsRead: async () => {
-    const res = await fetch(`${API_BASE_URL}/portal/notifications/read-all`, {
-      method: 'PATCH',
-      credentials: 'include',
-    });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.message || 'Bildirimler işaretlenemedi.');
-    return data;
   },
 };

@@ -155,7 +155,7 @@ export const employeeApi = {
     return response.data.data;
   },
 
-  addInventoryItem: async (employeeId: string, payload: { itemName: string; itemCode?: string; category?: string; serialNo?: string; photoUrl?: string; notes?: string }) => {
+  addInventoryItem: async (employeeId: string, payload: { itemName: string; itemCode?: string; category?: string; serialNo?: string; photoUrl?: string; notes?: string; stockItemId?: string }) => {
     const response = await api.post<{ success: boolean; data: any }>(`/${employeeId}/inventories`, payload);
     return response.data.data;
   },

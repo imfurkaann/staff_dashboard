@@ -11,6 +11,7 @@ const VisitorManagementView = lazy(() => import('./components/VisitorManagementV
 const MaintenanceManagementView = lazy(() => import('./components/MaintenanceManagementView').then((m) => ({ default: m.MaintenanceManagementView })));
 const StaffPortalView = lazy(() => import('./components/StaffPortalView').then((m) => ({ default: m.StaffPortalView })));
 const NotificationManagementView = lazy(() => import('./components/NotificationManagementView').then((m) => ({ default: m.NotificationManagementView })));
+const WarehouseManagementView = lazy(() => import('./components/WarehouseManagementView').then((m) => ({ default: m.WarehouseManagementView })));
 
 const PageLoader = () => <div className="min-h-[50vh] flex items-center justify-center"><div className="w-9 h-9 border-4 border-[#1e3a8a]/20 border-t-[#1e3a8a] rounded-full animate-spin" /></div>;
 
@@ -143,6 +144,10 @@ export const App: React.FC = () => {
 
         {permittedTab === 'notifications' && (
           <NotificationManagementView currentUser={currentUser} />
+        )}
+
+        {permittedTab === 'warehouse' && (
+          <WarehouseManagementView />
         )}
 
         {permittedTab === 'inventory' && (

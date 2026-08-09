@@ -12,6 +12,7 @@ import visitorRoutes from './routes/visitorRoutes';
 import maintenanceRoutes from './routes/maintenanceRoutes';
 import notificationRoutes from './routes/notificationRoutes';
 import portalRoutes from './routes/portalRoutes';
+import stockRoutes from './routes/stockRoutes';
 import { AppError, errorHandler } from './middleware/errorHandler';
 import { apiRateLimiter } from './middleware/rateLimiter';
 import { originGuard } from './middleware/originGuard';
@@ -54,6 +55,7 @@ app.use('/api/visitors', visitorRoutes);
 app.use('/api/maintenance', maintenanceRoutes);
 app.use('/api/notifications', notificationRoutes);
 app.use('/api/portal', portalRoutes);
+app.use('/api/stock', stockRoutes);
 
 // Health check endpoint
 app.get('/api/health', async (_req, res) => {

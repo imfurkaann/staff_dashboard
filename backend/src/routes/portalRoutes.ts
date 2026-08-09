@@ -14,11 +14,4 @@ router.get('/push/public-key', PortalController.getPushPublicKey);
 router.post('/push/subscribe', PortalController.subscribePush);
 router.delete('/push/subscribe', PortalController.unsubscribePush);
 router.post('/push/test', PortalController.testPush);
-
-// PATCH /api/portal/notifications/read-all (Mark all notifications as read)
-router.patch('/notifications/read-all', PortalController.markAllNotificationsRead);
-
-// PATCH /api/portal/notifications/:recipientId/read (Mark single notification as read)
-router.patch('/notifications/:recipientId/read', PortalController.markNotificationRead);
-
 export default router;

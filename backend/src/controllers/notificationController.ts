@@ -41,13 +41,12 @@ export class NotificationController {
    */
   public static async getAllSent(req: AuthenticatedRequest, res: Response, next: NextFunction) {
     try {
-      const page = Number(req.query.page || 1);
-      const pageSize = Number(req.query.pageSize || 25);
-      const result = await NotificationService.getSentNotifications(page, pageSize);
+      const result = await NotificationService.getSentNotifications(req.query);
 
       res.status(200).json({
         success: true,
         data: result.items,
+        summary: result.summary,
         pagination: result.pagination,
       });
     } catch (error) {

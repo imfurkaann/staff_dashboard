@@ -32,11 +32,11 @@ export interface ExportOccupancy {
 
 export interface ExportRoomInventory {
   itemName: string;
-  location: string;
+  brand?: string | null;
+  serialNo?: string | null;
   quantity: number;
   status: string;
   installedAt: Date;
-  notes?: string | null;
   room: {
     roomNumber: string;
     status: string;
@@ -275,7 +275,7 @@ export async function createRoomInventoryWorkbook(rows: ExportRoomInventory[], g
       currentRowNum++;
 
       // 2. Sub-table Column Headers
-      const subHeaders = ['DEMİRBAŞ / EŞYA TANIMI', 'ODA İÇİ KONUM / ALAN', 'ADET', 'DEMİRBAŞ DURUMU', 'KURULUM TARİHİ', 'AÇIKLAMA / NOTLAR'];
+      const subHeaders = ['DEMİRBAŞ / EŞYA TANIMI', 'MARKA', 'SERİ NUMARASI', 'ADET', 'DEMİRBAŞ DURUMU', 'KURULUM TARİHİ'];
       subHeaders.forEach((headerText, colIdx) => {
         const cell = sheet.getCell(currentRowNum, colIdx + 1);
         cell.value = headerText;
@@ -287,7 +287,7 @@ export async function createRoomInventoryWorkbook(rows: ExportRoomInventory[], g
           left: { style: 'thin', color: { argb: 'FFCBD5E1' } },
           right: { style: 'thin', color: { argb: 'FFCBD5E1' } },
         };
-        cell.alignment = { vertical: 'middle', horizontal: colIdx === 2 ? 'center' : 'left' };
+        cell.alignment = { vertical: 'middle', horizontal: colIdx === 3 ? 'center' : 'left' };
       });
       sheet.getRow(currentRowNum).height = 20;
       currentRowNum++;
@@ -302,11 +302,11 @@ export async function createRoomInventoryWorkbook(rows: ExportRoomInventory[], g
         row.height = 19;
 
         const c1 = row.getCell(1); c1.value = inv.itemName; c1.font = { name: 'Arial', size: 9.5, bold: true };
-        const c2 = row.getCell(2); c2.value = inv.location; c2.font = { name: 'Arial', size: 9.5 };
-        const c3 = row.getCell(3); c3.value = inv.quantity; c3.font = { name: 'Arial', size: 9.5, bold: true }; c3.alignment = { horizontal: 'center' };
-        const c4 = row.getCell(4); c4.value = statusText; c4.font = { name: 'Arial', size: 9.5, bold: true };
-        const c5 = row.getCell(5); c5.value = new Date(inv.installedAt); c5.numFmt = 'dd.mm.yyyy'; c5.font = { name: 'Arial', size: 9.5 };
-        const c6 = row.getCell(6); c6.value = inv.notes || '-'; c6.font = { name: 'Arial', size: 9.5, italic: !inv.notes };
+        const c2 = row.getCell(2); c2.value = inv.brand || '-'; c2.font = { name: 'Arial', size: 9.5 };
+        const c3 = row.getCell(3); c3.value = inv.serialNo || '-'; c3.font = { name: 'Arial', size: 9.5 };
+        const c4 = row.getCell(4); c4.value = inv.quantity; c4.font = { name: 'Arial', size: 9.5, bold: true }; c4.alignment = { horizontal: 'center' };
+        const c5 = row.getCell(5); c5.value = statusText; c5.font = { name: 'Arial', size: 9.5, bold: true };
+        const c6 = row.getCell(6); c6.value = new Date(inv.installedAt); c6.numFmt = 'dd.mm.yyyy'; c6.font = { name: 'Arial', size: 9.5 };
 
         // Apply borders & row background fills
         for (let col = 1; col <= 6; col++) {

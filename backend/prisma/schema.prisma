@@ -222,12 +222,27 @@ model InventoryItem {
   createdBy    User?     @relation("InventoryCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
   returnedById String?
   returnedBy   User?     @relation("InventoryReturnedBy", fields: [returnedById], references: [id], onDelete: SetNull)
+  stockItemId  String?
+  stockItem    StockItem? @relation(fields: [stockItemId], references: [id], onDelete: SetNull)
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
 
   @@index([employeeId])
   @@index([createdById])
   @@index([returnedById])
+  @@index([stockItemId])
+}
+
+model StockItem {
+  id              String          @id @default(uuid())
+  itemName        String          @unique
+  totalStock      Int             @default(0)
+  usedStock       Int             @default(0)
+  usedInRooms     Int             @default(0)
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+  inventories     InventoryItem[]
+  roomInventories RoomInventory[]
 }
 
 model DisciplinaryNote {
@@ -272,16 +287,19 @@ model RoomInventory {
   roomId      String
   room        Room                @relation(fields: [roomId], references: [id], onDelete: Cascade)
   itemName    String
-  location    String
+  brand       String?
+  serialNo    String?
   quantity    Int                 @default(1)
   installedAt DateTime            @default(now())
   status      RoomInventoryStatus @default(HEALTHY)
-  notes       String?
+  stockItemId String?
+  stockItem   StockItem?          @relation(fields: [stockItemId], references: [id], onDelete: SetNull)
   createdAt   DateTime            @default(now())
   updatedAt   DateTime            @updatedAt
 
-  @@unique([roomId, itemName, location])
+  @@unique([roomId, itemName, serialNo])
   @@index([roomId, status])
+  @@index([stockItemId])
 }
 
 model Visitor {
@@ -344,6 +362,7 @@ enum NotificationTargetType {
   SPECIFIC_USERS
   BLOCK
   DEPARTMENT
+  GENDER
 }
 
 model Notification {
@@ -374,11 +393,9 @@ model NotificationRecipient {
   notification   Notification @relation(fields: [notificationId], references: [id], onDelete: Cascade)
   userId         String
   user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
-  isRead         Boolean      @default(false)
-  readAt         DateTime?
 
   @@unique([notificationId, userId])
-  @@index([userId, isRead])
+  @@index([userId])
   @@index([notificationId])
 }
 

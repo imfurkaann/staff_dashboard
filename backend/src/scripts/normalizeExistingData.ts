@@ -68,7 +68,7 @@ async function main() {
   for (const block of blocks) if (applyChanges) await prisma.block.update({ where: { id: block.id }, data: { name: normalizeUpper(block.name) || block.name } });
   for (const room of rooms) if (applyChanges) await prisma.room.update({ where: { id: room.id }, data: { roomNumber: normalizeUpper(room.roomNumber) || room.roomNumber } });
   for (const item of roomInventories) if (applyChanges) await prisma.roomInventory.update({ where: { id: item.id }, data: {
-    itemName: normalizeUpper(item.itemName) || item.itemName, location: normalizeUpper(item.location) || item.location, notes: normalizeUpper(item.notes),
+    itemName: normalizeUpper(item.itemName) || item.itemName, brand: normalizeUpper(item.brand), serialNo: normalizeUpper(item.serialNo),
   } });
   for (const bed of beds) if (applyChanges) await prisma.bed.update({ where: { id: bed.id }, data: { bedLabel: normalizeUpper(bed.bedLabel) || bed.bedLabel } });
   for (const log of occupancyLogs) if (applyChanges) await prisma.occupancyLog.update({ where: { id: log.id }, data: {

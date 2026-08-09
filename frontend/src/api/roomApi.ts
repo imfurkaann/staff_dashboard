@@ -52,11 +52,11 @@ export interface RoomInventory {
   id: string;
   roomId: string;
   itemName: string;
-  location: string;
+  brand?: string | null;
+  serialNo?: string | null;
   quantity: number;
   installedAt: string;
   status: RoomInventoryStatus;
-  notes?: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -195,7 +195,7 @@ export const roomApi = {
     await api.delete(`/maintenance/${maintenanceId}`);
   },
 
-  updateInventory: async (inventoryId: string, payload: { status?: RoomInventoryStatus; notes?: string | null }): Promise<RoomInventory> => {
+  updateInventory: async (inventoryId: string, payload: { status?: RoomInventoryStatus }): Promise<RoomInventory> => {
     const response = await api.patch<{ success: boolean; data: RoomInventory; message: string }>(`/inventories/${inventoryId}`, payload);
     return response.data.data;
   },
@@ -224,7 +224,7 @@ export const roomApi = {
     await api.delete(`/${roomId}`);
   },
 
-  createRoomInventory: async (roomId: string, payload: { itemName: string; location?: string; quantity?: number; status?: RoomInventoryStatus; notes?: string }): Promise<RoomInventory> => {
+  createRoomInventory: async (roomId: string, payload: { itemName: string; brand?: string; serialNo?: string; quantity?: number; status?: RoomInventoryStatus; stockItemId?: string }): Promise<RoomInventory> => {
     const response = await api.post<{ success: boolean; data: RoomInventory; message: string }>(`/${roomId}/inventories`, payload);
     return response.data.data;
   },

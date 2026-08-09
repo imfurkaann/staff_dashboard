@@ -51,8 +51,8 @@ const MODEL_FIELD_NORMALIZERS: Record<string, Record<string, StringNormalizer>> 
   },
   RoomInventory: {
     itemName: normalizeUpper,
-    location: normalizeUpper,
-    notes: normalizeUpper,
+    brand: normalizeUpper,
+    serialNo: normalizeUpper,
   },
   Visitor: {
     fullName: normalizeUpper,

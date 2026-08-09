@@ -32,6 +32,7 @@ import {
   Sparkles,
 } from 'lucide-react';
 import { Room, RoomBed, RoomInventory, RoomInventoryStatus, RoomMaintenance, RoomStatusType, RoomCleaningLog, roomApi } from '../api/roomApi';
+import { stockApi, StockItem } from '../api/stockApi';
 import { MaintenanceDetailModal } from './MaintenanceDetailModal';
 
 interface RoomDetailViewProps {
@@ -101,8 +102,19 @@ export const RoomDetailView: React.FC<RoomDetailViewProps> = ({
 
   // Add Room Fixture Inventory Modal State
   const [showAddInventoryModal, setShowAddInventoryModal] = useState(false);
-  const [addInventoryForm, setAddInventoryForm] = useState({ itemName: '', location: 'GENEL', quantity: 1, status: 'HEALTHY' as RoomInventoryStatus, notes: '' });
+  const [addInventoryForm, setAddInventoryForm] = useState({ itemName: '', brand: '', serialNo: '', quantity: 1, status: 'HEALTHY' as RoomInventoryStatus });
   const [addInventorySubmitting, setAddInventorySubmitting] = useState(false);
+  const [stockItems, setStockItems] = useState<StockItem[]>([]);
+  const [selectedStockItemId, setSelectedStockItemId] = useState<string>('');
+  const [lojmanAssignmentType, setLojmanAssignmentType] = useState<'stock' | 'custom'>('stock');
+
+  useEffect(() => {
+    if (showAddInventoryModal) {
+      stockApi.getStockItems()
+        .then(data => setStockItems(data))
+        .catch(err => console.error("Stok kalemleri yüklenemedi", err));
+    }
+  }, [showAddInventoryModal]);
 
   // Delete Inventory Modal State
   const [inventoryToDelete, setInventoryToDelete] = useState<RoomInventory | null>(null);
@@ -145,12 +157,17 @@ export const RoomDetailView: React.FC<RoomDetailViewProps> = ({
     setAddInventorySubmitting(true);
     setRoomError(null);
     try {
-      await roomApi.createRoomInventory(currentRoom.id, addInventoryForm);
+      await roomApi.createRoomInventory(currentRoom.id, {
+        ...addInventoryForm,
+        stockItemId: lojmanAssignmentType === 'stock' ? selectedStockItemId || undefined : undefined,
+      });
       const reloaded = await roomApi.getRoomById(currentRoom.id);
       setCurrentRoom(reloaded);
       if (onRoomUpdated) onRoomUpdated(reloaded);
       setShowAddInventoryModal(false);
-      setAddInventoryForm({ itemName: '', location: 'GENEL', quantity: 1, status: 'HEALTHY', notes: '' });
+      setAddInventoryForm({ itemName: '', brand: '', serialNo: '', quantity: 1, status: 'HEALTHY' });
+      setSelectedStockItemId('');
+      setLojmanAssignmentType('stock');
     } catch (err: any) {
       setRoomError(err?.response?.data?.message || err?.message || 'Demirbaş eşya eklenemedi.');
     } finally {
@@ -541,7 +558,7 @@ export const RoomDetailView: React.FC<RoomDetailViewProps> = ({
           <div className="text-right"><p className="font-black text-[18px]">ODA {currentRoom.roomNumber}</p><p>{currentRoom.block?.name} BLOĞU</p><p className="mt-1">Döküm: {new Date().toLocaleString('tr-TR', { dateStyle: 'short', timeStyle: 'short', timeZone: 'Europe/Istanbul' })}</p></div>
         </header>
         <section className="mb-3"><h2 className="print-section-title">1. ODA GENEL BİLGİLERİ</h2><table className="print-table"><tbody><tr><th>Oda / Blok</th><td>{currentRoom.roomNumber} / {currentRoom.block?.name}</td><th>Kapasite</th><td>{currentRoom.capacity} Kişi</td></tr><tr><th>Doluluk</th><td>{occupiedCount} Dolu / {vacantCount} Boş</td><th>Oda Durumu</th><td>{currentRoom.status}</td></tr></tbody></table></section>
-        {(printType === 'inventory' || printType === 'all') && <section className="mb-3"><h2 className="print-section-title">2. ODA ZİMMET VE DEMİRBAŞLARI</h2><table className="print-table"><thead><tr><th>Demirbaş</th><th>Konum</th><th>Adet</th><th>Tesis Tarihi</th><th>Durum</th></tr></thead><tbody>{roomInventories.map((item) => <tr key={item.id}><td>{item.itemName}</td><td>{item.location}</td><td>{item.quantity}</td><td>{formatDateTime(item.installedAt)}</td><td>{inventoryStatusLabels[item.status]}</td></tr>)}</tbody></table></section>}
+        {(printType === 'inventory' || printType === 'all') && <section className="mb-3"><h2 className="print-section-title">2. ODA ZİMMET VE DEMİRBAŞLARI</h2><table className="print-table"><thead><tr><th>Demirbaş</th><th>Marka</th><th>Seri No</th><th>Adet</th><th>Tesis Tarihi</th><th>Durum</th></tr></thead><tbody>{roomInventories.map((item) => <tr key={item.id}><td>{item.itemName}</td><td>{item.brand || '-'}</td><td>{item.serialNo || '-'}</td><td>{item.quantity}</td><td>{formatDateTime(item.installedAt)}</td><td>{inventoryStatusLabels[item.status]}</td></tr>)}</tbody></table></section>}
         {(printType === 'maintenance' || printType === 'all') && (
           <section className="mb-3 space-y-2">
             <h2 className="print-section-title">{printType === 'all' ? '3.' : '2.'} ARIZA VE BAKIM KAYITLARI</h2>
@@ -975,7 +992,7 @@ export const RoomDetailView: React.FC<RoomDetailViewProps> = ({
             <button
               type="button"
               onClick={() => {
-                setAddInventoryForm({ itemName: '', location: 'GENEL', quantity: 1, status: 'HEALTHY', notes: '' });
+                setAddInventoryForm({ itemName: '', brand: '', serialNo: '', quantity: 1, status: 'HEALTHY' });
                 setShowAddInventoryModal(true);
               }}
               className="px-3.5 py-2 rounded-xl bg-[#1e3a8a] hover:bg-blue-900 text-white font-bold text-xs flex items-center gap-1.5 cursor-pointer shadow-md self-start sm:self-auto"
@@ -997,7 +1014,8 @@ export const RoomDetailView: React.FC<RoomDetailViewProps> = ({
                 <thead>
                   <tr>
                     <th>Sabit Oda Demirbaşı</th>
-                    <th className="w-32">Konum / Odası</th>
+                    <th className="w-32">Marka</th>
+                    <th className="w-32">Seri No</th>
                     <th className="w-28">Adet / Miktar</th>
                     <th className="w-36">Tesis Tarihi</th>
                     <th className="w-48">Demirbaş Durumu</th>
@@ -1016,7 +1034,8 @@ export const RoomDetailView: React.FC<RoomDetailViewProps> = ({
                             <span>{inv.itemName}</span>
                           </div>
                         </td>
-                        <td className="font-semibold text-slate-700">{inv.location || 'GENEL'}</td>
+                        <td className="font-semibold text-slate-700">{inv.brand || '-'}</td>
+                        <td className="font-semibold text-slate-700">{inv.serialNo || '-'}</td>
                         <td className="font-bold text-slate-900">
                           <span className="bg-blue-50 text-blue-900 border border-blue-200 px-2 py-0.5 rounded-md text-[11px] font-extrabold">
                             {inv.quantity} Adet
@@ -2159,30 +2178,106 @@ export const RoomDetailView: React.FC<RoomDetailViewProps> = ({
             </div>
 
             <form onSubmit={handleAddInventorySubmit} className="space-y-4 text-xs">
-              <div>
-                <label className="block font-bold text-slate-800 mb-1">Demirbaş Eşya Adı *</label>
-                <input
-                  type="text"
-                  required
-                  placeholder="Örn: Vestel 43 LED TV, Arçelik Klima, Beko Buzdolabı"
-                  value={addInventoryForm.itemName}
-                  onChange={(e) => setAddInventoryForm({ ...addInventoryForm, itemName: e.target.value })}
-                  className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl font-bold text-slate-900 outline-none"
-                />
+              <div className="flex gap-2 p-1 bg-slate-100 rounded-xl">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setLojmanAssignmentType('stock');
+                    setAddInventoryForm(prev => ({ ...prev, itemName: '' }));
+                    setSelectedStockItemId('');
+                  }}
+                  className={`flex-1 py-1.5 rounded-lg text-[10px] font-bold transition-all cursor-pointer ${
+                    lojmanAssignmentType === 'stock'
+                      ? 'bg-white text-blue-900 shadow-xs'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  Depo / Stoktan Seç
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setLojmanAssignmentType('custom');
+                    setAddInventoryForm(prev => ({ ...prev, itemName: '' }));
+                    setSelectedStockItemId('');
+                  }}
+                  className={`flex-1 py-1.5 rounded-lg text-[10px] font-bold transition-all cursor-pointer ${
+                    lojmanAssignmentType === 'custom'
+                      ? 'bg-white text-blue-900 shadow-xs'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  Özel Demirbaş Girişi
+                </button>
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
+              {lojmanAssignmentType === 'stock' ? (
                 <div>
-                  <label className="block font-bold text-slate-800 mb-1">Konum / Etiket</label>
+                  <label className="block font-bold text-slate-800 mb-1">
+                    Depo Malzemesi Seçin *
+                  </label>
+                  <select
+                    required
+                    value={selectedStockItemId}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setSelectedStockItemId(val);
+                      const matched = stockItems.find(s => s.id === val);
+                      setAddInventoryForm(prev => ({ ...prev, itemName: matched ? matched.itemName : '' }));
+                    }}
+                    className="w-full px-3 py-2.5 bg-slate-50 border border-slate-300 rounded-xl font-semibold text-slate-900 outline-none cursor-pointer"
+                  >
+                    <option value="">-- Depodan Malzeme Seçin --</option>
+                    {stockItems.map((item) => {
+                      const available = item.totalStock - (item.usedStock + item.usedInRooms);
+                      const isOutOfStock = available <= 0;
+                      return (
+                        <option key={item.id} value={item.id} disabled={isOutOfStock}>
+                          {item.itemName} {isOutOfStock ? '(Stok Tükendi)' : `(Müsait: ${available} Adet)`}
+                        </option>
+                      );
+                    })}
+                  </select>
+                </div>
+              ) : (
+                <div>
+                  <label className="block font-bold text-slate-800 mb-1">Demirbaş Eşya Adı *</label>
                   <input
                     type="text"
-                    placeholder="Örn: GENEL, Yatak-A, Banyo"
-                    value={addInventoryForm.location}
-                    onChange={(e) => setAddInventoryForm({ ...addInventoryForm, location: e.target.value })}
+                    required
+                    placeholder="Örn: Vestel LED TV, Arçelik Klima"
+                    value={addInventoryForm.itemName}
+                    onChange={(e) => setAddInventoryForm({ ...addInventoryForm, itemName: e.target.value })}
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl font-bold text-slate-900 outline-none"
+                  />
+                </div>
+              )}
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div>
+                  <label className="block font-bold text-slate-800 mb-1">Marka</label>
+                  <input
+                    type="text"
+                    placeholder="Örn: Vestel, Arçelik, Beko"
+                    value={addInventoryForm.brand}
+                    onChange={(e) => setAddInventoryForm({ ...addInventoryForm, brand: e.target.value })}
                     className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl font-bold text-slate-900 outline-none"
                   />
                 </div>
 
+                <div>
+                  <label className="block font-bold text-slate-800 mb-1">Seri Numarası</label>
+                  <input
+                    type="text"
+                    placeholder="Örn: SN-12345678"
+                    value={addInventoryForm.serialNo}
+                    onChange={(e) => setAddInventoryForm({ ...addInventoryForm, serialNo: e.target.value })}
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl font-bold text-slate-900 outline-none"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 <div>
                   <label className="block font-bold text-slate-800 mb-1">Adet / Miktar *</label>
                   <input
@@ -2194,33 +2289,22 @@ export const RoomDetailView: React.FC<RoomDetailViewProps> = ({
                     className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl font-bold text-slate-900 outline-none"
                   />
                 </div>
-              </div>
 
-              <div>
-                <label className="block font-bold text-slate-800 mb-1">Demirbaş Durumu</label>
-                <select
-                  value={addInventoryForm.status}
-                  onChange={(e) => setAddInventoryForm({ ...addInventoryForm, status: e.target.value as RoomInventoryStatus })}
-                  className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl font-bold text-slate-900 outline-none cursor-pointer"
-                >
-                  <option value="HEALTHY">🟢 Sağlam & Çalışır</option>
-                  <option value="MAINTENANCE_REQUIRED">🟡 Arızalı / Bakım Bekliyor</option>
-                  <option value="DAMAGED">🔴 Kırık / Hasarlı</option>
-                  <option value="LOST">❓ Kayıp / Zayi</option>
-                  <option value="IN_SERVICE">🛠️ Tamirde / Serviste</option>
-                  <option value="REPLACEMENT_REQUIRED">🔄 Değişim Bekliyor</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="block font-bold text-slate-800 mb-1">Açıklama / Not (Opsiyonel)</label>
-                <textarea
-                  rows={2}
-                  placeholder="Ürün seri numarası veya zimmet detayları..."
-                  value={addInventoryForm.notes}
-                  onChange={(e) => setAddInventoryForm({ ...addInventoryForm, notes: e.target.value })}
-                  className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl font-semibold text-slate-900 outline-none"
-                />
+                <div>
+                  <label className="block font-bold text-slate-800 mb-1">Demirbaş Durumu</label>
+                  <select
+                    value={addInventoryForm.status}
+                    onChange={(e) => setAddInventoryForm({ ...addInventoryForm, status: e.target.value as RoomInventoryStatus })}
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl font-bold text-slate-900 outline-none cursor-pointer"
+                  >
+                    <option value="HEALTHY">🟢 Sağlam & Çalışır</option>
+                    <option value="MAINTENANCE_REQUIRED">🟡 Arızalı / Bakım Bekliyor</option>
+                    <option value="DAMAGED">🔴 Kırık / Hasarlı</option>
+                    <option value="LOST">❓ Kayıp / Zayi</option>
+                    <option value="IN_SERVICE">🛠️ Tamirde / Serviste</option>
+                    <option value="REPLACEMENT_REQUIRED">🔄 Değişim Bekliyor</option>
+                  </select>
+                </div>
               </div>
 
               <div className="pt-2 flex justify-end gap-2">
@@ -2263,7 +2347,7 @@ export const RoomDetailView: React.FC<RoomDetailViewProps> = ({
                   Demirbaş Kaydını Sil
                 </h3>
                 <p className="text-xs font-semibold text-slate-600">
-                  <strong>{inventoryToDelete.itemName} ({inventoryToDelete.location})</strong> demirbaş kaydı oda zimmetinden kaldırılacaktır.
+                  <strong>{inventoryToDelete.itemName} ({inventoryToDelete.serialNo || '-'})</strong> demirbaş kaydı oda zimmetinden kaldırılacaktır.
                 </p>
               </div>
             </div>

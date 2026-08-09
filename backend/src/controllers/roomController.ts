@@ -241,12 +241,11 @@ export const roomController = {
   updateInventory: async (req: Request, res: Response, next: NextFunction) => {
     try {
       const { inventoryId } = req.params;
-      const { status, notes } = req.body;
+      const { status } = req.body;
       if (!isUuid(inventoryId)) return res.status(400).json({ success: false, message: 'Geçersiz zimmet kaydı kimliği.' });
       if (status && !Object.values(RoomInventoryStatus).includes(status)) return res.status(400).json({ success: false, message: 'Geçersiz zimmet durumu.' });
       const updated = await roomService.updateInventory(inventoryId, {
         status,
-        notes: notes === undefined ? undefined : cleanString(notes, 1000) || null,
       });
       res.status(200).json({ success: true, data: updated, message: 'Oda zimmet durumu güncellendi.' });
     } catch (error) { next(error); }
@@ -367,8 +366,8 @@ export const roomController = {
 
   createRoomInventory: async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const { id } = req.params;
-      const { itemName, location, quantity, status, notes } = req.body;
+       const { id } = req.params;
+      const { itemName, brand, serialNo, quantity, status, stockItemId } = req.body;
       if (!isUuid(id)) return res.status(400).json({ success: false, message: 'Geçersiz oda kimliği.' });
 
       if (!itemName || !cleanString(itemName, 100)) {
@@ -377,10 +376,11 @@ export const roomController = {
 
       const newInventory = await roomService.createRoomInventory(id, {
         itemName: cleanString(itemName, 100),
-        location: cleanString(location, 100) || undefined,
+        brand: cleanString(brand, 100) || undefined,
+        serialNo: cleanString(serialNo, 100) || undefined,
         quantity: quantity !== undefined ? Number(quantity) : 1,
         status: status ? (status as RoomInventoryStatus) : 'HEALTHY',
-        notes: cleanString(notes, 1000) || undefined,
+        stockItemId: cleanString(stockItemId, 100) || undefined,
       });
 
       res.status(201).json({ success: true, data: newInventory, message: 'Yeni demirbaş eşya odaya eklendi.' });

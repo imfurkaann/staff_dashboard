@@ -40,6 +40,7 @@ import {
   DoorOpen
 } from 'lucide-react';
 import { Employee, employeeApi } from '../api/employeeApi';
+import { stockApi, StockItem } from '../api/stockApi';
 import { AddEmployeeModal } from './AddEmployeeModal';
 import { AssignRoomModal } from './AssignRoomModal';
 import { Visitor, visitorApi } from '../api/visitorApi';
@@ -190,6 +191,16 @@ export const EmployeeDetailView: React.FC<EmployeeDetailViewProps> = ({
   };
 
   const [newLojmanName, setNewLojmanName] = useState('');
+  const [stockItems, setStockItems] = useState<StockItem[]>([]);
+  const [selectedStockItemId, setSelectedStockItemId] = useState<string>('');
+
+  useEffect(() => {
+    if (isAddLojmanModalOpen) {
+      stockApi.getStockItems()
+        .then(data => setStockItems(data))
+        .catch(err => console.error("Stok kalemleri yüklenemedi", err));
+    }
+  }, [isAddLojmanModalOpen]);
 
   const [newComplaintTitle, setNewComplaintTitle] = useState('Madde 1: Oda İçi Gürültü / Huzursuzluk Çıkarma');
   const [newComplaintContent, setNewComplaintContent] = useState('');
@@ -381,10 +392,11 @@ export const EmployeeDetailView: React.FC<EmployeeDetailViewProps> = ({
         await employeeApi.addInventoryItem(employee.id, {
           itemName: newLojmanName.trim(),
           category: 'LOJMAN_ZİMMETİ',
+          stockItemId: selectedStockItemId || undefined,
         });
       }
-    } catch (err) {
-      setOperationError('Zimmet kaydedilemedi. Lütfen tekrar deneyin.');
+    } catch (err: any) {
+      setOperationError(err?.response?.data?.message || err?.message || 'Zimmet kaydedilemedi. Lütfen tekrar deneyin.');
       return;
     }
 
@@ -398,6 +410,7 @@ export const EmployeeDetailView: React.FC<EmployeeDetailViewProps> = ({
 
     setDeliveredInventories([newItem, ...deliveredInventories]);
     setNewLojmanName('');
+    setSelectedStockItemId('');
     setIsAddLojmanModalOpen(false);
   };
 
@@ -1292,16 +1305,30 @@ export const EmployeeDetailView: React.FC<EmployeeDetailViewProps> = ({
             <form onSubmit={handleAddLojmanInventory} className="space-y-3 text-xs">
               <div>
                 <label className="block font-bold text-slate-800 mb-1">
-                  Zimmetli Ekipman / Eşya Tanımı *
+                  Depo Malzemesi Seçin *
                 </label>
-                <input
-                  type="text"
+                <select
                   required
-                  value={newLojmanName}
-                  onChange={(e) => setNewLojmanName(e.target.value)}
-                  placeholder="Örn: 1x Oda Kapı Anahtarı, Nevresim Takımı"
-                  className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl font-semibold text-slate-900 outline-none"
-                />
+                  value={selectedStockItemId}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    setSelectedStockItemId(val);
+                    const matched = stockItems.find(s => s.id === val);
+                    setNewLojmanName(matched ? matched.itemName : '');
+                  }}
+                  className="w-full px-3 py-2.5 bg-slate-50 border border-slate-300 rounded-xl font-semibold text-slate-900 outline-none cursor-pointer"
+                >
+                  <option value="">-- Depodan Malzeme Seçin --</option>
+                  {stockItems.map((item) => {
+                    const available = item.totalStock - item.usedStock;
+                    const isOutOfStock = available <= 0;
+                    return (
+                      <option key={item.id} value={item.id} disabled={isOutOfStock}>
+                        {item.itemName} {isOutOfStock ? '(Stok Tükendi)' : `(Müsait: ${available} Adet)`}
+                      </option>
+                    );
+                  })}
+                </select>
               </div>
 
               <div className="pt-2 flex justify-end gap-2">

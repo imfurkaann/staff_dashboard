@@ -36,18 +36,29 @@ export class NotificationService {
       targetUserIds = users.map((u) => u.id);
     } else if (targetType === 'BLOCK') {
       if (!targetValue || !targetValue.trim()) {
-        throw new AppError('Lütfen bildirimin gönderileceği bloğu seçiniz.', 400);
+        throw new AppError('Lütfen en az bir lojman bloğu seçiniz.', 400);
       }
 
-      // Find employees occupying beds in the specified block
+      let blocksToFilter: string[] = [];
+      try {
+        if (targetValue.trim().startsWith('[')) {
+          blocksToFilter = JSON.parse(targetValue);
+        } else {
+          blocksToFilter = targetValue.split(',').map(b => b.trim()).filter(Boolean);
+        }
+      } catch {
+        blocksToFilter = targetValue.split(',').map(b => b.trim()).filter(Boolean);
+      }
+
+      // Find employees occupying beds in the specified blocks
       const beds = await prisma.bed.findMany({
         where: {
           isOccupied: true,
           currentEmployeeId: { not: null },
           room: {
             OR: [
-              { blockId: targetValue },
-              { block: { name: targetValue } },
+              { blockId: { in: blocksToFilter } },
+              { block: { name: { in: blocksToFilter, mode: 'insensitive' } } },
             ],
           },
         },
@@ -67,12 +78,40 @@ export class NotificationService {
       targetUserIds = Array.from(userIdsSet);
     } else if (targetType === 'DEPARTMENT') {
       if (!targetValue || !targetValue.trim()) {
-        throw new AppError('Lütfen bildirimin gönderileceği departmanı seçiniz.', 400);
+        throw new AppError('Lütfen en az bir departman seçiniz.', 400);
+      }
+
+      let deptsToFilter: string[] = [];
+      try {
+        if (targetValue.trim().startsWith('[')) {
+          deptsToFilter = JSON.parse(targetValue);
+        } else {
+          deptsToFilter = targetValue.split(',').map(d => d.trim()).filter(Boolean);
+        }
+      } catch {
+        deptsToFilter = targetValue.split(',').map(d => d.trim()).filter(Boolean);
       }
 
       const employees = await prisma.employee.findMany({
         where: {
-          department: { equals: targetValue.trim(), mode: 'insensitive' },
+          department: { in: deptsToFilter, mode: 'insensitive' },
+          isDeleted: false,
+          userId: { not: null },
+        },
+        select: { userId: true },
+      });
+
+      targetUserIds = employees
+        .map((e) => e.userId)
+        .filter((id): id is string => Boolean(id));
+    } else if (targetType === 'GENDER') {
+      if (!targetValue || !['Male', 'Female'].includes(targetValue.trim())) {
+        throw new AppError('Lütfen geçerli bir cinsiyet seçiniz.', 400);
+      }
+
+      const employees = await prisma.employee.findMany({
+        where: {
+          gender: { equals: targetValue.trim(), mode: 'insensitive' },
           isDeleted: false,
           userId: { not: null },
         },
@@ -152,36 +191,80 @@ export class NotificationService {
   }
 
   /**
-   * Get list of sent notifications with statistics for management view
+   * Get list of sent notifications with dynamic filtering and statistics for management view
    */
-  public static async getSentNotifications(page = 1, pageSize = 25) {
+  public static async getSentNotifications(query: any = {}) {
+    const page = Number(query.page || 1);
+    const pageSize = Number(query.pageSize || 25);
     const safePage = Number.isInteger(page) && page > 0 ? page : 1;
     const safePageSize = Number.isInteger(pageSize) ? Math.min(Math.max(pageSize, 1), 100) : 25;
-    const [notifications, total] = await prisma.$transaction([
+
+    const where: any = { isDeleted: false };
+
+    if (query.search && query.search.trim()) {
+      const searchPattern = query.search.trim();
+      where.OR = [
+        { title: { contains: searchPattern, mode: 'insensitive' } },
+        { message: { contains: searchPattern, mode: 'insensitive' } },
+      ];
+    }
+
+    if (query.priority && query.priority !== 'ALL') {
+      where.priority = query.priority;
+    }
+
+    if (query.targetType && query.targetType !== 'ALL') {
+      where.targetType = query.targetType;
+    }
+
+    if (query.sender && query.sender.trim()) {
+      const senderPattern = query.sender.trim();
+      where.createdBy = {
+        OR: [
+          { fullName: { contains: senderPattern, mode: 'insensitive' } },
+          { username: { contains: senderPattern, mode: 'insensitive' } },
+        ],
+      };
+    }
+
+    if (query.dateStart || query.dateEnd) {
+      where.createdAt = {
+        ...(query.dateStart ? { gte: new Date(query.dateStart) } : {}),
+        ...(query.dateEnd ? { lte: new Date(query.dateEnd) } : {}),
+      };
+    }
+
+    const [notifications, totalFiltered, total, normalCount, importantCount, urgentCount] = await prisma.$transaction([
       prisma.notification.findMany({
-      where: { isDeleted: false },
-      orderBy: { createdAt: 'desc' },
-      skip: (safePage - 1) * safePageSize,
-      take: safePageSize,
-      include: {
-        createdBy: {
-          select: { id: true, fullName: true, username: true, role: true },
-        },
-        recipients: {
-          include: {
-            user: { select: { id: true, fullName: true, username: true } },
+        where,
+        orderBy: { createdAt: 'desc' },
+        skip: (safePage - 1) * safePageSize,
+        take: safePageSize,
+        include: {
+          createdBy: {
+            select: { id: true, fullName: true, username: true, role: true },
+          },
+          recipients: {
+            include: {
+              user: { select: { id: true, fullName: true, username: true } },
+            },
           },
         },
-      },
       }),
+      prisma.notification.count({ where }),
       prisma.notification.count({ where: { isDeleted: false } }),
+      prisma.notification.count({ where: { isDeleted: false, priority: 'NORMAL' } }),
+      prisma.notification.count({ where: { isDeleted: false, priority: 'IMPORTANT' } }),
+      prisma.notification.count({ where: { isDeleted: false, priority: 'URGENT' } }),
     ]);
 
     const items = notifications.map((item) => {
       const totalRecipients = item.recipients.length;
-      const readCount = item.recipients.filter((r) => r.isRead).length;
-      const readRatio = totalRecipients > 0 ? Math.round((readCount / totalRecipients) * 100) : 0;
       const recipientNames = item.recipients.map((r) => `${r.user.fullName} (@${r.user.username})`).join(', ');
+      const recipientsList = item.recipients.map((r) => ({
+        fullName: r.user.fullName,
+        username: r.user.username,
+      }));
 
       return {
         id: item.id,
@@ -193,12 +276,25 @@ export class NotificationService {
         createdAt: item.createdAt,
         senderName: item.createdBy ? `${item.createdBy.fullName} (@${item.createdBy.username})` : 'Sistem Yöneticisi',
         totalRecipients,
-        readCount,
-        readRatio,
         recipientNames,
+        recipients: recipientsList,
       };
     });
-    return { items, pagination: { page: safePage, pageSize: safePageSize, total, totalPages: Math.ceil(total / safePageSize) } };
+    return { 
+      items, 
+      summary: {
+        totalCount: total,
+        normalCount,
+        importantCount,
+        urgentCount,
+      },
+      pagination: { 
+        page: safePage, 
+        pageSize: safePageSize, 
+        total: totalFiltered, 
+        totalPages: Math.ceil(totalFiltered / safePageSize) 
+      } 
+    };
   }
 
   /**
@@ -217,20 +313,20 @@ export class NotificationService {
    * Get notifications for a specific user (Staff Portal view)
    */
   public static async getUserNotifications(userId: string) {
-    const [recipients, total, unreadCount] = await prisma.$transaction([
+    const [recipients, total] = await prisma.$transaction([
       prisma.notificationRecipient.findMany({
-      where: { userId, notification: { isDeleted: false } }, take: 100,
-      include: {
-        notification: {
-          include: {
-            createdBy: { select: { fullName: true } },
+        where: { userId, notification: { isDeleted: false } },
+        take: 100,
+        include: {
+          notification: {
+            include: {
+              createdBy: { select: { fullName: true } },
+            },
           },
         },
-      },
-      orderBy: { notification: { createdAt: 'desc' } },
+        orderBy: { notification: { createdAt: 'desc' } },
       }),
       prisma.notificationRecipient.count({ where: { userId, notification: { isDeleted: false } } }),
-      prisma.notificationRecipient.count({ where: { userId, isRead: false, notification: { isDeleted: false } } }),
     ]);
 
     const items = recipients.map((r) => ({
@@ -241,46 +337,12 @@ export class NotificationService {
       priority: r.notification.priority,
       createdAt: r.notification.createdAt,
       senderName: r.notification.createdBy?.fullName || 'Lojman Yönetimi',
-      isRead: r.isRead,
-      readAt: r.readAt,
     }));
 
     return {
-      unreadCount,
       total,
       hasMore: total > recipients.length,
       items,
     };
-  }
-
-  /**
-   * Mark a single notification recipient record as read
-   */
-  public static async markAsRead(recipientId: string, userId: string) {
-    const recipient = await prisma.notificationRecipient.findUnique({
-      where: { id: recipientId },
-      include: { notification: { select: { isDeleted: true } } },
-    });
-
-    if (!recipient || recipient.userId !== userId || recipient.notification.isDeleted) {
-      throw new AppError('Bildirim kaydı bulunamadı veya bu işlem için yetkiniz yok.', 404);
-    }
-
-    return prisma.notificationRecipient.update({
-      where: { id: recipientId },
-      data: { isRead: true, readAt: new Date() },
-    });
-  }
-
-  /**
-   * Mark all notifications for a user as read
-   */
-  public static async markAllAsRead(userId: string) {
-    await prisma.notificationRecipient.updateMany({
-      where: { userId, isRead: false, notification: { isDeleted: false } },
-      data: { isRead: true, readAt: new Date() },
-    });
-
-    return { success: true, message: 'Tüm bildirimler okundu olarak işaretlendi.' };
   }
 }

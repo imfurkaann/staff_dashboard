@@ -48,11 +48,9 @@ export async function generateUniqueUsername(firstName: string, lastName: string
   }
 }
 
-/**
- * Generates a simple, easy-to-type, yet unique password for an employee (e.g. Lojman749! or Staff832!)
- */
 export async function generateUniqueEasyPassword(): Promise<string> {
-  const prefixes = ['Lojman', 'Staff', 'Oda', 'Personel'];
+  const prefixes = ['Lojman', 'Personel', 'Dashboard', 'Housing'];
   const prefix = prefixes[randomInt(prefixes.length)];
-  return `${prefix}!${randomBytes(8).toString('hex')}${randomInt(10)}`;
+  const num = randomInt(1000, 9999);
+  return `${prefix}${num}!`;
 }
