@@ -13,6 +13,14 @@ export const stockController = {
     try { res.status(200).json({ success: true, data: await StockService.getOverview() }); } catch (error) { next(error); }
   },
 
+  getNextItemCode: async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const category = req.query.category as string | undefined;
+      const code = await StockService.generateNextItemCode(category);
+      res.status(200).json({ success: true, data: { itemCode: code } });
+    } catch (error) { next(error); }
+  },
+
   createStockItem: async (req: Request, res: Response, next: NextFunction) => {
     try {
       const item = await StockService.createStockItem({ ...req.body, createdById: userId(req) });
@@ -52,6 +60,17 @@ export const stockController = {
     } catch (error) { next(error); }
   },
 
+  assignRooms: async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const roomIds = Array.isArray(req.body.roomIds) ? req.body.roomIds : [];
+      if (!requireUuid(req.params.id) || roomIds.some((id: unknown) => !requireUuid(id))) {
+        return res.status(400).json({ success: false, message: 'Geçersiz stok veya oda kimliği.' });
+      }
+      const result = await StockService.assignToRooms(req.params.id, { ...req.body, roomIds, createdById: userId(req) });
+      res.status(201).json({ success: true, data: result, message: `${result.roomCount} odaya toplam ${result.totalQuantity} adet zimmet oluşturuldu.` });
+    } catch (error) { next(error); }
+  },
+
   returnAssignment: async (req: Request, res: Response, next: NextFunction) => {
     try {
       if (!requireUuid(req.params.inventoryId) || !['RETURNED', 'RETIRED'].includes(req.body.outcome)) {
@@ -70,10 +89,19 @@ export const stockController = {
     } catch (error) { next(error); }
   },
 
+  updateAssignmentIdentity: async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      if (!requireUuid(req.params.inventoryId)) return res.status(400).json({ success: false, message: 'Geçersiz zimmet kimliği.' });
+      const result = await StockService.updateAssignmentIdentity(req.params.inventoryId, { ...req.body, createdById: userId(req) });
+      res.status(200).json({ success: true, data: result, message: 'Cihaz kimlik bilgileri hareket geçmişi korunarak güncellendi.' });
+    } catch (error) { next(error); }
+  },
+
   replaceAssignment: async (req: Request, res: Response, next: NextFunction) => {
     try {
       if (!requireUuid(req.params.inventoryId)) return res.status(400).json({ success: false, message: 'Geçersiz zimmet kimliği.' });
-      const result = await StockService.replaceAssignment(req.params.inventoryId, { ...req.body, createdById: userId(req) });
+      const authReq = req as AuthenticatedRequest;
+      const result = await StockService.replaceAssignment(req.params.inventoryId, { ...req.body, createdById: userId(req), performedBy: authReq.user?.fullName });
       res.status(200).json({ success: true, data: result, message: 'Arızalı ürün düşülerek sağlam ürünle değiştirildi.' });
     } catch (error) { next(error); }
   },

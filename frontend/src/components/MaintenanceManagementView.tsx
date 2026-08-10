@@ -15,8 +15,6 @@ import {
   RefreshCw,
   RotateCcw,
   Search,
-  ShieldCheck,
-  Trash2,
   User,
   Wrench,
   X,
@@ -36,6 +34,7 @@ import { DateRangePicker } from './DateRangePicker';
 import { MaintenanceDetailModal } from './MaintenanceDetailModal';
 import { MaintenanceReportModal, MaintenanceReportCriteria } from './MaintenanceReportModal';
 import { getInventoryStatusLabel } from '../utils/inventoryStatusLabels';
+import { can } from '../security/accessControl';
 
 const buttonBase =
   'group relative inline-flex items-center justify-center h-7 px-2 rounded-lg border transition-all duration-300 ease-out shadow-2xs hover:shadow-xs cursor-pointer overflow-hidden disabled:opacity-40';
@@ -88,7 +87,6 @@ export const MaintenanceManagementView: React.FC<MaintenanceManagementViewProps>
 
   const [editingLog, setEditingLog] = useState<MaintenanceLog | null | undefined>(undefined);
   const [detailTarget, setDetailTarget] = useState<MaintenanceLog | null>(null);
-  const [deleteTarget, setDeleteTarget] = useState<MaintenanceLog | null>(null);
 
   const [isReportModalOpen, setIsReportModalOpen] = useState<boolean>(false);
   const [isExporting, setIsExporting] = useState<boolean>(false);
@@ -115,7 +113,11 @@ export const MaintenanceManagementView: React.FC<MaintenanceManagementViewProps>
     }
   };
 
-  const canManage = currentUser.role === 'ADMIN' || currentUser.role === 'HOUSING_MANAGER';
+  const canManage = can(currentUser.role, 'MAINTENANCE_UPDATE');
+  const canCreate = can(currentUser.role, 'MAINTENANCE_CREATE');
+  const canExport = can(currentUser.role, 'MAINTENANCE_EXPORT');
+  const canManageServiceDetails = can(currentUser.role, 'MAINTENANCE_FULL_UPDATE');
+  const canRetireInventory = currentUser.role === 'ADMIN' || currentUser.role === 'HOUSING_MANAGER';
 
   // Load blocks on mount
   useEffect(() => {
@@ -212,7 +214,6 @@ export const MaintenanceManagementView: React.FC<MaintenanceManagementViewProps>
       await maintenanceApi.updateMaintenance(log.id, {
         status: newStatus,
         assignedTo: newStatus === 'RESOLVED' || newStatus === 'CLOSED' ? solverName : null,
-        resolutionNote: newStatus === 'RESOLVED' || newStatus === 'CLOSED' ? 'Hızlı işlem ile çözüldü olarak işaretlendi.' : null,
       });
       await loadData(false);
     } catch (caught) {
@@ -222,21 +223,6 @@ export const MaintenanceManagementView: React.FC<MaintenanceManagementViewProps>
     }
   };
 
-  const handleDelete = async () => {
-    if (!deleteTarget) return;
-    const target = deleteTarget;
-    setDeleteTarget(null);
-    setBusyId(target.id);
-    setError(null);
-    try {
-      await maintenanceApi.deleteMaintenance(target.id);
-      await loadData(false);
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'Silme işlemi gerçekleştirilemedi.');
-    } finally {
-      setBusyId(null);
-    }
-  };
 
   const formatDate = (dateStr: string) => {
     if (!dateStr) return '-';
@@ -320,7 +306,7 @@ export const MaintenanceManagementView: React.FC<MaintenanceManagementViewProps>
       <div className="flex flex-wrap items-center justify-between gap-3">
         {/* Status Tabs */}
         <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-2xl border border-slate-200 overflow-x-auto max-w-full">
-          <button
+          {canExport && <button
             type="button"
             onClick={() => setSelectedStatus('ALL')}
             className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap shrink-0 ${
@@ -330,8 +316,8 @@ export const MaintenanceManagementView: React.FC<MaintenanceManagementViewProps>
             }`}
           >
             Tüm Bildirimler ({summary.totalCount})
-          </button>
-          <button
+          </button>}
+          {canCreate && <button
             type="button"
             onClick={() => setSelectedStatus('OPEN')}
             className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap shrink-0 ${
@@ -341,7 +327,7 @@ export const MaintenanceManagementView: React.FC<MaintenanceManagementViewProps>
             }`}
           >
             Açık Bildirimler ({summary.openCount})
-          </button>
+          </button>}
           <button
             type="button"
             onClick={() => setSelectedStatus('IN_PROGRESS')}
@@ -640,7 +626,7 @@ export const MaintenanceManagementView: React.FC<MaintenanceManagementViewProps>
                           {log.status === 'RESOLVED' || log.status === 'CLOSED' ? (
                             <button
                               type="button"
-                              disabled={busyId === log.id}
+                              disabled={!canManage || busyId === log.id}
                               onClick={(e) => {
                                 e.stopPropagation();
                                 handleQuickStatusChange(log, 'OPEN');
@@ -654,21 +640,22 @@ export const MaintenanceManagementView: React.FC<MaintenanceManagementViewProps>
                           ) : (
                             <button
                               type="button"
-                              disabled={busyId === log.id}
+                              disabled={!canManage || busyId === log.id}
                               onClick={(e) => {
                                 e.stopPropagation();
-                                handleQuickStatusChange(log, 'RESOLVED');
+                                setEditingLog({ ...log, status: 'RESOLVED' });
                               }}
                               className={`${buttonBase} bg-emerald-50 text-emerald-700 hover:bg-emerald-600 hover:text-white border-emerald-200/80 hover:border-emerald-600`}
-                              title="Çözüldü yap"
+                              title="Çözüm bilgilerini gir"
                             >
                               <CheckCircle2 className="w-3.5 h-3.5 shrink-0 group-hover:scale-110 transition-transform duration-300" />
-                              <span className={labelBase}>Çözüldü Yap</span>
+                              <span className={labelBase}>Çözüm Gir</span>
                             </button>
                           )}
 
                           <button
                             type="button"
+                            disabled={!canManage}
                             onClick={(e) => {
                               e.stopPropagation();
                               setEditingLog(log);
@@ -680,20 +667,6 @@ export const MaintenanceManagementView: React.FC<MaintenanceManagementViewProps>
                             <span className={labelBase}>Düzenle</span>
                           </button>
 
-                          {canManage && (
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setDeleteTarget(log);
-                              }}
-                              className={`${buttonBase} bg-rose-50 text-rose-600 hover:bg-rose-600 hover:text-white border-rose-200/80 hover:border-rose-600`}
-                              title="Sil"
-                            >
-                              <Trash2 className="w-3.5 h-3.5 shrink-0 group-hover:scale-110 transition-transform duration-300" />
-                              <span className={labelBase}>Sil</span>
-                            </button>
-                          )}
                         </div>
                       </td>
                     </tr>
@@ -746,7 +719,7 @@ export const MaintenanceManagementView: React.FC<MaintenanceManagementViewProps>
                     {log.status === 'RESOLVED' || log.status === 'CLOSED' ? (
                       <button
                         type="button"
-                        disabled={busyId === log.id}
+                        disabled={!canManage || busyId === log.id}
                         onClick={() => handleQuickStatusChange(log, 'OPEN')}
                         className={`${buttonBase} bg-amber-50 text-amber-700 hover:bg-amber-600 hover:text-white border-amber-200/80 hover:border-amber-600`}
                         title="Çözümü geri al (Tekrar açık yap)"
@@ -757,17 +730,18 @@ export const MaintenanceManagementView: React.FC<MaintenanceManagementViewProps>
                     ) : (
                       <button
                         type="button"
-                        disabled={busyId === log.id}
-                        onClick={() => handleQuickStatusChange(log, 'RESOLVED')}
+                        disabled={!canManage || busyId === log.id}
+                        onClick={() => setEditingLog({ ...log, status: 'RESOLVED' })}
                         className={`${buttonBase} bg-emerald-50 text-emerald-700 hover:bg-emerald-600 hover:text-white border-emerald-200/80 hover:border-emerald-600`}
-                        title="Çözüldü yap"
+                        title="Çözüm bilgilerini gir"
                       >
                         <CheckCircle2 className="w-3.5 h-3.5 shrink-0 group-hover:scale-110 transition-transform duration-300" />
-                        <span className={labelBase}>Çözüldü Yap</span>
+                        <span className={labelBase}>Çözüm Gir</span>
                       </button>
                     )}
                     <button
                       type="button"
+                      disabled={!canManage}
                       onClick={() => setEditingLog(log)}
                       className={`${buttonBase} bg-blue-50 text-[#1e3a8a] hover:bg-[#1e3a8a] hover:text-white border-blue-200/80 hover:border-[#1e3a8a]`}
                       title="Düzenle"
@@ -775,17 +749,6 @@ export const MaintenanceManagementView: React.FC<MaintenanceManagementViewProps>
                       <FilePenLine className="w-3.5 h-3.5 shrink-0 group-hover:scale-110 transition-transform duration-300" />
                       <span className={labelBase}>Düzenle</span>
                     </button>
-                    {canManage && (
-                      <button
-                        type="button"
-                        onClick={() => setDeleteTarget(log)}
-                        className={`${buttonBase} bg-rose-50 text-rose-600 hover:bg-rose-600 hover:text-white border-rose-200/80 hover:border-rose-600`}
-                        title="Sil"
-                      >
-                        <Trash2 className="w-3.5 h-3.5 shrink-0 group-hover:scale-110 transition-transform duration-300" />
-                        <span className={labelBase}>Sil</span>
-                      </button>
-                    )}
                   </div>
                 </div>
               ))}
@@ -814,8 +777,11 @@ export const MaintenanceManagementView: React.FC<MaintenanceManagementViewProps>
         isOpen={!!detailTarget}
         log={detailTarget}
         onClose={() => setDetailTarget(null)}
-        onEdit={(logToEdit) => setEditingLog(logToEdit)}
-        onStatusChange={handleQuickStatusChange}
+        onEdit={canManage ? (logToEdit) => setEditingLog(logToEdit) : undefined}
+        onStatusChange={canManage ? ((log, nextStatus) => {
+          if (nextStatus === 'RESOLVED' || nextStatus === 'CLOSED') setEditingLog({ ...log, status: nextStatus });
+          else handleQuickStatusChange(log, nextStatus);
+        }) : undefined}
         currentUserFullName={currentUser.fullName}
       />
 
@@ -823,46 +789,14 @@ export const MaintenanceManagementView: React.FC<MaintenanceManagementViewProps>
       <AddMaintenanceModal
         isOpen={editingLog !== undefined}
         maintenance={editingLog || null}
+        canRetireInventory={canRetireInventory}
+        canManageServiceDetails={canManageServiceDetails}
         onClose={() => setEditingLog(undefined)}
         onSuccess={() => {
           loadData(false);
         }}
       />
 
-      {/* Delete Confirmation Modal */}
-      {deleteTarget && (
-        <div
-          className="fixed inset-0 z-[350] bg-slate-950/70 backdrop-blur-sm flex items-center justify-center p-4"
-          onMouseDown={() => setDeleteTarget(null)}
-        >
-          <div
-            className="w-full max-w-sm rounded-3xl bg-white border border-slate-300 p-6 shadow-2xl text-center"
-            onMouseDown={(e) => e.stopPropagation()}
-          >
-            <div className="w-12 h-12 mx-auto rounded-2xl bg-rose-100 text-rose-700 flex items-center justify-center">
-              <ShieldCheck className="w-6 h-6" />
-            </div>
-            <h3 className="mt-3 font-extrabold text-slate-950">Arıza Kaydını Sil</h3>
-            <p className="mt-1 text-xs font-semibold text-slate-600">
-              <strong>"{deleteTarget.title}"</strong> arıza kaydı kalıcı olarak silinecektir.
-            </p>
-            <div className="flex justify-center gap-2 mt-5">
-              <button
-                onClick={() => setDeleteTarget(null)}
-                className="px-4 py-2.5 rounded-xl bg-slate-100 text-xs font-bold text-slate-700 cursor-pointer"
-              >
-                Vazgeç
-              </button>
-              <button
-                onClick={handleDelete}
-                className="px-4 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-xs font-bold text-white cursor-pointer"
-              >
-                Evet, Sil
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
       {/* Report Modal */}
       <MaintenanceReportModal
         isOpen={isReportModalOpen}

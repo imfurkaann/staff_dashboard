@@ -27,12 +27,16 @@ async function main() {
   console.log('\nDeleting records from all tables except ADMIN users...');
   const results = await prisma.$transaction([
     prisma.pushSubscription.deleteMany(),
+    prisma.userAuditLog.deleteMany(),
     prisma.notificationRecipient.deleteMany(),
     prisma.notification.deleteMany(),
     prisma.roomCleaningLog.deleteMany(),
     prisma.visitor.deleteMany(),
     prisma.stockMovement.deleteMany(),
+    prisma.maintenanceEvent.deleteMany(),
     prisma.maintenanceLog.deleteMany(),
+    prisma.sharedAssetLog.deleteMany(),
+    prisma.sharedAsset.deleteMany(),
     prisma.disciplinaryNote.deleteMany(),
     prisma.inventoryItem.deleteMany(),
     prisma.occupancyLog.deleteMany(),
@@ -53,12 +57,16 @@ async function main() {
 
   const tableNames = [
     'PushSubscription',
+    'UserAuditLog',
     'NotificationRecipient',
     'Notification',
     'RoomCleaningLog',
     'Visitor',
     'StockMovement',
+    'MaintenanceEvent',
     'MaintenanceLog',
+    'SharedAssetLog',
+    'SharedAsset',
     'DisciplinaryNote',
     'InventoryItem',
     'OccupancyLog',

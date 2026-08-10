@@ -22,8 +22,9 @@ const maintenanceInclude = {
     },
   },
   roomInventory: {
-    select: { id: true, status: true, returnedAt: true },
+    select: { id: true, assetTag: true, itemName: true, brand: true, serialNo: true, quantity: true, status: true, returnedAt: true },
   },
+  events: { orderBy: { createdAt: 'desc' as const } },
 } satisfies Prisma.MaintenanceLogInclude;
 
 export interface MaintenanceFilterOptions {
@@ -62,6 +63,15 @@ export interface UpdateMaintenanceInput {
   location?: string | null;
   assignedTo?: string | null;
   resolutionNote?: string | null;
+  inventoryStatus?: RoomInventoryStatus;
+  serviceProvider?: string | null;
+  serviceReference?: string | null;
+  laborCost?: number;
+  partsCost?: number;
+  warrantyCovered?: boolean;
+  sentToServiceAt?: string | Date | null;
+  returnedFromServiceAt?: string | Date | null;
+  performedBy: string;
 }
 
 export const maintenanceService = {
@@ -107,6 +117,10 @@ export const maintenanceService = {
         { assignedTo: { contains: query, mode: 'insensitive' } },
         { category: { contains: query, mode: 'insensitive' } },
         { location: { contains: query, mode: 'insensitive' } },
+        { inventorySerialNoSnapshot: { contains: query, mode: 'insensitive' } },
+        { inventoryAssetTagSnapshot: { contains: query, mode: 'insensitive' } },
+        { serviceProvider: { contains: query, mode: 'insensitive' } },
+        { serviceReference: { contains: query, mode: 'insensitive' } },
         { room: { roomNumber: { contains: query, mode: 'insensitive' } } },
         { room: { block: { name: { contains: query, mode: 'insensitive' } } } },
       ];
@@ -208,7 +222,7 @@ export const maintenanceService = {
         if (!room) throw new AppError('Seçilen oda bulunamadı.', 404);
 
         if (type === 'GENERAL') {
-          return tx.maintenanceLog.create({
+          const maintenance = await tx.maintenanceLog.create({
             data: {
               roomId,
               type,
@@ -221,8 +235,12 @@ export const maintenanceService = {
               location: location?.trim().toLocaleUpperCase('tr-TR') || null,
               assignedTo: assignedTo?.trim().toLocaleUpperCase('tr-TR') || null,
             },
-            include: maintenanceInclude,
           });
+          await tx.maintenanceEvent.create({ data: {
+            maintenanceId: maintenance.id, action: 'FAULT_REPORTED', toStatus: 'OPEN', notes: cleanDescription,
+            performedBy: (reportedBy?.trim() || 'Lojman Yönetimi').toLocaleUpperCase('tr-TR'),
+          } });
+          return tx.maintenanceLog.findUniqueOrThrow({ where: { id: maintenance.id }, include: maintenanceInclude });
         }
 
         const inventory = await tx.roomInventory.findUnique({
@@ -247,6 +265,7 @@ export const maintenanceService = {
             inventoryItemNameSnapshot: inventory.itemName,
             inventoryBrandSnapshot: inventory.brand,
             inventorySerialNoSnapshot: inventory.serialNo,
+            inventoryAssetTagSnapshot: inventory.assetTag,
             inventoryQuantitySnapshot: inventory.quantity,
             title: (title?.trim() || `Demirbaş Arızası - ${inventory.itemName}`).toLocaleUpperCase('tr-TR'),
             description: cleanDescription,
@@ -258,6 +277,15 @@ export const maintenanceService = {
             assignedTo: assignedTo?.trim().toLocaleUpperCase('tr-TR') || null,
           },
         });
+
+        await tx.maintenanceEvent.create({ data: {
+          maintenanceId: maintenance.id,
+          action: 'FAULT_REPORTED',
+          toStatus: 'OPEN',
+          inventoryStatus,
+          notes: cleanDescription,
+          performedBy: (reportedBy?.trim() || 'Lojman Yönetimi').toLocaleUpperCase('tr-TR'),
+        } });
 
         const isLost = inventoryStatus === 'LOST';
         const changed = await tx.roomInventory.updateMany({
@@ -304,9 +332,39 @@ export const maintenanceService = {
    * Update an existing maintenance record
    */
   async updateMaintenance(id: string, data: UpdateMaintenanceInput) {
-    const existing = await prisma.maintenanceLog.findUnique({ where: { id } });
+    const existing = await prisma.maintenanceLog.findUnique({ where: { id }, include: { roomInventory: true, room: { include: { block: true } } } });
     if (!existing) {
       throw new AppError('Arıza kaydı bulunamadı.', 404);
+    }
+    if (data.inventoryStatus && existing.type !== 'ROOM_INVENTORY') throw new AppError('Genel oda arızasında demirbaş durumu değiştirilemez.', 400);
+    if (data.inventoryStatus === 'LOST' || data.inventoryStatus === 'RETIRED') throw new AppError('Kayıp/hurda işlemleri mevcut arıza güncellemesinden yapılamaz; kontrollü stok süreci kullanılmalıdır.', 400);
+    if ((data.status === 'RESOLVED' || data.status === 'CLOSED') && !(data.resolutionNote?.trim() || existing.resolutionNote?.trim())) {
+      throw new AppError('Arıza kapatılırken yapılan işlemi açıklayan çözüm notu zorunludur.', 400);
+    }
+    if (data.resolutionNote !== undefined && existing.resolutionNote?.trim() && !data.resolutionNote?.trim()) {
+      throw new AppError('Kaydedilmiş çözüm notu silinemez; gerekiyorsa yeni ve açıklayıcı bir notla güncellenebilir.', 409);
+    }
+    const nextMaintenanceStatus = data.status || existing.status;
+    if (existing.type === 'ROOM_INVENTORY' && data.inventoryStatus) {
+      if (['OPEN', 'IN_PROGRESS'].includes(nextMaintenanceStatus) && !inventoryFaultStatuses.has(data.inventoryStatus)) {
+        throw new AppError('Devam eden demirbaş arızasında cihaz durumu sağlam olarak işaretlenemez.', 400);
+      }
+      if (['RESOLVED', 'CLOSED'].includes(nextMaintenanceStatus) && data.inventoryStatus !== 'HEALTHY') {
+        throw new AppError('Sonuçlanan demirbaş arızasında cihaz durumu Sağlam / Kullanımda olmalıdır. Hurda ve değişim için kontrollü stok sürecini kullanın.', 400);
+      }
+    }
+    const sentAt = data.sentToServiceAt === undefined ? existing.sentToServiceAt : (data.sentToServiceAt ? new Date(data.sentToServiceAt) : null);
+    const returnedAt = data.returnedFromServiceAt === undefined ? existing.returnedFromServiceAt : (data.returnedFromServiceAt ? new Date(data.returnedFromServiceAt) : null);
+    if ((sentAt && isNaN(sentAt.getTime())) || (returnedAt && isNaN(returnedAt.getTime()))) throw new AppError('Servis tarihleri geçersiz.', 400);
+    if (returnedAt && !sentAt) throw new AppError('Servisten dönüş tarihi girilmeden önce servise gönderilme tarihi kaydedilmelidir.', 400);
+    if (sentAt && returnedAt && returnedAt < sentAt) throw new AppError('Servisten dönüş tarihi gönderilme tarihinden önce olamaz.', 400);
+
+    if (existing.type === 'ROOM_INVENTORY' && data.status && ['OPEN', 'IN_PROGRESS'].includes(data.status)) {
+      const conflictingFault = await prisma.maintenanceLog.findFirst({
+        where: { roomInventoryId: existing.roomInventoryId, id: { not: id }, status: { in: ['OPEN', 'IN_PROGRESS'] } },
+        select: { id: true },
+      });
+      if (conflictingFault) throw new AppError('Bu demirbaş için başka bir aktif arıza kaydı bulunuyor. Eski kayıt yeniden açılamaz.', 409);
     }
 
     const updateData: Prisma.MaintenanceLogUpdateInput = {};
@@ -318,41 +376,66 @@ export const maintenanceService = {
     if (data.location !== undefined) updateData.location = data.location?.trim().toLocaleUpperCase('tr-TR') || null;
     if (data.assignedTo !== undefined) updateData.assignedTo = data.assignedTo?.trim().toLocaleUpperCase('tr-TR') || null;
     if (data.resolutionNote !== undefined) updateData.resolutionNote = data.resolutionNote?.trim().toLocaleUpperCase('tr-TR') || null;
+    if (data.serviceProvider !== undefined) updateData.serviceProvider = data.serviceProvider?.trim().toLocaleUpperCase('tr-TR') || null;
+    if (data.serviceReference !== undefined) updateData.serviceReference = data.serviceReference?.trim().toLocaleUpperCase('tr-TR') || null;
+    if (data.laborCost !== undefined) updateData.laborCost = Math.max(0, Number(data.laborCost) || 0);
+    if (data.partsCost !== undefined) updateData.partsCost = Math.max(0, Number(data.partsCost) || 0);
+    if (data.warrantyCovered !== undefined) updateData.warrantyCovered = Boolean(data.warrantyCovered);
+    if (data.sentToServiceAt !== undefined) updateData.sentToServiceAt = data.sentToServiceAt ? new Date(data.sentToServiceAt) : null;
+    if (data.returnedFromServiceAt !== undefined) updateData.returnedFromServiceAt = data.returnedFromServiceAt ? new Date(data.returnedFromServiceAt) : null;
 
     if (data.status) {
       updateData.status = data.status;
       if (data.status === 'RESOLVED' || data.status === 'CLOSED') {
         updateData.resolvedAt = new Date();
-        if (updateData.assignedTo === undefined && !existing.assignedTo) {
-          updateData.assignedTo = 'Lojman Yönetimi';
+        if ((updateData.assignedTo === undefined || updateData.assignedTo === null) && !existing.assignedTo) {
+          updateData.assignedTo = data.performedBy.trim().toLocaleUpperCase('tr-TR') || 'LOJMAN YÖNETİMİ';
         }
       } else {
         updateData.resolvedAt = null;
       }
     }
 
-    const updated = await prisma.maintenanceLog.update({
-      where: { id },
-      data: updateData,
-      include: maintenanceInclude,
+    return prisma.$transaction(async (tx) => {
+      const changed = await tx.maintenanceLog.updateMany({ where: { id, updatedAt: existing.updatedAt }, data: updateData as Prisma.MaintenanceLogUpdateManyMutationInput });
+      if (changed.count !== 1) throw new AppError('Arıza kaydı başka bir kullanıcı tarafından güncellendi. Güncel veriyi yenileyip tekrar deneyin.', 409);
+      let nextInventoryStatus = data.inventoryStatus;
+      if (existing.type === 'ROOM_INVENTORY' && existing.roomInventory && !existing.roomInventory.returnedAt) {
+        if ((data.status === 'RESOLVED' || data.status === 'CLOSED') && !nextInventoryStatus) nextInventoryStatus = 'HEALTHY';
+        if (data.status === 'OPEN' && (existing.status === 'RESOLVED' || existing.status === 'CLOSED') && !nextInventoryStatus) nextInventoryStatus = 'MAINTENANCE_REQUIRED';
+        if (nextInventoryStatus && nextInventoryStatus !== existing.roomInventory.status) {
+          await tx.roomInventory.update({ where: { id: existing.roomInventory.id }, data: { status: nextInventoryStatus } });
+          await tx.stockMovement.create({ data: {
+            stockItemId: existing.roomInventory.stockItemId,
+            roomId: existing.roomId,
+            roomInventoryId: existing.roomInventory.id,
+            maintenanceId: existing.id,
+            type: 'STATUS_CHANGE',
+            quantity: 0,
+            itemNameSnapshot: existing.roomInventory.itemName,
+            roomLabelSnapshot: `${existing.room.block.name} / ODA ${existing.room.roomNumber}`,
+            brand: existing.roomInventory.brand,
+            serialNo: existing.roomInventory.serialNo,
+            reason: `ARIZA SÜRECİ: ${nextInventoryStatus}`,
+            notes: data.resolutionNote?.trim() || null,
+          } });
+        }
+      }
+      await tx.maintenanceEvent.create({ data: {
+        maintenanceId: id,
+        action: data.status && data.status !== existing.status ? 'STATUS_CHANGED' : 'DETAILS_UPDATED',
+        fromStatus: existing.status,
+        toStatus: data.status || existing.status,
+        inventoryStatus: nextInventoryStatus,
+        notes: data.resolutionNote?.trim().toLocaleUpperCase('tr-TR') || data.description?.trim().toLocaleUpperCase('tr-TR') || null,
+        serviceProvider: data.serviceProvider?.trim().toLocaleUpperCase('tr-TR') || null,
+        serviceReference: data.serviceReference?.trim().toLocaleUpperCase('tr-TR') || null,
+        laborCost: data.laborCost,
+        partsCost: data.partsCost,
+        warrantyCovered: data.warrantyCovered,
+        performedBy: data.performedBy.trim().toLocaleUpperCase('tr-TR'),
+      } });
+      return tx.maintenanceLog.findUniqueOrThrow({ where: { id }, include: maintenanceInclude });
     });
-
-    return updated;
-  },
-
-  /**
-   * Delete a maintenance record
-   */
-  async deleteMaintenance(id: string) {
-    const existing = await prisma.maintenanceLog.findUnique({ where: { id }, include: { stockMovements: { select: { id: true }, take: 1 } } });
-    if (!existing) {
-      throw new AppError('Arıza kaydı bulunamadı.', 404);
-    }
-
-    if (existing.type === 'ROOM_INVENTORY' || existing.stockMovements.length > 0) {
-      throw new AppError('Demirbaş ve stok hareketine bağlı arıza kayıtları denetim geçmişi için silinemez; kayıt kapatılabilir.', 409);
-    }
-    await prisma.maintenanceLog.delete({ where: { id } });
-    return { success: true };
   },
 };

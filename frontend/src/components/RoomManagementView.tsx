@@ -22,14 +22,18 @@ import {
 import { roomApi, Room, RoomStatusType, BlockSummary } from '../api/roomApi';
 import { RoomDetailView } from './RoomDetailView';
 import { RoomOccupancyExportModal, ReportCategory } from './RoomOccupancyExportModal';
+import { User } from '../api/authApi';
+import { can } from '../security/accessControl';
 
 type GroupByMode = 'block' | 'floor';
 
 interface RoomManagementViewProps {
   onNavigateTo?: (tab: string, empId?: string) => void;
+  currentUser: User;
 }
 
-export const RoomManagementView: React.FC<RoomManagementViewProps> = ({ onNavigateTo }) => {
+export const RoomManagementView: React.FC<RoomManagementViewProps> = ({ onNavigateTo, currentUser }) => {
+  const canManageRooms = can(currentUser.role, 'ROOM_MANAGE');
   const [rooms, setRooms] = useState<Room[]>([]);
   const [blocks, setBlocks] = useState<BlockSummary[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
@@ -40,8 +44,30 @@ export const RoomManagementView: React.FC<RoomManagementViewProps> = ({ onNaviga
   const [createModal, setCreateModal] = useState<'room' | 'block' | null>(null);
   const [createSubmitting, setCreateSubmitting] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
-  const [roomForm, setRoomForm] = useState({ blockId: '', floor: '1', roomNumber: '', capacity: '2' });
+  const [roomForm, setRoomForm] = useState({ blockId: '', floor: '1', roomNumber: '', capacity: '2', isSpecialFacility: false, roomType: 'ÇAMAŞIRHANE' });
   const [blockForm, setBlockForm] = useState({ name: '', genderPolicy: 'Mixed' });
+
+  const getRoomTypeBadge = (roomType?: string | null) => {
+    if (!roomType || roomType === 'PERSONEL_ODASI') return null;
+    const badges: Record<string, { label: string; style: string }> = {
+      'ÇAMAŞIRHANE': { label: '🧺 ÇAMAŞIRHANE', style: 'bg-blue-100 text-blue-900 border-blue-300' },
+      'DEPO': { label: '📦 DEPO', style: 'bg-amber-100 text-amber-900 border-amber-300' },
+      'DUŞHANE': { label: '🚿 DUŞHANE', style: 'bg-cyan-100 text-cyan-900 border-cyan-300' },
+      'MESCİT': { label: '🕌 MESCİT', style: 'bg-emerald-100 text-emerald-900 border-emerald-300' },
+      'TEKNİK_ODA': { label: '🛠️ TEKNİK ODA', style: 'bg-purple-100 text-purple-900 border-purple-300' },
+      'MUTFAK': { label: '🍽️ MUTFAK', style: 'bg-orange-100 text-orange-900 border-orange-300' },
+      'LOBİ': { label: '🛋️ LOBİ', style: 'bg-indigo-100 text-indigo-900 border-indigo-300' },
+      'SPOR_SALONU': { label: '🏋️ SPOR SALONU', style: 'bg-rose-100 text-rose-900 border-rose-300' },
+      'GÜVENLİK': { label: '🛡️ GÜVENLİK', style: 'bg-slate-200 text-slate-900 border-slate-400' },
+      'DİĞER': { label: '🚪 HİZMET ALANI', style: 'bg-slate-100 text-slate-800 border-slate-300' },
+    };
+    const b = badges[roomType] || { label: `🚪 ${roomType}`, style: 'bg-slate-100 text-slate-800 border-slate-300' };
+    return (
+      <span className={`inline-flex items-center rounded-md border px-2 py-0.5 text-[9px] font-black uppercase tracking-wider ${b.style}`}>
+        {b.label}
+      </span>
+    );
+  };
 
   // Export Modal State
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
@@ -124,8 +150,14 @@ export const RoomManagementView: React.FC<RoomManagementViewProps> = ({ onNaviga
     setCreateError(null);
     try {
       if (createModal === 'room') {
-        await roomApi.createRoom({ blockId: roomForm.blockId, floor: Number(roomForm.floor), roomNumber: roomForm.roomNumber, capacity: Number(roomForm.capacity) });
-        setRoomForm((prev) => ({ ...prev, roomNumber: '' }));
+        await roomApi.createRoom({
+          blockId: roomForm.blockId,
+          floor: Number(roomForm.floor),
+          roomNumber: roomForm.roomNumber,
+          capacity: roomForm.isSpecialFacility ? 0 : Number(roomForm.capacity),
+          roomType: roomForm.isSpecialFacility ? roomForm.roomType : 'PERSONEL_ODASI',
+        });
+        setRoomForm((prev) => ({ ...prev, roomNumber: '', capacity: prev.isSpecialFacility ? '0' : '2' }));
       } else if (createModal === 'block') {
         await roomApi.createBlock(blockForm);
         setBlockForm({ name: '', genderPolicy: 'Mixed' });
@@ -172,6 +204,7 @@ export const RoomManagementView: React.FC<RoomManagementViewProps> = ({ onNaviga
       }
       // Occupancy state filter (Dolu, Boş, Yarı Dolu)
       if (selectedOccupancy !== 'ALL') {
+        if (room.roomType && room.roomType !== 'PERSONEL_ODASI') return false;
         const occupiedCount = room.beds.filter((b) => b.isOccupied).length;
         if (selectedOccupancy === 'FULL' && occupiedCount < room.capacity) {
           return false;
@@ -249,6 +282,7 @@ export const RoomManagementView: React.FC<RoomManagementViewProps> = ({ onNaviga
     return (
       <RoomDetailView
         room={activeRoomDetail}
+        currentUser={currentUser}
         onBack={() => setActiveRoomDetail(null)}
         onRoomUpdated={(updated) => {
           setActiveRoomDetail(updated);
@@ -489,6 +523,7 @@ export const RoomManagementView: React.FC<RoomManagementViewProps> = ({ onNaviga
                 <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4 gap-4 w-full">
                   {group.rooms.map((room) => {
                     const occupiedCount = room.beds.filter((b) => b.isOccupied).length;
+                    const isSpecialFacility = Boolean(room.roomType && room.roomType !== 'PERSONEL_ODASI');
 
                     return (
                       <div
@@ -508,10 +543,10 @@ export const RoomManagementView: React.FC<RoomManagementViewProps> = ({ onNaviga
                               </div>
                               <div>
                                 <h3 className="font-extrabold text-slate-900 text-sm group-hover/title:text-[#1e3a8a] transition-colors flex items-center gap-1.5">
-                                  Oda {room.roomNumber}{detailLoadingId === room.id && <Loader2 className="w-3.5 h-3.5 animate-spin text-[#1e3a8a]" />}
+                                  {isSpecialFacility ? room.roomNumber : `Oda ${room.roomNumber}`}{detailLoadingId === room.id && <Loader2 className="w-3.5 h-3.5 animate-spin text-[#1e3a8a]" />}
                                 </h3>
                                 <p className="text-[11px] font-semibold text-slate-500">
-                                  {room.block.name} • {room.floor === 0 ? 'Zemin Kat' : `${room.floor}. Kat`} • <span className="font-extrabold text-[#1e3a8a]">{occupiedCount}/{room.capacity} Yatak</span>
+                                  {room.block.name} • {room.floor === 0 ? 'Zemin Kat' : `${room.floor}. Kat`} {!isSpecialFacility && <>• <span className="font-extrabold text-[#1e3a8a]">{occupiedCount}/{room.capacity} Yatak</span></>}
                                 </p>
                               </div>
                             </div>
@@ -535,6 +570,11 @@ export const RoomManagementView: React.FC<RoomManagementViewProps> = ({ onNaviga
 
                           {/* Residents / Bed Slots List */}
                           <div className="space-y-2">
+                            {isSpecialFacility && (
+                              <div className="flex min-h-16 items-center justify-center rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-3 text-center">
+                                <div><div>{getRoomTypeBadge(room.roomType)}</div><p className="mt-1.5 text-[10px] font-semibold text-slate-500">Personel yerleşimine kapalı hizmet alanı</p></div>
+                              </div>
+                            )}
                             <div className={`space-y-2 ${room.beds.length > 2 ? 'max-h-[135px] overflow-y-auto pr-1' : ''}`}>
                               {room.beds.map((bed) => {
                                 const emp = bed.currentEmployee;
@@ -660,8 +700,39 @@ export const RoomManagementView: React.FC<RoomManagementViewProps> = ({ onNaviga
               {createError && <div role="alert" className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-xs font-bold text-rose-800">{createError}</div>}
               {createModal === 'room' ? <>
                 <label className="block text-xs font-bold text-slate-700">Blok<select required value={roomForm.blockId} onChange={(e) => setRoomForm((prev) => ({ ...prev, blockId: e.target.value }))} className="mt-1.5 w-full px-3 py-2.5 rounded-xl border border-slate-300 bg-white font-bold outline-none focus:border-[#1e3a8a]">{availableBlocks.map((block) => <option key={block.id} value={block.id}>{block.name}</option>)}</select></label>
-                <div className="grid grid-cols-2 gap-3"><label className="block text-xs font-bold text-slate-700">Oda Numarası<input required maxLength={20} value={roomForm.roomNumber} onChange={(e) => setRoomForm((prev) => ({ ...prev, roomNumber: e.target.value.toLocaleUpperCase('tr-TR') }))} className="mt-1.5 w-full px-3 py-2.5 rounded-xl border border-slate-300 font-bold outline-none focus:border-[#1e3a8a]" placeholder="Ör. 218" /></label><label className="block text-xs font-bold text-slate-700">Kat<input required type="number" min={-5} max={200} value={roomForm.floor} onChange={(e) => setRoomForm((prev) => ({ ...prev, floor: e.target.value }))} className="mt-1.5 w-full px-3 py-2.5 rounded-xl border border-slate-300 font-bold outline-none focus:border-[#1e3a8a]" /></label></div>
-                <label className="block text-xs font-bold text-slate-700">Yatak Kapasitesi<input required type="number" min={1} max={26} value={roomForm.capacity} onChange={(e) => setRoomForm((prev) => ({ ...prev, capacity: e.target.value }))} className="mt-1.5 w-full px-3 py-2.5 rounded-xl border border-slate-300 font-bold outline-none focus:border-[#1e3a8a]" /></label>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <label className="block text-xs font-bold text-slate-700">Oda Numarası / Oda Adı *
+                    <input required maxLength={50} value={roomForm.roomNumber} onChange={(e) => setRoomForm((prev) => ({ ...prev, roomNumber: e.target.value.toLocaleUpperCase('tr-TR') }))} className="mt-1.5 w-full px-3 py-2.5 rounded-xl border border-slate-300 font-bold outline-none focus:border-[#1e3a8a]" placeholder="Ör. 218 veya ÇAMAŞIRHANE ODASI" />
+                  </label>
+                  <label className="block text-xs font-bold text-slate-700">Kat
+                    <input required type="number" min={-5} max={200} value={roomForm.floor} onChange={(e) => setRoomForm((prev) => ({ ...prev, floor: e.target.value }))} className="mt-1.5 w-full px-3 py-2.5 rounded-xl border border-slate-300 font-bold outline-none focus:border-[#1e3a8a]" />
+                  </label>
+                </div>
+
+                <fieldset className="grid grid-cols-2 gap-2" aria-label="Alan türü">
+                  <button type="button" onClick={() => setRoomForm((prev) => ({ ...prev, isSpecialFacility: false, capacity: prev.capacity === '0' ? '2' : prev.capacity }))} className={`rounded-xl border p-3 text-left transition ${!roomForm.isSpecialFacility ? 'border-[#1e3a8a] bg-blue-50 ring-1 ring-[#1e3a8a]' : 'border-slate-300 bg-white'}`}>
+                    <span className="block text-xs font-extrabold text-slate-900">Konaklama Odası</span>
+                    <span className="mt-1 block text-[10px] font-semibold text-slate-500">Personel ve yatak kapasitesi olan oda</span>
+                  </button>
+                  <button type="button" onClick={() => setRoomForm((prev) => ({ ...prev, isSpecialFacility: true, capacity: '0' }))} className={`rounded-xl border p-3 text-left transition ${roomForm.isSpecialFacility ? 'border-[#1e3a8a] bg-blue-50 ring-1 ring-[#1e3a8a]' : 'border-slate-300 bg-white'}`}>
+                    <span className="block text-xs font-extrabold text-slate-900">Ortak / Hizmet Alanı</span>
+                    <span className="mt-1 block text-[10px] font-semibold text-slate-500">Depo, çamaşırhane, mutfak vb.</span>
+                  </button>
+                </fieldset>
+
+                {roomForm.isSpecialFacility ? (
+                  <label className="block text-xs font-bold text-slate-700">Alan Türü *
+                    <select required value={roomForm.roomType} onChange={(e) => setRoomForm((prev) => ({ ...prev, roomType: e.target.value }))} className="mt-1.5 w-full px-3 py-2.5 rounded-xl border border-slate-300 bg-white font-bold outline-none focus:border-[#1e3a8a]">
+                      <option value="ÇAMAŞIRHANE">Çamaşırhane</option><option value="DEPO">Depo</option><option value="DUŞHANE">Duşhane</option><option value="MESCİT">Mescit</option><option value="TEKNİK_ODA">Teknik Oda</option><option value="MUTFAK">Mutfak</option><option value="LOBİ">Lobi</option><option value="SPOR_SALONU">Spor Salonu</option><option value="GÜVENLİK">Güvenlik</option><option value="DİĞER">Diğer Hizmet Alanı</option>
+                    </select>
+                  </label>
+                ) : (
+                  <label className="block text-xs font-bold text-slate-700">Yatak Kapasitesi *
+                    <input required type="number" min={1} max={26} value={roomForm.capacity} onChange={(e) => setRoomForm((prev) => ({ ...prev, capacity: e.target.value }))} className="mt-1.5 w-full px-3 py-2.5 rounded-xl border border-slate-300 font-bold outline-none focus:border-[#1e3a8a]" />
+                    <span className="mt-1 block text-[10px] font-semibold text-slate-500">Yalnızca konaklama odaları için yatak oluşturulur.</span>
+                  </label>
+                )}
               </> : <>
                 <label className="block text-xs font-bold text-slate-700">Blok Adı<input required maxLength={50} value={blockForm.name} onChange={(e) => setBlockForm((prev) => ({ ...prev, name: e.target.value.toLocaleUpperCase('tr-TR') }))} className="mt-1.5 w-full px-3 py-2.5 rounded-xl border border-slate-300 font-bold outline-none focus:border-[#1e3a8a]" placeholder="Ör. B BLOK" /></label>
                 <label className="block text-xs font-bold text-slate-700">Yerleşim Politikası<select value={blockForm.genderPolicy} onChange={(e) => setBlockForm((prev) => ({ ...prev, genderPolicy: e.target.value }))} className="mt-1.5 w-full px-3 py-2.5 rounded-xl border border-slate-300 bg-white font-bold outline-none focus:border-[#1e3a8a]"><option value="Mixed">Karma</option><option value="Male">Erkek</option><option value="Female">Kadın</option></select></label>

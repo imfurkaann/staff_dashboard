@@ -46,16 +46,35 @@ export async function createStockWorkbook(items: any[], generatedBy: string): Pr
   workbook.created = new Date();
 
   const summary = workbook.addWorksheet('Stok Özeti', { views: [{ state: 'frozen', ySplit: 4 }] });
-  setupSheet(summary, 'DOSİNİA RESORT LOJMAN YÖNETİMİ - DEPO STOK VE ZİMMET RAPORU',
-    ['STOK KODU', 'MALZEME', 'KATEGORİ', 'BİRİM', 'TOPLAM', 'ODALARDA', 'PERSONELDE', 'MÜSAİT', 'KRİTİK SEVİYE', 'DURUM', 'SON SAYIM', 'SON HAREKET'],
-    [16, 28, 24, 12, 12, 12, 12, 12, 16, 14, 20, 20], generatedBy);
+  setupSheet(summary, 'DOSİNİA RESORT LOJMAN YÖNETİMİ - DETAYLI DEPO VE STOK RAPORU',
+    [
+      'MALZEME KODU', 'MALZEME ADI', 'KATEGORİ', 'TİP', 'ÖZELLİK / DETAY',
+      'DEPO (YEDEK)', 'ZİMMETLİ', 'TOPLAM MİKTAR', 'BİRİM', 'FİZİKSEL DURUM',
+      'KRİTİK SEVİYE', 'GARANTİ BİTİŞ', 'KONUM / DEPO', 'SON SAYIM'
+    ],
+    [16, 28, 22, 16, 28, 14, 14, 14, 10, 18, 16, 16, 22, 18], generatedBy);
   items.forEach((item) => {
     const available = item.totalStock - item.usedStock - item.usedInRooms;
-    summary.addRow([item.itemCode || '-', item.itemName, item.category, item.unit, item.totalStock, item.usedInRooms, item.usedStock,
-      available, item.minimumStock, !item.isActive ? 'PASİF' : available <= item.minimumStock ? 'KRİTİK' : 'AKTİF',
-      item.lastCountedAt || '', item.movements[0]?.createdAt || '']);
+    const usedTotal = item.usedStock + item.usedInRooms;
+    const warrantyStr = item.warrantyEndDate ? new Date(item.warrantyEndDate).toLocaleDateString('tr-TR') : '-';
+    summary.addRow([
+      item.itemCode || '-',
+      item.itemName,
+      item.category,
+      item.itemType || 'DEMİRBAŞ',
+      item.specifications || '-',
+      available,
+      usedTotal,
+      item.totalStock,
+      item.unit,
+      item.physicalStatus || 'KULLANILABİLİR',
+      item.minimumStock,
+      warrantyStr,
+      item.locationNote || '-',
+      item.lastCountedAt || '',
+    ]);
   });
-  summary.getColumn(11).numFmt = 'dd.mm.yyyy hh:mm'; summary.getColumn(12).numFmt = 'dd.mm.yyyy hh:mm'; styleRows(summary);
+  summary.getColumn(14).numFmt = 'dd.mm.yyyy hh:mm'; styleRows(summary);
 
   const activeRooms = workbook.addWorksheet('Aktif Oda Zimmetleri', { views: [{ state: 'frozen', ySplit: 4 }] });
   setupSheet(activeRooms, 'AKTİF ODA ZİMMETLERİ',

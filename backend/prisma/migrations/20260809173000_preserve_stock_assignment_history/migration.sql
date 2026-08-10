@@ -1,9 +1,9 @@
 -- Assignment history is part of the stock ledger and must not disappear through cascades.
-ALTER TABLE "RoomInventory" DROP CONSTRAINT "RoomInventory_roomId_fkey";
+ALTER TABLE "RoomInventory" DROP CONSTRAINT IF EXISTS "RoomInventory_roomId_fkey";
 ALTER TABLE "RoomInventory" ADD CONSTRAINT "RoomInventory_roomId_fkey"
   FOREIGN KEY ("roomId") REFERENCES "Room"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
-ALTER TABLE "InventoryItem" DROP CONSTRAINT "InventoryItem_stockItemId_fkey";
+ALTER TABLE "InventoryItem" DROP CONSTRAINT IF EXISTS "InventoryItem_stockItemId_fkey";
 ALTER TABLE "InventoryItem" ADD CONSTRAINT "InventoryItem_stockItemId_fkey"
   FOREIGN KEY ("stockItemId") REFERENCES "StockItem"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 

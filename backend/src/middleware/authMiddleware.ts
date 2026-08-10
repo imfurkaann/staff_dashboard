@@ -4,6 +4,7 @@ import { AppError } from './errorHandler';
 import prisma from '../db/prisma';
 import { config } from '../config';
 import { AuthService } from '../services/authService';
+import { hasAllPermissions, hasAnyPermission, Permission } from '../security/permissions';
 
 export interface AuthenticatedRequest extends Request {
   user?: {
@@ -84,6 +85,24 @@ export const authorizeRoles = (...roles: string[]) => {
       return next(
         new AppError('Bu işlem için yetkiniz bulunmamaktadır.', 403)
       );
+    }
+    next();
+  };
+};
+
+export const authorizePermissions = (...required: Permission[]) => {
+  return (req: AuthenticatedRequest, _res: Response, next: NextFunction) => {
+    if (!req.user || !hasAllPermissions(req.user.role, required)) {
+      return next(new AppError('Bu işlem için gerekli yetkiniz bulunmamaktadır.', 403));
+    }
+    next();
+  };
+};
+
+export const authorizeAnyPermission = (...required: Permission[]) => {
+  return (req: AuthenticatedRequest, _res: Response, next: NextFunction) => {
+    if (!req.user || !hasAnyPermission(req.user.role, required)) {
+      return next(new AppError('Bu işlem için gerekli yetkiniz bulunmamaktadır.', 403));
     }
     next();
   };

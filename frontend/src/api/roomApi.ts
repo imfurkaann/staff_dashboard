@@ -61,6 +61,7 @@ export interface RoomInventory {
   itemName: string;
   brand?: string | null;
   serialNo?: string | null;
+  assetTag?: string | null;
   quantity: number;
   installedAt: string;
   status: RoomInventoryStatus;
@@ -107,6 +108,7 @@ export interface Room {
   floor: number;
   roomNumber: string;
   capacity: number;
+  roomType?: string | null;
   status: RoomStatusType;
   beds: RoomBed[];
   maintenances?: RoomMaintenance[];
@@ -184,7 +186,7 @@ export const roomApi = {
     return response.data.data;
   },
 
-  createRoom: async (payload: { blockId: string; floor: number; roomNumber: string; capacity?: number }): Promise<Room> => {
+  createRoom: async (payload: { blockId: string; floor: number; roomNumber: string; capacity?: number; roomType?: string }): Promise<Room> => {
     const response = await api.post<{ success: boolean; data: Room; message: string }>('/', payload);
     return response.data.data;
   },
@@ -204,10 +206,6 @@ export const roomApi = {
     return response.data.data;
   },
 
-  deleteMaintenance: async (maintenanceId: string): Promise<void> => {
-    await api.delete(`/maintenance/${maintenanceId}`);
-  },
-
   createCleaningLog: async (roomId: string, payload: { requestedBy?: string; cleanedBy?: string; notes?: string; status?: string }): Promise<Room> => {
     const response = await api.post<{ success: boolean; data: Room; message: string }>(`/${roomId}/cleaning`, payload);
     return response.data.data;
@@ -223,7 +221,7 @@ export const roomApi = {
     return response.data.data;
   },
 
-  updateRoom: async (roomId: string, payload: { roomNumber?: string; floor?: number; capacity?: number; status?: RoomStatusType }): Promise<Room> => {
+  updateRoom: async (roomId: string, payload: { roomNumber?: string; floor?: number; capacity?: number; roomType?: string; status?: RoomStatusType }): Promise<Room> => {
     const response = await api.put<{ success: boolean; data: Room; message: string }>(`/${roomId}`, payload);
     return response.data.data;
   },

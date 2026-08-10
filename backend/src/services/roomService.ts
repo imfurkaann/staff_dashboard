@@ -1,6 +1,6 @@
 import prisma from '../db/prisma';
 import { AppError } from '../middleware/errorHandler';
-import { MaintenancePriority, MaintenanceStatus, Prisma, RoomInventoryStatus, RoomStatus } from '@prisma/client';
+import { Prisma, RoomInventoryStatus, RoomStatus } from '@prisma/client';
 import { assertDateRange, parseIstanbulDateBoundary } from '../utils/dateTime';
 import { reserveRoomStock } from '../utils/stockBalance';
 
@@ -75,6 +75,7 @@ export interface CreateRoomInput {
   floor: number;
   roomNumber: string;
   capacity?: number;
+  roomType?: string;
 }
 
 export interface CreateBlockInput {
@@ -223,7 +224,10 @@ export const roomService = {
           },
         },
         maintenances: { orderBy: { createdAt: 'desc' }, select: maintenanceSelect },
-        inventories: { orderBy: [{ itemName: 'asc' }, { serialNo: 'asc' }] },
+        inventories: {
+          where: { returnedAt: null, status: { notIn: ['LOST', 'RETIRED'] } },
+          orderBy: [{ itemName: 'asc' }, { serialNo: 'asc' }],
+        },
         cleaningLogs: { orderBy: { requestedAt: 'desc' } },
       },
     });
@@ -441,13 +445,15 @@ export const roomService = {
    * Create a new room with auto-generated bed records
    */
   async createRoom(data: CreateRoomInput) {
-    const { blockId, floor, roomNumber, capacity = 2 } = data;
+    const { blockId, floor, roomNumber, capacity = 2, roomType = 'PERSONEL_ODASI' } = data;
     const normalizedRoomNumber = typeof roomNumber === 'string' ? roomNumber.trim().toLocaleUpperCase('tr-TR') : '';
     const parsedFloor = Number(floor);
-    const parsedCapacity = Number(capacity);
-    if (!normalizedRoomNumber || normalizedRoomNumber.length > 20) throw new AppError('Oda numarası zorunludur ve en fazla 20 karakter olabilir.', 400);
+    const normalizedRoomType = typeof roomType === 'string' && roomType.trim() ? roomType.trim().toLocaleUpperCase('tr-TR') : 'PERSONEL_ODASI';
+    const parsedCapacity = normalizedRoomType === 'PERSONEL_ODASI' ? Number(capacity) : 0;
+    if (!normalizedRoomNumber || normalizedRoomNumber.length > 50) throw new AppError('Oda numarası veya oda adı zorunludur ve en fazla 50 karakter olabilir.', 400);
     if (!Number.isInteger(parsedFloor) || parsedFloor < -5 || parsedFloor > 200) throw new AppError('Kat değeri -5 ile 200 arasında tam sayı olmalıdır.', 400);
-    if (!Number.isInteger(parsedCapacity) || parsedCapacity < 1 || parsedCapacity > 26) throw new AppError('Oda kapasitesi 1 ile 26 arasında olmalıdır.', 400);
+    if (!Number.isInteger(parsedCapacity) || parsedCapacity < 0 || parsedCapacity > 26) throw new AppError('Oda kapasitesi 0 ile 26 arasında olmalıdır.', 400);
+    if (normalizedRoomType === 'PERSONEL_ODASI' && parsedCapacity < 1) throw new AppError('Konaklama odaları için en az 1 yatak kapasitesi girilmelidir.', 400);
 
     const block = await prisma.block.findUnique({ where: { id: blockId } });
     if (!block) {
@@ -470,6 +476,7 @@ export const roomService = {
         floor: parsedFloor,
         roomNumber: normalizedRoomNumber,
         capacity: parsedCapacity,
+        roomType: normalizedRoomType,
         status: 'READY',
         beds: {
           create: bedLabels.map((label) => ({
@@ -511,105 +518,8 @@ export const roomService = {
     return block;
   },
 
-  /**
-   * Create a new maintenance/fault record for a room
-   */
-  async createMaintenance(data: {
-    roomId: string;
-    title: string;
-    description: string;
-    priority: MaintenancePriority;
-    reportedBy: string;
-    category?: string;
-    location?: string;
-  }) {
-    const { roomId, title, description, priority, reportedBy, category, location } = data;
-
-    const room = await prisma.room.findUnique({ where: { id: roomId } });
-    if (!room) {
-      throw new AppError('Oda bulunamadı.', 404);
-    }
-
-    const maintenance = await prisma.maintenanceLog.create({
-      data: {
-        roomId,
-        title: title.trim().toLocaleUpperCase('tr-TR'),
-        description: description.trim().toLocaleUpperCase('tr-TR'),
-        category: category?.trim().toLocaleUpperCase('tr-TR') || null,
-        location: location?.trim().toLocaleUpperCase('tr-TR') || null,
-        priority,
-        status: 'OPEN',
-        reportedBy: reportedBy.toLocaleUpperCase('tr-TR'),
-      },
-    });
-
-    return maintenance;
-  },
-
-  /**
-   * Update an existing maintenance record
-   */
-  async updateMaintenance(maintenanceId: string, data: {
-    title?: string;
-    description?: string;
-    priority?: MaintenancePriority;
-    status?: MaintenanceStatus;
-    assignedTo?: string | null;
-    category?: string | null;
-    location?: string | null;
-    resolutionNote?: string | null;
-  }) {
-    const existing = await prisma.maintenanceLog.findUnique({ where: { id: maintenanceId } });
-    if (!existing) {
-      throw new AppError('Arıza kaydı bulunamadı.', 404);
-    }
-
-    const updateData: {
-      title?: string;
-      description?: string;
-      priority?: MaintenancePriority;
-      status?: MaintenanceStatus;
-      assignedTo?: string | null;
-      category?: string | null;
-      location?: string | null;
-      resolutionNote?: string | null;
-      resolvedAt?: Date | null;
-    } = {};
-    if (data.title?.trim()) updateData.title = data.title.trim().toLocaleUpperCase('tr-TR');
-    if (data.description?.trim()) updateData.description = data.description.trim().toLocaleUpperCase('tr-TR');
-    if (data.priority) updateData.priority = data.priority;
-    if (data.assignedTo !== undefined) updateData.assignedTo = data.assignedTo?.trim().toLocaleUpperCase('tr-TR') || null;
-    if (data.category !== undefined) updateData.category = data.category?.trim().toLocaleUpperCase('tr-TR') || null;
-    if (data.location !== undefined) updateData.location = data.location?.trim().toLocaleUpperCase('tr-TR') || null;
-    if (data.resolutionNote !== undefined) updateData.resolutionNote = data.resolutionNote?.trim().toLocaleUpperCase('tr-TR') || null;
-    if (data.status) {
-      updateData.status = data.status;
-      updateData.resolvedAt = data.status === 'RESOLVED' || data.status === 'CLOSED' ? new Date() : null;
-    }
-
-    const updated = await prisma.maintenanceLog.update({
-      where: { id: maintenanceId },
-      data: updateData,
-    });
-
-    return updated;
-  },
-
-  /**
-   * Delete a maintenance record
-   */
-  async deleteMaintenance(maintenanceId: string) {
-    const existing = await prisma.maintenanceLog.findUnique({ where: { id: maintenanceId } });
-    if (!existing) {
-      throw new AppError('Arıza kaydı bulunamadı.', 404);
-    }
-
-    await prisma.maintenanceLog.delete({ where: { id: maintenanceId } });
-    return { deleted: true };
-  },
-
   /** Update existing room details (roomNumber, floor, capacity, status) */
-  async updateRoom(roomId: string, data: { roomNumber?: string; floor?: number; capacity?: number; status?: RoomStatus }) {
+  async updateRoom(roomId: string, data: { roomNumber?: string; floor?: number; capacity?: number; roomType?: string; status?: RoomStatus }) {
     const room = await prisma.room.findUnique({
       where: { id: roomId },
       include: { beds: { orderBy: { bedLabel: 'asc' }, include: { _count: { select: { occupancies: true } } } }, block: true },
@@ -617,6 +527,10 @@ export const roomService = {
     if (!room) throw new AppError('Oda bulunamadı.', 404);
 
     const updateData: any = {};
+
+    if (data.roomType !== undefined) {
+      updateData.roomType = data.roomType || 'PERSONEL_ODASI';
+    }
 
     if (data.roomNumber !== undefined) {
       if (!data.roomNumber.trim()) throw new AppError('Oda numarası boş bırakılamaz.', 400);
@@ -645,8 +559,8 @@ export const roomService = {
 
     if (data.capacity !== undefined && Number(data.capacity) !== room.capacity) {
       const newCapacity = Number(data.capacity);
-      if (!Number.isInteger(newCapacity) || newCapacity < 1 || newCapacity > 26) {
-        throw new AppError('Oda kapasitesi 1 ile 26 arasında olmalıdır.', 400);
+      if (!Number.isInteger(newCapacity) || newCapacity < 0 || newCapacity > 26) {
+        throw new AppError('Oda kapasitesi 0 ile 26 arasında olmalıdır.', 400);
       }
 
       const currentBeds = room.beds;
@@ -705,12 +619,16 @@ export const roomService = {
         beds: { select: { id: true, bedLabel: true, isOccupied: true, _count: { select: { occupancies: true } } } },
         block: { select: { name: true } },
         inventories: { select: { id: true, returnedAt: true } },
+        _count: { select: { maintenances: true, cleaningLogs: true } },
       },
     });
     if (!room) throw new AppError('Oda bulunamadı.', 404);
 
     if (room.inventories.length > 0) {
       throw new AppError('Bu oda zimmet geçmişi içerdiği için silinemez. Odayı kullanım dışı durumuna alın.', 409);
+    }
+    if (room._count.maintenances > 0 || room._count.cleaningLogs > 0) {
+      throw new AppError('Bu oda arıza veya temizlik geçmişi içerdiği için silinemez. Denetim geçmişini korumak için kullanım dışı durumuna alın.', 409);
     }
 
     const occupiedBeds = room.beds.filter((b) => b.isOccupied);
@@ -743,6 +661,12 @@ export const roomService = {
       if (!data.stockItemId) throw new AppError('Oda zimmeti için depo stok kartı seçilmelidir.', 400);
       const stockItem = await tx.stockItem.findUnique({ where: { id: data.stockItemId } });
       if (!stockItem || !stockItem.isActive) throw new AppError('Seçilen aktif stok kartı depoda bulunamadı.', 404);
+      if (stockItem.itemType !== 'SARF_MALZEME' && quantity > 1) throw new AppError('Demirbaşlar fiziksel cihaz takibi için tek tek ve 1 adet olarak zimmetlenmelidir.', 400);
+      if (stockItem.itemType !== 'SARF_MALZEME' && !cleanSerialNo) throw new AppError('Demirbaş zimmeti için cihazın üretici seri numarası zorunludur.', 400);
+      if (cleanSerialNo) {
+        const duplicateSerial = await tx.roomInventory.findFirst({ where: { serialNo: cleanSerialNo, returnedAt: null } });
+        if (duplicateSerial) throw new AppError('Bu seri numarası halen başka bir aktif demirbaşta kullanılıyor.', 409);
+      }
       const cleanItemName = stockItem.itemName;
       const available = stockItem.totalStock - (stockItem.usedStock + stockItem.usedInRooms);
       if (available < quantity) throw new AppError(`Depoda yeterli stok yok. Müsait: ${available} ${stockItem.unit}. İstenen: ${quantity} ${stockItem.unit}.`, 400);
@@ -767,7 +691,7 @@ export const roomService = {
         return updated;
       }
 
-      const created = await tx.roomInventory.create({
+      let created = await tx.roomInventory.create({
         data: {
           roomId,
           itemName: cleanItemName,
@@ -778,6 +702,7 @@ export const roomService = {
           stockItemId: data.stockItemId,
         },
       });
+      created = await tx.roomInventory.update({ where: { id: created.id }, data: { assetTag: `${stockItem.itemCode || 'ENV'}-${created.id.replace(/-/g, '').slice(0, 10).toUpperCase()}` } });
       await tx.stockMovement.create({ data: { stockItemId: stockItem.id, roomId, roomInventoryId: created.id, type: 'ROOM_ASSIGNMENT', quantity: -quantity, itemNameSnapshot: stockItem.itemName, roomLabelSnapshot: `${room.block.name} / ODA ${room.roomNumber}`, brand: created.brand, serialNo: created.serialNo, reason: 'ODA DETAYINDAN ZİMMET', createdById: data.createdById } });
       return created;
     });

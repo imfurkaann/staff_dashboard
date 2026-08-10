@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { maintenanceController } from '../controllers/maintenanceController';
-import { authenticateToken, authorizeRoles } from '../middleware/authMiddleware';
+import { authenticateToken, authorizePermissions } from '../middleware/authMiddleware';
+import { permissions } from '../security/permissions';
 
 const router = Router();
 
@@ -8,18 +9,15 @@ const router = Router();
 router.use(authenticateToken);
 
 // GET /api/maintenance - List all maintenance records with filters & summary
-router.get('/', authorizeRoles('ADMIN', 'HOUSING_MANAGER', 'SECURITY'), maintenanceController.getMaintenances);
+router.get('/', authorizePermissions(permissions.MAINTENANCE_VIEW), maintenanceController.getMaintenances);
 
 // GET /api/maintenance/export.xlsx - Export maintenance records to Excel
-router.get('/export.xlsx', authorizeRoles('ADMIN', 'HOUSING_MANAGER'), maintenanceController.exportExcel);
+router.get('/export.xlsx', authorizePermissions(permissions.MAINTENANCE_EXPORT), maintenanceController.exportExcel);
 
 // POST /api/maintenance - Create a new maintenance record
-router.post('/', authorizeRoles('ADMIN', 'HOUSING_MANAGER', 'SECURITY'), maintenanceController.createMaintenance);
+router.post('/', authorizePermissions(permissions.MAINTENANCE_CREATE), maintenanceController.createMaintenance);
 
 // PATCH /api/maintenance/:id - Update an existing maintenance record
-router.patch('/:id', authorizeRoles('ADMIN', 'HOUSING_MANAGER', 'SECURITY'), maintenanceController.updateMaintenance);
-
-// DELETE /api/maintenance/:id - Delete a maintenance record
-router.delete('/:id', authorizeRoles('ADMIN', 'HOUSING_MANAGER'), maintenanceController.deleteMaintenance);
+router.patch('/:id', authorizePermissions(permissions.MAINTENANCE_UPDATE), maintenanceController.updateMaintenance);
 
 export default router;

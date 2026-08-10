@@ -166,7 +166,7 @@ export const MaintenanceDetailModal: React.FC<MaintenanceDetailModalProps> = ({
               <h4 className="text-xs font-extrabold text-amber-900 uppercase tracking-wider flex items-center gap-1.5">
                 <Package className="w-4 h-4 text-amber-700" /> Bağlı Oda Demirbaşı
               </h4>
-              <p className="text-sm font-black text-slate-950">{log.inventoryItemNameSnapshot || 'Demirbaş'}</p>
+              <p className="text-sm font-black text-slate-950">{log.inventoryAssetTagSnapshot ? `[${log.inventoryAssetTagSnapshot}] ` : ''}{log.inventoryItemNameSnapshot || 'Demirbaş'}</p>
               <p className="text-xs text-slate-700">
                 {log.inventoryBrandSnapshot || 'Marka yok'} · {log.inventorySerialNoSnapshot ? `S/N ${log.inventorySerialNoSnapshot}` : 'Seri no yok'} · {log.inventoryQuantitySnapshot || 1} adet
               </p>
@@ -209,6 +209,15 @@ export const MaintenanceDetailModal: React.FC<MaintenanceDetailModalProps> = ({
               </p>
             </div>
           )}
+
+          {log.type === 'ROOM_INVENTORY' && (log.serviceProvider || log.serviceReference || log.sentToServiceAt || log.returnedFromServiceAt || log.laborCost > 0 || log.partsCost > 0 || log.warrantyCovered) && (
+            <div className="space-y-3 rounded-2xl border border-blue-200 bg-blue-50/60 p-4">
+              <h4 className="text-xs font-extrabold uppercase tracking-wider text-blue-900">Servis, Garanti ve Maliyet Özeti</h4>
+              <div className="grid grid-cols-2 gap-3 text-xs"><div><span className="block text-[10px] font-bold text-slate-500">Servis Firması</span><strong>{log.serviceProvider || '-'}</strong></div><div><span className="block text-[10px] font-bold text-slate-500">İş Emri / Servis No</span><strong>{log.serviceReference || '-'}</strong></div><div><span className="block text-[10px] font-bold text-slate-500">Servise Gönderilme</span><strong>{formatDateWithTime(log.sentToServiceAt)}</strong></div><div><span className="block text-[10px] font-bold text-slate-500">Servisten Dönüş</span><strong>{formatDateWithTime(log.returnedFromServiceAt)}</strong></div><div><span className="block text-[10px] font-bold text-slate-500">Garanti</span><strong>{log.warrantyCovered ? 'Garanti kapsamında' : 'Garanti dışı'}</strong></div><div><span className="block text-[10px] font-bold text-slate-500">Toplam Maliyet</span><strong>{(log.laborCost + log.partsCost).toLocaleString('tr-TR', { style: 'currency', currency: 'TRY' })}</strong></div></div>
+            </div>
+          )}
+
+          {log.events && log.events.length > 0 && <div className="space-y-2"><h4 className="text-xs font-extrabold uppercase tracking-wider text-slate-900">Değiştirilemez Süreç Geçmişi</h4><div className="overflow-hidden rounded-2xl border border-slate-200">{log.events.map((event) => <div key={event.id} className="border-b border-slate-200 p-3 last:border-0"><div className="flex items-center justify-between gap-2"><strong className="text-slate-900">{event.action === 'FAULT_REPORTED' ? 'Arıza bildirildi' : event.action === 'STATUS_CHANGED' ? 'Durum değiştirildi' : event.action === 'DEVICE_REPLACED' ? 'Arızalı cihaz değiştirildi' : event.action === 'MIGRATED_INITIAL_RECORD' ? 'Eski kayıt sisteme aktarıldı' : 'Kayıt bilgileri güncellendi'}</strong><span className="text-[10px] text-slate-500">{formatDateWithTime(event.createdAt)}</span></div><p className="mt-1 text-[10px] text-slate-600">{event.fromStatus && event.toStatus && event.fromStatus !== event.toStatus ? `${event.fromStatus} → ${event.toStatus} · ` : ''}{event.inventoryStatus ? `Cihaz: ${getInventoryStatusLabel(event.inventoryStatus)} · ` : ''}{event.performedBy}</p>{event.notes && <p className="mt-1 text-xs text-slate-700">{event.notes}</p>}</div>)}</div></div>}
 
           {/* Detay Bilgi Kartları Grid */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">

@@ -11,12 +11,18 @@ interface ExportMaintenanceLog {
   inventoryItemNameSnapshot?: string | null;
   inventoryBrandSnapshot?: string | null;
   inventorySerialNoSnapshot?: string | null;
+  inventoryAssetTagSnapshot?: string | null;
   inventoryQuantitySnapshot?: number | null;
   category?: string | null;
   location?: string | null;
   reportedBy?: string | null;
   assignedTo?: string | null;
   resolutionNote?: string | null;
+  serviceProvider?: string | null;
+  serviceReference?: string | null;
+  laborCost?: number;
+  partsCost?: number;
+  warrantyCovered?: boolean;
   createdAt: Date | string;
   resolvedAt?: Date | string | null;
   room?: {
@@ -54,7 +60,7 @@ export async function createMaintenanceWorkbook(rows: ExportMaintenanceLog[], ge
   }).format(new Date());
 
   // 1. Corporate Main Header Section
-  sheet.mergeCells('A1:P1');
+  sheet.mergeCells('A1:V1');
   const titleCell = sheet.getCell('A1');
   titleCell.value = 'DOSİNİA RESORT LOJMAN YÖNETİMİ - ARIZA VE TEKNİK BAKIM KAYITLARI RAPORU';
   titleCell.font = { name: 'Arial', size: 12, bold: true, color: { argb: 'FFFFFFFF' } };
@@ -62,7 +68,7 @@ export async function createMaintenanceWorkbook(rows: ExportMaintenanceLog[], ge
   titleCell.alignment = { vertical: 'middle', horizontal: 'left', indent: 1 };
   sheet.getRow(1).height = 26;
 
-  sheet.mergeCells('A2:P2');
+  sheet.mergeCells('A2:V2');
   const subCell = sheet.getCell('A2');
   subCell.value = `Rapor Oluşturulma Tarihi: ${reportDate}  |  Raporu Düzenleyen Yetkili: ${generatedBy}`;
   subCell.font = { name: 'Arial', size: 9, italic: true, color: { argb: 'FF475569' } };
@@ -98,7 +104,7 @@ export async function createMaintenanceWorkbook(rows: ExportMaintenanceLog[], ge
   } else {
     groupMap.forEach((group) => {
       // 1. Group Banner Header Row
-      sheet.mergeCells(`A${currentRowNum}:P${currentRowNum}`);
+      sheet.mergeCells(`A${currentRowNum}:V${currentRowNum}`);
       const bannerCell = sheet.getCell(`A${currentRowNum}`);
       bannerCell.value = `${group.blockName} - ${group.roomTitle}  (TOPLAM ARIZA / BAKIM: ${group.items.length} ADET)`;
       bannerCell.font = { name: 'Arial', size: 10.5, bold: true, color: { argb: 'FFFFFFFF' } };
@@ -125,6 +131,12 @@ export async function createMaintenanceWorkbook(rows: ExportMaintenanceLog[], ge
         'KAPANIŞ SAATİ',
         'ÇÖZÜM NOTU',
         'STOK ETKİSİ',
+        'SERVİS FİRMASI',
+        'SERVİS / İŞ EMRİ NO',
+        'GARANTİ DURUMU',
+        'İŞÇİLİK MALİYETİ',
+        'PARÇA MALİYETİ',
+        'TOPLAM MALİYET',
       ];
 
       subHeaders.forEach((headerText, colIdx) => {
@@ -168,7 +180,7 @@ export async function createMaintenanceWorkbook(rows: ExportMaintenanceLog[], ge
         const location = (m.location || 'ODA GENELİ').toLocaleUpperCase('tr-TR');
         const isInventoryFault = m.type === 'ROOM_INVENTORY';
         const inventoryLabel = isInventoryFault
-          ? [m.inventoryItemNameSnapshot, m.inventoryBrandSnapshot, m.inventorySerialNoSnapshot ? `S/N ${m.inventorySerialNoSnapshot}` : null, m.inventoryQuantitySnapshot ? `${m.inventoryQuantitySnapshot} ADET` : null].filter(Boolean).join(' / ')
+          ? [m.inventoryAssetTagSnapshot ? `DEMİRBAŞ ${m.inventoryAssetTagSnapshot}` : null, m.inventoryItemNameSnapshot, m.inventoryBrandSnapshot, m.inventorySerialNoSnapshot ? `S/N ${m.inventorySerialNoSnapshot}` : null, m.inventoryQuantitySnapshot ? `${m.inventoryQuantitySnapshot} ADET` : null].filter(Boolean).join(' / ')
           : '-';
         const inventoryStatus = isInventoryFault ? (inventoryStatusLabels[m.inventoryStatus || ''] || safeCell(m.inventoryStatus)) : '-';
         const stockEffect = m.inventoryStatus === 'LOST'
@@ -204,9 +216,15 @@ export async function createMaintenanceWorkbook(rows: ExportMaintenanceLog[], ge
           resolvedAtDate || '',
           resolutionNote,
           stockEffect,
+          safeCell(m.serviceProvider),
+          safeCell(m.serviceReference),
+          m.warrantyCovered ? 'GARANTİ KAPSAMINDA' : 'GARANTİ DIŞI',
+          m.laborCost || 0,
+          m.partsCost || 0,
+          (m.laborCost || 0) + (m.partsCost || 0),
         ];
 
-        for (let col = 1; col <= 16; col++) {
+        for (let col = 1; col <= 22; col++) {
           const cell = row.getCell(col);
           cell.font = { name: 'Arial', size: 9.5 };
           cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: rowBgColor } };
@@ -244,6 +262,9 @@ export async function createMaintenanceWorkbook(rows: ExportMaintenanceLog[], ge
           row.getCell(13).numFmt = 'dd.mm.yyyy';
           row.getCell(14).numFmt = 'hh:mm';
         }
+        row.getCell(20).numFmt = '#,##0.00 ₺';
+        row.getCell(21).numFmt = '#,##0.00 ₺';
+        row.getCell(22).numFmt = '#,##0.00 ₺';
 
         currentRowNum++;
       });
@@ -254,7 +275,7 @@ export async function createMaintenanceWorkbook(rows: ExportMaintenanceLog[], ge
   }
 
   // Set corporate column widths
-  const widths = [18, 19, 14, 22, 30, 22, 32, 18, 20, 22, 14, 12, 14, 12, 32, 30];
+  const widths = [18, 19, 14, 22, 34, 22, 32, 18, 20, 22, 14, 12, 14, 12, 32, 30, 22, 20, 20, 18, 18, 18];
   widths.forEach((w, colIdx) => {
     sheet.getColumn(colIdx + 1).width = w;
   });

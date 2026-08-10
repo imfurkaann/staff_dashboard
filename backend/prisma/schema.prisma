@@ -10,6 +10,12 @@ generator client {
 enum Role {
   ADMIN
   HOUSING_MANAGER
+  HOUSING_STAFF
+  TECHNICAL_MANAGER
+  TECHNICIAN
+  HOUSEKEEPING
+  WAREHOUSE_MANAGER
+  HR_MANAGER
   SECURITY
   STAFF
 }
@@ -103,6 +109,26 @@ model User {
   pushSubscriptions        PushSubscription[]
   stockMovements           StockMovement[]         @relation("StockMovementCreatedBy")
   employee                 Employee?               @relation("EmployeeUserAccount")
+  sharedAssetLogs          SharedAssetLog[]        @relation("SharedAssetLogCreatedBy")
+  userAuditActions         UserAuditLog[]           @relation("UserAuditActor")
+  userAuditHistory         UserAuditLog[]           @relation("UserAuditTarget")
+}
+
+model UserAuditLog {
+  id           String   @id @default(uuid())
+  targetUserId String
+  targetUser   User     @relation("UserAuditTarget", fields: [targetUserId], references: [id], onDelete: Restrict)
+  actorUserId  String?
+  actorUser    User?    @relation("UserAuditActor", fields: [actorUserId], references: [id], onDelete: SetNull)
+  action       String
+  beforeRole   Role?
+  afterRole    Role?
+  notes        String?
+  createdAt    DateTime @default(now())
+
+  @@index([targetUserId, createdAt])
+  @@index([actorUserId, createdAt])
+  @@index([action, createdAt])
 }
 
 model Employee {
@@ -138,6 +164,7 @@ model Employee {
   checkedOutBy          User?          @relation("EmployeeCheckedOutBy", fields: [checkedOutById], references: [id], onDelete: SetNull)
   userId                String?        @unique
   user                  User?          @relation("EmployeeUserAccount", fields: [userId], references: [id], onDelete: SetNull)
+  sharedAssets          SharedAsset[]
   createdAt             DateTime       @default(now())
   updatedAt             DateTime       @updatedAt
 
@@ -172,6 +199,7 @@ model Room {
   floor      Int
   roomNumber String // e.g. 101, 102
   capacity   Int        @default(2)
+  roomType   String?    @default("PERSONEL_ODASI")
   status     RoomStatus @default(READY)
   createdAt  DateTime   @default(now())
   updatedAt  DateTime   @updatedAt
@@ -181,6 +209,7 @@ model Room {
   inventories    RoomInventory[]
   cleaningLogs   RoomCleaningLog[]
   stockMovements StockMovement[]
+  sharedAssets   SharedAsset[]
 
   @@unique([blockId, roomNumber])
 }
@@ -260,7 +289,12 @@ model StockItem {
   itemName        String          @unique
   itemCode        String?         @unique
   category        String          @default("GENEL")
+  itemType        String          @default("DEMİRBAŞ") // DEMİRBAŞ veya SARF_MALZEME
   unit            String          @default("ADET")
+  specifications  String? // Ölçü, renk, teknolojik detaylar (160x200 cm, 12000 BTU vb.)
+  physicalStatus  String          @default("KULLANILABİLİR") // KULLANILABİLİR, KULLANIMDA, BAKIMDA, HURDA
+  warrantyEndDate DateTime? // Garanti bitiş tarihi
+  locationNote    String? // Bulunduğu konum / depo / blok / daire bilgisi
   minimumStock    Int             @default(5)
   isActive        Boolean         @default(true)
   lastCountedAt   DateTime?
@@ -283,6 +317,7 @@ model StockMovement {
   roomId               String?
   room                 Room?             @relation(fields: [roomId], references: [id], onDelete: SetNull)
   roomInventoryId      String?
+  roomInventory        RoomInventory?    @relation(fields: [roomInventoryId], references: [id], onDelete: Restrict)
   personnelInventoryId String?
   employeeId           String?
   employee             Employee?         @relation(fields: [employeeId], references: [id], onDelete: SetNull)
@@ -324,7 +359,7 @@ model DisciplinaryNote {
 model MaintenanceLog {
   id                        String               @id @default(uuid())
   roomId                    String
-  room                      Room                 @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  room                      Room                 @relation(fields: [roomId], references: [id], onDelete: Restrict)
   type                      MaintenanceType      @default(GENERAL)
   roomInventoryId           String?
   roomInventory             RoomInventory?       @relation(fields: [roomInventoryId], references: [id], onDelete: Restrict)
@@ -332,6 +367,7 @@ model MaintenanceLog {
   inventoryItemNameSnapshot String?
   inventoryBrandSnapshot    String?
   inventorySerialNoSnapshot String?
+  inventoryAssetTagSnapshot String?
   inventoryQuantitySnapshot Int?
   category                  String?
   location                  String?
@@ -345,8 +381,16 @@ model MaintenanceLog {
   updatedAt                 DateTime             @updatedAt
   resolvedAt                DateTime?
   resolutionNote            String?
+  serviceProvider           String?
+  serviceReference          String?
+  laborCost                 Float                  @default(0)
+  partsCost                 Float                  @default(0)
+  warrantyCovered           Boolean                @default(false)
+  sentToServiceAt           DateTime?
+  returnedFromServiceAt     DateTime?
 
   stockMovements StockMovement[]
+  events         MaintenanceEvent[]
 
   @@index([roomId, status])
   @@index([roomInventoryId, status])
@@ -354,13 +398,36 @@ model MaintenanceLog {
   @@index([status, priority, createdAt])
 }
 
+model MaintenanceEvent {
+  id                 String            @id @default(uuid())
+  maintenanceId      String
+  maintenance        MaintenanceLog    @relation(fields: [maintenanceId], references: [id], onDelete: Restrict)
+  action             String
+  fromStatus         MaintenanceStatus?
+  toStatus           MaintenanceStatus?
+  inventoryStatus    RoomInventoryStatus?
+  notes              String?
+  serviceProvider    String?
+  serviceReference   String?
+  laborCost          Float?
+  partsCost          Float?
+  warrantyCovered    Boolean?
+  performedBy        String
+  createdAt          DateTime          @default(now())
+
+  @@index([maintenanceId, createdAt])
+  @@index([action, createdAt])
+}
+
 model RoomInventory {
   id           String              @id @default(uuid())
   roomId       String
   room         Room                @relation(fields: [roomId], references: [id], onDelete: Restrict)
   itemName     String
+  location     String?             @default("")
   brand        String?
   serialNo     String?
+  assetTag     String?             @unique
   quantity     Int                 @default(1)
   installedAt  DateTime            @default(now())
   status       RoomInventoryStatus @default(HEALTHY)
@@ -369,12 +436,13 @@ model RoomInventory {
   stockItemId  String
   stockItem    StockItem           @relation(fields: [stockItemId], references: [id], onDelete: Restrict)
   maintenances MaintenanceLog[]
+  movements    StockMovement[]
   createdAt    DateTime            @default(now())
   updatedAt    DateTime            @updatedAt
 
-  @@unique([roomId, itemName, serialNo])
   @@index([roomId, status])
   @@index([stockItemId])
+  @@index([serialNo])
 }
 
 model Visitor {
@@ -486,4 +554,56 @@ model PushSubscription {
   updatedAt DateTime @updatedAt
 
   @@index([userId])
+}
+
+enum SharedAssetStatus {
+  AVAILABLE
+  LOANED
+  MAINTENANCE
+  RETIRED
+}
+
+model SharedAsset {
+  id                 String            @id @default(uuid())
+  assetCode          String            @unique
+  assetName          String
+  category           String            @default("GENEL")
+  brandModel         String?
+  serialNo           String?
+  status             SharedAssetStatus @default(AVAILABLE)
+  currentHolderType  String?           // 'EMPLOYEE' | 'ROOM' | 'OTHER'
+  currentEmployeeId  String?
+  currentEmployee    Employee?         @relation(fields: [currentEmployeeId], references: [id], onDelete: SetNull)
+  currentRoomId      String?
+  currentRoom        Room?             @relation(fields: [currentRoomId], references: [id], onDelete: SetNull)
+  borrowedAt         DateTime?
+  expectedReturnDate DateTime?
+  warrantyEndDate    DateTime?
+  locationNote       String?
+  notes              String?
+  logs               SharedAssetLog[]
+  createdAt          DateTime          @default(now())
+  updatedAt          DateTime          @updatedAt
+
+  @@index([status])
+  @@index([category])
+}
+
+model SharedAssetLog {
+  id                 String      @id @default(uuid())
+  assetId            String
+  asset              SharedAsset @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  action             String      // 'CHECK_OUT' | 'CHECK_IN' | 'MAINTENANCE_START' | 'MAINTENANCE_END'
+  borrowerName       String?
+  employeeId         String?
+  roomId             String?
+  borrowedAt         DateTime    @default(now())
+  returnedAt         DateTime?
+  expectedReturnDate DateTime?
+  notes              String?
+  createdById        String?
+  createdBy          User?       @relation("SharedAssetLogCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  createdAt          DateTime    @default(now())
+
+  @@index([assetId])
 }

@@ -1,12 +1,13 @@
 import axios from 'axios';
 import { appConfig } from '../config/appConfig';
+import { AppRole } from '../security/accessControl';
 
 export interface User {
   id: string;
   username: string;
   email: string;
   fullName: string;
-  role: string;
+  role: AppRole;
 }
 
 export interface LoginResponse {

@@ -6,15 +6,18 @@ import {
   BedDouble,
   Wrench,
   Package,
+  Boxes,
   ShieldCheck,
   LogOut,
   ChevronRight,
   UserCheck,
   Bell,
   User as UserIcon
+  ,UserCog
 } from 'lucide-react';
 import { User } from '../api/authApi';
 import { appConfig } from '../config/appConfig';
+import { canAccessTab, ROLE_LABELS } from '../security/accessControl';
 
 interface SidebarProps {
   currentUser: User;
@@ -38,8 +41,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
     { id: 'visitors', label: 'Ziyaretçi Yönetimi', icon: UserCheck },
     { id: 'issues', label: 'Arıza Yönetimi', icon: Wrench },
     { id: 'warehouse', label: 'Depo & Stok Yönetimi', icon: Package },
+    { id: 'shared-assets', label: 'Ortak Eşya Yönetimi', icon: Boxes },
     { id: 'notifications', label: 'Duyuru Yönetimi', icon: Bell },
-  ].filter((item) => currentUser.role !== 'SECURITY' || ['dashboard', 'rooms', 'visitors', 'issues'].includes(item.id));
+    { id: 'users', label: 'Kullanıcı & Roller', icon: UserCog },
+  ].filter((item) => canAccessTab(currentUser.role, item.id));
 
   return (<>
     <aside
@@ -105,7 +110,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               {currentUser.fullName}
             </p>
             <span className="inline-block mt-0.5 px-2 py-0.2 text-[10px] font-extrabold rounded-md bg-[#1e3a8a]/10 text-[#1e3a8a]">
-              {currentUser.role === 'ADMIN' ? 'Yönetici' : currentUser.role === 'HOUSING_MANAGER' ? 'Lojman Amiri' : 'Güvenlik'}
+              {ROLE_LABELS[currentUser.role]}
             </span>
           </div>
         </div>

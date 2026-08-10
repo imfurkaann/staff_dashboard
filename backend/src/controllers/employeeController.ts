@@ -4,6 +4,8 @@ import { AuthenticatedRequest } from '../middleware/authMiddleware';
 import { createEmployeeWorkbook } from '../services/employeeExportService';
 import { AppError } from '../middleware/errorHandler';
 import { formatIstanbulDate } from '../utils/dateTime';
+import { scopeEmployeeData } from '../security/dataScope';
+import { hasPermission, permissions } from '../security/permissions';
 
 export class EmployeeController {
   public static async remove(req: AuthenticatedRequest, res: Response, next: NextFunction) {
@@ -27,7 +29,7 @@ export class EmployeeController {
       const startDate = req.query.startDate as string;
       const endDate = req.query.endDate as string;
 
-      const employees = await EmployeeService.getAllEmployees(search, status, department, gender, startDate, endDate);
+      const employees = scopeEmployeeData(await EmployeeService.getAllEmployees(search, status, department, gender, startDate, endDate), req.user?.role);
 
       res.status(200).json({
         success: true,
@@ -69,7 +71,7 @@ export class EmployeeController {
   public static async create(req: AuthenticatedRequest, res: Response, next: NextFunction) {
     try {
       const createdById = req.user?.id;
-      if (req.user?.role !== 'ADMIN' && req.body?.systemUser?.role && req.body.systemUser.role !== 'STAFF') {
+      if (!hasPermission(req.user?.role, permissions.USER_MANAGE) && req.body?.systemUser) {
         throw new AppError('Yalnızca sistem yöneticisi yetkili hesap oluşturabilir.', 403);
       }
       const employee = await EmployeeService.createEmployee({
@@ -94,7 +96,7 @@ export class EmployeeController {
     try {
       const { id } = req.params;
       const createdById = req.user?.id;
-      if (req.user?.role !== 'ADMIN' && req.body?.systemUser?.role && req.body.systemUser.role !== 'STAFF') {
+      if (!hasPermission(req.user?.role, permissions.USER_MANAGE) && req.body?.systemUser) {
         throw new AppError('Yalnızca sistem yöneticisi hesap yetkisini değiştirebilir.', 403);
       }
       const employee = await EmployeeService.updateEmployee(id, {
@@ -197,7 +199,7 @@ export class EmployeeController {
   public static async getById(req: AuthenticatedRequest, res: Response, next: NextFunction) {
     try {
       const { id } = req.params;
-      const employee = await EmployeeService.getEmployeeById(id);
+      const employee = scopeEmployeeData(await EmployeeService.getEmployeeById(id), req.user?.role);
 
       res.status(200).json({
         success: true,

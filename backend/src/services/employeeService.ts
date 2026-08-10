@@ -19,7 +19,7 @@ export function normalizeText(text?: string | null): string | null {
 }
 
 const GENDERS = new Set(['Male', 'Female']);
-const USER_ROLES = new Set<Role>([Role.ADMIN, Role.HOUSING_MANAGER, Role.SECURITY, Role.STAFF]);
+const USER_ROLES = new Set<Role>(Object.values(Role));
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 function validateEmail(email: string): string {
@@ -691,7 +691,10 @@ export class EmployeeService {
             }
             updateUserData.email = newEmail;
           }
-          if (data.systemUser.role) updateUserData.role = data.systemUser.role;
+          if (data.systemUser.role) {
+            if (!USER_ROLES.has(data.systemUser.role)) throw new AppError('Geçersiz sistem kullanıcı rolü.', 400);
+            updateUserData.role = data.systemUser.role;
+          }
           if (data.systemUser.password && data.systemUser.password.trim().length >= 10 && /[A-ZÇĞİÖŞÜ]/.test(data.systemUser.password) && /\d/.test(data.systemUser.password)) {
             updateUserData.passwordHash = await bcrypt.hash(data.systemUser.password.trim(), config.security.saltRounds);
           } else if (data.systemUser.password) {

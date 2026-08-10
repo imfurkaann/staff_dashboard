@@ -5,6 +5,7 @@ import { MaintenancePriority, MaintenanceStatus, MaintenanceType, RoomInventoryS
 import { AuthenticatedRequest } from '../middleware/authMiddleware';
 import { formatIstanbulDate } from '../utils/dateTime';
 import { createOccupancyWorkbook, createRoomInventoryWorkbook } from '../services/roomExportService';
+import { scopeRoomData } from '../security/dataScope';
 
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const isUuid = (value: unknown): value is string => typeof value === 'string' && uuidPattern.test(value);
@@ -31,7 +32,8 @@ export const roomController = {
         search: cleanSearch || undefined,
       };
 
-      const rooms = await roomService.getRooms(filters);
+      const role = (req as AuthenticatedRequest).user?.role;
+      const rooms = scopeRoomData(await roomService.getRooms(filters), role);
       res.status(200).json({ success: true, data: rooms });
     } catch (error) {
       next(error);
@@ -41,7 +43,7 @@ export const roomController = {
   getRoomById: async (req: Request, res: Response, next: NextFunction) => {
     try {
       if (!isUuid(req.params.id)) return res.status(400).json({ success: false, message: 'Geçersiz oda kimliği.' });
-      const room = await roomService.getRoomById(req.params.id);
+      const room = scopeRoomData(await roomService.getRoomById(req.params.id), (req as AuthenticatedRequest).user?.role);
       res.status(200).json({ success: true, data: room });
     } catch (error) { next(error); }
   },
@@ -76,6 +78,10 @@ export const roomController = {
           message: 'Geçersiz oda durumu. Geçerli değerler: READY, NEEDS_CLEANING, OUT_OF_ORDER',
         });
       }
+      const actorRole = (req as AuthenticatedRequest).user?.role;
+      if (actorRole === 'HOUSEKEEPING' && !['READY', 'NEEDS_CLEANING'].includes(status)) {
+        return res.status(403).json({ success: false, message: 'Kat hizmetleri yalnızca temiz/hazır ve temizlik gerekli durumlarını değiştirebilir.' });
+      }
 
       const authReq = req as AuthenticatedRequest;
       const userFullName = authReq.user?.fullName || 'Lojman Yönetimi';
@@ -89,30 +95,31 @@ export const roomController = {
 
   createRoom: async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const { blockId, floor, roomNumber, capacity } = req.body;
+      const { blockId, floor, roomNumber, capacity, roomType } = req.body;
 
       if (!blockId || floor === undefined || !roomNumber) {
         return res.status(400).json({
           success: false,
-          message: 'Blok ID, Kat ve Oda Numarası zorunludur.',
+          message: 'Blok ID, Kat ve Oda Numarası/Adı zorunludur.',
         });
       }
 
       const parsedFloor = Number(floor);
-      const parsedCapacity = capacity === undefined ? 2 : Number(capacity);
-      const normalizedRoomNumber = cleanString(roomNumber, 20).toLocaleUpperCase('tr-TR');
+      const normalizedRoomType = roomType ? cleanString(roomType, 50).toLocaleUpperCase('tr-TR') : 'PERSONEL_ODASI';
+      const parsedCapacity = normalizedRoomType === 'PERSONEL_ODASI' ? (capacity === undefined ? 2 : Number(capacity)) : 0;
+      const normalizedRoomNumber = cleanString(roomNumber, 50).toLocaleUpperCase('tr-TR');
       if (!isUuid(blockId)) return res.status(400).json({ success: false, message: 'Geçersiz blok kimliği.' });
       if (!Number.isInteger(parsedFloor) || parsedFloor < -5 || parsedFloor > 200) return res.status(400).json({ success: false, message: 'Kat değeri -5 ile 200 arasında olmalıdır.' });
-      if (!Number.isInteger(parsedCapacity) || parsedCapacity < 1 || parsedCapacity > 26) return res.status(400).json({ success: false, message: 'Oda kapasitesi 1 ile 26 arasında olmalıdır.' });
-      if (!/^[A-Z0-9ÇĞİÖŞÜ_-]{1,20}$/u.test(normalizedRoomNumber)) return res.status(400).json({ success: false, message: 'Oda numarası yalnızca harf, rakam, tire ve alt çizgi içerebilir.' });
+      if (!Number.isInteger(parsedCapacity) || parsedCapacity < 0 || parsedCapacity > 26) return res.status(400).json({ success: false, message: 'Oda kapasitesi 0 ile 26 arasında olmalıdır.' });
       const newRoom = await roomService.createRoom({
         blockId,
         floor: parsedFloor,
         roomNumber: normalizedRoomNumber,
         capacity: parsedCapacity,
+        roomType: normalizedRoomType,
       });
 
-      res.status(201).json({ success: true, data: newRoom, message: 'Oda ve yataklar başarıyla oluşturuldu.' });
+      res.status(201).json({ success: true, data: newRoom, message: 'Oda kaydı başarıyla oluşturuldu.' });
     } catch (error) {
       next(error);
     }
@@ -172,6 +179,9 @@ export const roomController = {
       if (inventoryStatus && !Object.values(RoomInventoryStatus).includes(inventoryStatus)) {
         return res.status(400).json({ success: false, message: 'Geçersiz demirbaş durumu.' });
       }
+      if (inventoryStatus === 'LOST' && !['ADMIN', 'HOUSING_MANAGER'].includes(req.user?.role || '')) {
+        return res.status(403).json({ success: false, message: 'Kayıp / zayi stok düşümü yalnızca yetkili yönetici tarafından onaylanabilir.' });
+      }
 
       const maintenance = await maintenanceService.createMaintenance({
         roomId: id,
@@ -211,9 +221,11 @@ export const roomController = {
       }
 
       const userSolver = req.user?.fullName || 'Lojman Yönetimi';
+      const isClosing = status === 'RESOLVED' || status === 'CLOSED';
+      const cleanedAssignedTo = cleanString(assignedTo, 100);
       const targetAssignedTo = assignedTo !== undefined
-        ? (cleanString(assignedTo, 100) || null)
-        : (status === 'RESOLVED' || status === 'CLOSED'
+        ? (cleanedAssignedTo || (isClosing ? userSolver : null))
+        : (isClosing
             ? userSolver
             : (status === 'OPEN' ? null : undefined));
 
@@ -226,6 +238,7 @@ export const roomController = {
         category: category === undefined ? undefined : cleanString(category, 100) || null,
         location: location === undefined ? undefined : cleanString(location, 100) || null,
         resolutionNote: resolutionNote === undefined ? undefined : cleanString(resolutionNote, 1000) || null,
+        performedBy: (req as AuthenticatedRequest).user?.fullName || 'Lojman Yönetimi',
       });
 
       res.status(200).json({
@@ -238,20 +251,6 @@ export const roomController = {
     }
   },
 
-  deleteMaintenance: async (req: Request, res: Response, next: NextFunction) => {
-    try {
-      const { maintenanceId } = req.params;
-      if (!isUuid(maintenanceId)) return res.status(400).json({ success: false, message: 'Geçersiz arıza kaydı kimliği.' });
-      await maintenanceService.deleteMaintenance(maintenanceId);
-
-      res.status(200).json({
-        success: true,
-        message: 'Arıza kaydı silindi.',
-      });
-    } catch (error) {
-      next(error);
-    }
-  },
   createCleaningLog: async (req: Request, res: Response, next: NextFunction) => {
     try {
       const { id } = req.params;
@@ -337,13 +336,14 @@ export const roomController = {
   updateRoom: async (req: Request, res: Response, next: NextFunction) => {
     try {
       const { id } = req.params;
-      const { roomNumber, floor, capacity, status } = req.body;
+      const { roomNumber, floor, capacity, roomType, status } = req.body;
       if (!isUuid(id)) return res.status(400).json({ success: false, message: 'Geçersiz oda kimliği.' });
 
       const updatedRoom = await roomService.updateRoom(id, {
-        roomNumber: roomNumber !== undefined ? cleanString(roomNumber, 20) : undefined,
+        roomNumber: roomNumber !== undefined ? cleanString(roomNumber, 50) : undefined,
         floor: floor !== undefined ? Number(floor) : undefined,
         capacity: capacity !== undefined ? Number(capacity) : undefined,
+        roomType: roomType !== undefined ? cleanString(roomType, 50) : undefined,
         status: status ? (status as RoomStatus) : undefined,
       });
 

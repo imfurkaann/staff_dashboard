@@ -3,6 +3,7 @@ import { LoginPage } from './components/LoginPage';
 import { StaffLoginView } from './components/StaffLoginView';
 import { authApi, User } from './api/authApi';
 import { Sidebar } from './components/Sidebar';
+import { canAccessTab, firstAllowedTab } from './security/accessControl';
 
 const DashboardView = lazy(() => import('./components/DashboardView').then((m) => ({ default: m.DashboardView })));
 const EmployeeManagementView = lazy(() => import('./components/EmployeeManagementView').then((m) => ({ default: m.EmployeeManagementView })));
@@ -12,6 +13,8 @@ const MaintenanceManagementView = lazy(() => import('./components/MaintenanceMan
 const StaffPortalView = lazy(() => import('./components/StaffPortalView').then((m) => ({ default: m.StaffPortalView })));
 const NotificationManagementView = lazy(() => import('./components/NotificationManagementView').then((m) => ({ default: m.NotificationManagementView })));
 const WarehouseManagementView = lazy(() => import('./components/WarehouseManagementView').then((m) => ({ default: m.WarehouseManagementView })));
+const SharedAssetManagementView = lazy(() => import('./components/SharedAssetManagementView').then((m) => ({ default: m.SharedAssetManagementView })));
+const UserManagementView = lazy(() => import('./components/UserManagementView').then((m) => ({ default: m.UserManagementView })));
 
 const PageLoader = () => <div className="min-h-[50vh] flex items-center justify-center"><div className="w-9 h-9 border-4 border-[#1e3a8a]/20 border-t-[#1e3a8a] rounded-full animate-spin" /></div>;
 
@@ -28,7 +31,7 @@ export const App: React.FC = () => {
 
   const [activeTab, setActiveTab] = useState<string>(() => {
     const savedTab = localStorage.getItem('staff_app_active_tab');
-    return ['employees', 'rooms', 'visitors', 'issues', 'maintenance', 'notifications'].includes(savedTab || '') ? savedTab! : 'dashboard';
+    return ['employees', 'rooms', 'visitors', 'issues', 'maintenance', 'notifications', 'warehouse', 'shared-assets', 'users'].includes(savedTab || '') ? savedTab! : 'dashboard';
   });
 
   const handleTabChange = (tab: string, empId?: string) => {
@@ -101,9 +104,7 @@ export const App: React.FC = () => {
     return <Suspense fallback={<PageLoader />}><StaffPortalView currentUser={currentUser} onLogout={handleLogout} /></Suspense>;
   }
 
-  const permittedTab = currentUser.role === 'SECURITY' && !['dashboard', 'rooms', 'visitors', 'issues', 'maintenance'].includes(activeTab)
-    ? 'dashboard'
-    : activeTab;
+  const permittedTab = canAccessTab(currentUser.role, activeTab) ? activeTab : firstAllowedTab(currentUser.role);
 
   // Management / Admin Users Dashboard
   return (
@@ -131,7 +132,7 @@ export const App: React.FC = () => {
         )}
 
         {permittedTab === 'rooms' && (
-          <RoomManagementView onNavigateTo={handleTabChange} />
+          <RoomManagementView onNavigateTo={handleTabChange} currentUser={currentUser} />
         )}
 
         {permittedTab === 'visitors' && (
@@ -147,8 +148,14 @@ export const App: React.FC = () => {
         )}
 
         {permittedTab === 'warehouse' && (
-          <WarehouseManagementView />
+          <WarehouseManagementView currentUser={currentUser} />
         )}
+
+        {permittedTab === 'shared-assets' && (
+          <SharedAssetManagementView />
+        )}
+
+        {permittedTab === 'users' && <UserManagementView currentUserId={currentUser.id} />}
 
         {permittedTab === 'inventory' && (
           <div className="bg-white border border-slate-300 rounded-3xl p-8 shadow-sm">

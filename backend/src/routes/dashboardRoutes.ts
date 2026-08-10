@@ -1,8 +1,9 @@
 import { Router } from 'express';
 import { DashboardController } from '../controllers/dashboardController';
-import { authenticateToken, authorizeRoles } from '../middleware/authMiddleware';
+import { authenticateToken, authorizePermissions } from '../middleware/authMiddleware';
+import { permissions } from '../security/permissions';
 
 const router = Router();
-router.get('/', authenticateToken, authorizeRoles('ADMIN', 'HOUSING_MANAGER', 'SECURITY'), DashboardController.summary);
+router.get('/', authenticateToken, authorizePermissions(permissions.DASHBOARD_VIEW), DashboardController.summary);
 export default router;
 
