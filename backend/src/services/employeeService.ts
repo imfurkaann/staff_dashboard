@@ -8,6 +8,7 @@ import { assertDateRange, parseIstanbulDateBoundary } from '../utils/dateTime';
 import { boundedText, normalizeIdentifier, normalizeInventoryItemName, normalizePhone, normalizeUpper, strictBoolean } from '../utils/normalization';
 import { AGE_GROUPS, canonicalChoice, EMERGENCY_RELATIONS, EMPLOYEE_DEPARTMENTS, EMPLOYEE_TITLES, LANGUAGE_NATIONALITIES, SHIFT_TYPES } from '../utils/employeeDomain';
 import { config } from '../config';
+import { releasePersonnelStock, reservePersonnelStock } from '../utils/stockBalance';
 
 /**
  * Turkish Locale-aware Title Case Normalization
@@ -131,11 +132,8 @@ export class EmployeeService {
       const activeStockInventories = await tx.inventoryItem.findMany({
         where: { employeeId, returnedDate: null, stockItemId: { not: null } },
       });
-      for (const inv of activeStockInventories) {
-        await tx.stockItem.update({
-          where: { id: inv.stockItemId! },
-          data: { usedStock: { decrement: 1 } },
-        });
+      if (activeStockInventories.length > 0) {
+        throw new AppError(`Personelin ${activeStockInventories.length} aktif stok zimmeti bulunuyor. Personeli silmeden önce zimmetleri teslim alın veya kayıp/zayi olarak kapatın.`, 409);
       }
       await tx.inventoryItem.updateMany({
         where: { employeeId, returnedDate: null },
@@ -884,23 +882,21 @@ export class EmployeeService {
     if (!employee) throw new AppError('Personel bulunamadı.', 404);
     const category = data.category || 'LOJMAN_ZİMMETİ';
     if (!['LOJMAN_ZİMMETİ', 'ŞAHSİ_EŞYA'].includes(category)) throw new AppError('Geçersiz eşya kategorisi.', 400);
+    if (category === 'LOJMAN_ZİMMETİ' && !data.stockItemId) throw new AppError('Lojman zimmeti için depo stok kartı seçilmelidir.', 400);
 
     if (category === 'LOJMAN_ZİMMETİ' && data.stockItemId) {
       return prisma.$transaction(async (tx) => {
         const stockItem = await tx.stockItem.findUnique({ where: { id: data.stockItemId } });
-        if (!stockItem) throw new AppError('Seçilen stok kalemi bulunamadı.', 404);
-        if (stockItem.totalStock - stockItem.usedStock <= 0) {
+        if (!stockItem || !stockItem.isActive) throw new AppError('Seçilen aktif stok kalemi bulunamadı.', 404);
+        if (stockItem.totalStock - stockItem.usedStock - stockItem.usedInRooms <= 0) {
           throw new AppError(`Depoda yeterli miktarda "${stockItem.itemName}" kalmamıştır.`, 400);
         }
-        await tx.stockItem.update({
-          where: { id: stockItem.id },
-          data: { usedStock: { increment: 1 } },
-        });
-        return tx.inventoryItem.create({
+        await reservePersonnelStock(tx, stockItem.id);
+        const created = await tx.inventoryItem.create({
           data: {
             employeeId,
             itemName: stockItem.itemName,
-            itemCode: data.itemCode ? boundedText(data.itemCode, 'Eşya kodu', 80, { casing: 'upper' }) : null,
+            itemCode: stockItem.itemCode,
             category,
             serialNo: data.serialNo ? boundedText(data.serialNo, 'Seri numarası', 120, { casing: 'upper' }) : null,
             photoUrl: validatePhotoUrl(data.photoUrl),
@@ -910,6 +906,12 @@ export class EmployeeService {
             stockItemId: stockItem.id,
           },
         });
+        await tx.stockMovement.create({ data: {
+          stockItemId: stockItem.id, employeeId, personnelInventoryId: created.id,
+          type: 'PERSONNEL_ASSIGNMENT', quantity: -1, itemNameSnapshot: stockItem.itemName,
+          reason: 'PERSONELE ZİMMET', notes: created.notes, createdById: data.createdById,
+        } });
+        return created;
       });
     }
 
@@ -935,12 +937,12 @@ export class EmployeeService {
    * Update Inventory or Personal Belonging Item
    */
   public static async updateInventoryItem(inventoryId: string, data: { itemName?: string; serialNo?: string; notes?: string }) {
-    const existing = await prisma.inventoryItem.findUnique({ where: { id: inventoryId }, select: { id: true } });
+    const existing = await prisma.inventoryItem.findUnique({ where: { id: inventoryId }, select: { id: true, stockItemId: true } });
     if (!existing) throw new AppError('Zimmet/Eşya kaydı bulunamadı.', 404);
     return prisma.inventoryItem.update({
       where: { id: inventoryId },
       data: {
-        ...(data.itemName !== undefined && { itemName: normalizeInventoryItemName(boundedText(data.itemName, 'Eşya adı', 120, { required: true, casing: 'upper' }))! }),
+        ...(data.itemName !== undefined && !existing.stockItemId && { itemName: normalizeInventoryItemName(boundedText(data.itemName, 'Eşya adı', 120, { required: true, casing: 'upper' }))! }),
         ...(data.serialNo !== undefined && { serialNo: boundedText(data.serialNo, 'Seri numarası', 120, { casing: 'upper' }) }),
         ...(data.notes !== undefined && { notes: boundedText(data.notes, 'Eşya notu', 1000, { casing: 'upper' }) }),
       },
@@ -965,14 +967,20 @@ export class EmployeeService {
 
     if (existing.stockItemId) {
       return prisma.$transaction(async (tx) => {
-        await tx.stockItem.update({
-          where: { id: existing.stockItemId! },
-          data: { usedStock: { decrement: 1 } },
-        });
-        return tx.inventoryItem.update({
+        const isLost = finalStatus === 'TESLİM_ALINAMADI';
+        await releasePersonnelStock(tx, existing.stockItemId!, isLost);
+        const updated = await tx.inventoryItem.update({
           where: { id: inventoryId },
           data: dataToUpdate,
         });
+        const stockItem = await tx.stockItem.findUniqueOrThrow({ where: { id: existing.stockItemId! } });
+        await tx.stockMovement.create({ data: {
+          stockItemId: stockItem.id, employeeId: existing.employeeId, personnelInventoryId: existing.id,
+          type: isLost ? 'RETIREMENT' : 'PERSONNEL_RETURN', quantity: isLost ? -1 : 1,
+          itemNameSnapshot: existing.itemName, reason: finalStatus,
+          notes: dataToUpdate.notes || null, createdById: returnedById,
+        } });
+        return updated;
       });
     }
 
@@ -989,17 +997,7 @@ export class EmployeeService {
     const existing = await prisma.inventoryItem.findUnique({ where: { id: inventoryId } });
     if (!existing) throw new AppError('Zimmet/Eşya kaydı bulunamadı.', 404);
 
-    if (existing.stockItemId && !existing.returnedDate) {
-      return prisma.$transaction(async (tx) => {
-        await tx.stockItem.update({
-          where: { id: existing.stockItemId! },
-          data: { usedStock: { decrement: 1 } },
-        });
-        return tx.inventoryItem.delete({
-          where: { id: inventoryId },
-        });
-      });
-    }
+    if (existing.stockItemId) throw new AppError('Stok bağlantılı zimmet kayıtları denetim geçmişini korumak için silinemez.', 409);
 
     return prisma.inventoryItem.delete({
       where: { id: inventoryId },

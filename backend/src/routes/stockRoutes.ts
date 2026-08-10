@@ -3,21 +3,18 @@ import { stockController } from '../controllers/stockController';
 import { authenticateToken, authorizeRoles } from '../middleware/authMiddleware';
 
 const router = Router();
+router.use(authenticateToken, authorizeRoles('ADMIN', 'HOUSING_MANAGER'));
 
-// Protect all stock routes with token authentication and RBAC (ADMIN and HOUSING_MANAGER only)
-router.use(authenticateToken);
-router.use(authorizeRoles('ADMIN', 'HOUSING_MANAGER'));
-
-// GET /api/stock (List all stock items)
-router.get('/', stockController.getStockItems);
-
-// POST /api/stock (Create stock item)
+router.get('/', stockController.getOverview);
+router.get('/export.xlsx', stockController.exportExcel);
 router.post('/', stockController.createStockItem);
-
-// PUT /api/stock/:id (Update stock quantity)
-router.put('/:id', stockController.updateStockQuantity);
-
-// DELETE /api/stock/:id (Delete stock item)
+router.put('/:id', stockController.updateStockItem);
+router.post('/:id/receive', stockController.receive);
+router.post('/:id/reconcile-count', stockController.reconcileCount);
+router.post('/:id/assign-room', stockController.assignRoom);
+router.post('/assignments/:inventoryId/return', stockController.returnAssignment);
+router.post('/assignments/:inventoryId/transfer', stockController.transferAssignment);
+router.post('/assignments/:inventoryId/replace', stockController.replaceAssignment);
 router.delete('/:id', stockController.deleteStockItem);
 
 export default router;

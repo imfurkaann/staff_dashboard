@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import { roomService } from '../services/roomService';
-import { MaintenancePriority, MaintenanceStatus, RoomInventoryStatus, RoomStatus } from '@prisma/client';
+import { maintenanceService } from '../services/maintenanceService';
+import { MaintenancePriority, MaintenanceStatus, MaintenanceType, RoomInventoryStatus, RoomStatus } from '@prisma/client';
 import { AuthenticatedRequest } from '../middleware/authMiddleware';
 import { formatIstanbulDate } from '../utils/dateTime';
 import { createOccupancyWorkbook, createRoomInventoryWorkbook } from '../services/roomExportService';
@@ -145,14 +146,14 @@ export const roomController = {
   createMaintenance: async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
     try {
       const { id } = req.params;
-      const { title, description, priority = 'MEDIUM', category, location } = req.body;
+      const { type = 'GENERAL', roomInventoryId, inventoryStatus, title, description, priority = 'MEDIUM', category, location } = req.body;
 
       if (!isUuid(id)) return res.status(400).json({ success: false, message: 'Geçersiz oda kimliği.' });
       const cleanTitle = cleanString(title, 100);
       const cleanDescription = cleanString(description, 2000);
       const cleanCategory = cleanString(category, 100);
       const cleanLocation = cleanString(location, 100);
-      if (!cleanTitle || !cleanDescription) {
+      if (!cleanDescription || (type === 'GENERAL' && !cleanTitle)) {
         return res.status(400).json({
           success: false,
           message: 'Arıza başlığı ve açıklama zorunludur.',
@@ -162,15 +163,28 @@ export const roomController = {
       if (!Object.values(MaintenancePriority).includes(priority)) {
         return res.status(400).json({ success: false, message: 'Geçersiz arıza önceliği.' });
       }
+      if (!Object.values(MaintenanceType).includes(type)) {
+        return res.status(400).json({ success: false, message: 'Geçersiz arıza kayıt türü.' });
+      }
+      if (roomInventoryId && !isUuid(String(roomInventoryId))) {
+        return res.status(400).json({ success: false, message: 'Geçersiz oda demirbaşı kimliği.' });
+      }
+      if (inventoryStatus && !Object.values(RoomInventoryStatus).includes(inventoryStatus)) {
+        return res.status(400).json({ success: false, message: 'Geçersiz demirbaş durumu.' });
+      }
 
-      const maintenance = await roomService.createMaintenance({
+      const maintenance = await maintenanceService.createMaintenance({
         roomId: id,
+        type,
+        roomInventoryId: roomInventoryId ? String(roomInventoryId) : undefined,
+        inventoryStatus,
         title: cleanTitle,
         description: cleanDescription,
         priority,
         reportedBy: req.user?.fullName || 'Lojman Yönetimi',
         category: cleanCategory || undefined,
         location: cleanLocation || undefined,
+        createdById: req.user?.id,
       });
 
       res.status(201).json({
@@ -203,7 +217,7 @@ export const roomController = {
             ? userSolver
             : (status === 'OPEN' ? null : undefined));
 
-      const updated = await roomService.updateMaintenance(maintenanceId, {
+      const updated = await maintenanceService.updateMaintenance(maintenanceId, {
         title: title === undefined ? undefined : cleanString(title, 100),
         description: description === undefined ? undefined : cleanString(description, 2000),
         priority,
@@ -228,7 +242,7 @@ export const roomController = {
     try {
       const { maintenanceId } = req.params;
       if (!isUuid(maintenanceId)) return res.status(400).json({ success: false, message: 'Geçersiz arıza kaydı kimliği.' });
-      await roomService.deleteMaintenance(maintenanceId);
+      await maintenanceService.deleteMaintenance(maintenanceId);
 
       res.status(200).json({
         success: true,
@@ -238,19 +252,6 @@ export const roomController = {
       next(error);
     }
   },
-  updateInventory: async (req: Request, res: Response, next: NextFunction) => {
-    try {
-      const { inventoryId } = req.params;
-      const { status } = req.body;
-      if (!isUuid(inventoryId)) return res.status(400).json({ success: false, message: 'Geçersiz zimmet kaydı kimliği.' });
-      if (status && !Object.values(RoomInventoryStatus).includes(status)) return res.status(400).json({ success: false, message: 'Geçersiz zimmet durumu.' });
-      const updated = await roomService.updateInventory(inventoryId, {
-        status,
-      });
-      res.status(200).json({ success: true, data: updated, message: 'Oda zimmet durumu güncellendi.' });
-    } catch (error) { next(error); }
-  },
-
   createCleaningLog: async (req: Request, res: Response, next: NextFunction) => {
     try {
       const { id } = req.params;
@@ -367,7 +368,7 @@ export const roomController = {
   createRoomInventory: async (req: Request, res: Response, next: NextFunction) => {
     try {
        const { id } = req.params;
-      const { itemName, brand, serialNo, quantity, status, stockItemId } = req.body;
+      const { itemName, stockItemId } = req.body;
       if (!isUuid(id)) return res.status(400).json({ success: false, message: 'Geçersiz oda kimliği.' });
 
       if (!itemName || !cleanString(itemName, 100)) {
@@ -376,11 +377,10 @@ export const roomController = {
 
       const newInventory = await roomService.createRoomInventory(id, {
         itemName: cleanString(itemName, 100),
-        brand: cleanString(brand, 100) || undefined,
-        serialNo: cleanString(serialNo, 100) || undefined,
-        quantity: quantity !== undefined ? Number(quantity) : 1,
-        status: status ? (status as RoomInventoryStatus) : 'HEALTHY',
-        stockItemId: cleanString(stockItemId, 100) || undefined,
+        quantity: 1,
+        status: 'HEALTHY',
+        stockItemId: cleanString(stockItemId, 100),
+        createdById: (req as AuthenticatedRequest).user?.id,
       });
 
       res.status(201).json({ success: true, data: newInventory, message: 'Yeni demirbaş eşya odaya eklendi.' });
@@ -389,15 +389,4 @@ export const roomController = {
     }
   },
 
-  deleteRoomInventory: async (req: Request, res: Response, next: NextFunction) => {
-    try {
-      const { inventoryId } = req.params;
-      if (!isUuid(inventoryId)) return res.status(400).json({ success: false, message: 'Geçersiz zimmet kaydı kimliği.' });
-
-      await roomService.deleteRoomInventory(inventoryId);
-      res.status(200).json({ success: true, message: 'Demirbaş eşya kaydı silindi.' });
-    } catch (error) {
-      next(error);
-    }
-  },
 };

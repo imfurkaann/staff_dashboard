@@ -46,6 +46,11 @@ enum MaintenanceStatus {
   CLOSED
 }
 
+enum MaintenanceType {
+  GENERAL
+  ROOM_INVENTORY
+}
+
 enum RoomInventoryStatus {
   HEALTHY
   MAINTENANCE_REQUIRED
@@ -56,33 +61,48 @@ enum RoomInventoryStatus {
   RETIRED
 }
 
+enum StockMovementType {
+  OPENING
+  RECEIPT
+  ADJUSTMENT
+  ROOM_ASSIGNMENT
+  ROOM_RETURN
+  ROOM_TRANSFER
+  STATUS_CHANGE
+  REPLACEMENT
+  RETIREMENT
+  PERSONNEL_ASSIGNMENT
+  PERSONNEL_RETURN
+}
+
 model User {
-  id           String        @id @default(uuid())
-  username     String        @unique
-  email        String        @unique
-  passwordHash String
-  fullName     String
-  role         Role          @default(HOUSING_MANAGER)
-  isActive     Boolean       @default(true)
-  lastLoginAt  DateTime?
-  createdAt    DateTime      @default(now())
-  updatedAt    DateTime      @updatedAt
-  visitorsCreated Visitor[]      @relation("VisitorCreatedBy")
-  visitorsUpdated Visitor[]      @relation("VisitorUpdatedBy")
-  visitorsDeleted Visitor[]      @relation("VisitorDeletedBy")
-  employeesCreated Employee[]    @relation("EmployeeCreatedBy")
-  employeesCheckedOut Employee[] @relation("EmployeeCheckedOutBy")
-  employeesDeleted Employee[]    @relation("EmployeeDeletedBy")
-  occupanciesCreated OccupancyLog[] @relation("OccupancyCreatedBy")
-  occupanciesCheckedOut OccupancyLog[] @relation("OccupancyCheckedOutBy")
-  inventoriesCreated InventoryItem[] @relation("InventoryCreatedBy")
-  inventoriesReturned InventoryItem[] @relation("InventoryReturnedBy")
-  disciplinaryNotesCreated DisciplinaryNote[] @relation("DisciplinaryCreatedBy")
-  notificationsCreated Notification[] @relation("NotificationCreatedBy")
-  notificationsDeleted Notification[] @relation("NotificationDeletedBy")
-  notificationRecipients NotificationRecipient[]
-  pushSubscriptions PushSubscription[]
-  employee Employee? @relation("EmployeeUserAccount")
+  id                       String                  @id @default(uuid())
+  username                 String                  @unique
+  email                    String                  @unique
+  passwordHash             String
+  fullName                 String
+  role                     Role                    @default(HOUSING_MANAGER)
+  isActive                 Boolean                 @default(true)
+  lastLoginAt              DateTime?
+  createdAt                DateTime                @default(now())
+  updatedAt                DateTime                @updatedAt
+  visitorsCreated          Visitor[]               @relation("VisitorCreatedBy")
+  visitorsUpdated          Visitor[]               @relation("VisitorUpdatedBy")
+  visitorsDeleted          Visitor[]               @relation("VisitorDeletedBy")
+  employeesCreated         Employee[]              @relation("EmployeeCreatedBy")
+  employeesCheckedOut      Employee[]              @relation("EmployeeCheckedOutBy")
+  employeesDeleted         Employee[]              @relation("EmployeeDeletedBy")
+  occupanciesCreated       OccupancyLog[]          @relation("OccupancyCreatedBy")
+  occupanciesCheckedOut    OccupancyLog[]          @relation("OccupancyCheckedOutBy")
+  inventoriesCreated       InventoryItem[]         @relation("InventoryCreatedBy")
+  inventoriesReturned      InventoryItem[]         @relation("InventoryReturnedBy")
+  disciplinaryNotesCreated DisciplinaryNote[]      @relation("DisciplinaryCreatedBy")
+  notificationsCreated     Notification[]          @relation("NotificationCreatedBy")
+  notificationsDeleted     Notification[]          @relation("NotificationDeletedBy")
+  notificationRecipients   NotificationRecipient[]
+  pushSubscriptions        PushSubscription[]
+  stockMovements           StockMovement[]         @relation("StockMovementCreatedBy")
+  employee                 Employee?               @relation("EmployeeUserAccount")
 }
 
 model Employee {
@@ -126,6 +146,7 @@ model Employee {
   disciplinaryNotes DisciplinaryNote[]
   occupancies       OccupancyLog[]
   visitors          Visitor[]
+  stockMovements    StockMovement[]
 
   @@index([status, isDeleted])
   @@index([department])
@@ -155,10 +176,11 @@ model Room {
   createdAt  DateTime   @default(now())
   updatedAt  DateTime   @updatedAt
 
-  beds         Bed[]
-  maintenances MaintenanceLog[]
-  inventories  RoomInventory[]
-  cleaningLogs RoomCleaningLog[]
+  beds           Bed[]
+  maintenances   MaintenanceLog[]
+  inventories    RoomInventory[]
+  cleaningLogs   RoomCleaningLog[]
+  stockMovements StockMovement[]
 
   @@unique([blockId, roomNumber])
 }
@@ -206,26 +228,26 @@ model OccupancyLog {
 }
 
 model InventoryItem {
-  id           String    @id @default(uuid())
+  id           String     @id @default(uuid())
   employeeId   String
-  employee     Employee  @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  employee     Employee   @relation(fields: [employeeId], references: [id], onDelete: Cascade)
   itemName     String // Eşya / Cihaz Adı (Nevresim, Vestel TV vb.)
   itemCode     String? // Stok / Ürün Kodu (KEY-101 vb.)
-  category     String    @default("LOJMAN_ZİMMETİ") // LOJMAN_ZİMMETİ veya ŞAHSİ_EŞYA
-  status       String    @default("TESLİM_EDİLDİ") // TESLİM_EDİLDİ, TAM_İADE_ALINDI, ÇIKIŞ_İZİNLİ_ŞAHSİ_MÜLK
+  category     String     @default("LOJMAN_ZİMMETİ") // LOJMAN_ZİMMETİ veya ŞAHSİ_EŞYA
+  status       String     @default("TESLİM_EDİLDİ") // TESLİM_EDİLDİ, TAM_İADE_ALINDI, ÇIKIŞ_İZİNLİ_ŞAHSİ_MÜLK
   serialNo     String? // Şahsi Eşya Seri Numarası / Markası
   photoUrl     String? // Şahsi Eşya / Cihaz Fotoğrafı (Opsiyonel)
-  assignedDate DateTime  @default(now())
+  assignedDate DateTime   @default(now())
   returnedDate DateTime?
   notes        String? // Açıklama / Beyan notları
   createdById  String?
-  createdBy    User?     @relation("InventoryCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  createdBy    User?      @relation("InventoryCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
   returnedById String?
-  returnedBy   User?     @relation("InventoryReturnedBy", fields: [returnedById], references: [id], onDelete: SetNull)
+  returnedBy   User?      @relation("InventoryReturnedBy", fields: [returnedById], references: [id], onDelete: SetNull)
   stockItemId  String?
-  stockItem    StockItem? @relation(fields: [stockItemId], references: [id], onDelete: SetNull)
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
+  stockItem    StockItem? @relation(fields: [stockItemId], references: [id], onDelete: Restrict)
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
 
   @@index([employeeId])
   @@index([createdById])
@@ -236,6 +258,12 @@ model InventoryItem {
 model StockItem {
   id              String          @id @default(uuid())
   itemName        String          @unique
+  itemCode        String?         @unique
+  category        String          @default("GENEL")
+  unit            String          @default("ADET")
+  minimumStock    Int             @default(5)
+  isActive        Boolean         @default(true)
+  lastCountedAt   DateTime?
   totalStock      Int             @default(0)
   usedStock       Int             @default(0)
   usedInRooms     Int             @default(0)
@@ -243,6 +271,38 @@ model StockItem {
   updatedAt       DateTime        @updatedAt
   inventories     InventoryItem[]
   roomInventories RoomInventory[]
+  movements       StockMovement[]
+}
+
+model StockMovement {
+  id                   String            @id @default(uuid())
+  stockItemId          String
+  stockItem            StockItem         @relation(fields: [stockItemId], references: [id], onDelete: Restrict)
+  type                 StockMovementType
+  quantity             Int
+  roomId               String?
+  room                 Room?             @relation(fields: [roomId], references: [id], onDelete: SetNull)
+  roomInventoryId      String?
+  personnelInventoryId String?
+  employeeId           String?
+  employee             Employee?         @relation(fields: [employeeId], references: [id], onDelete: SetNull)
+  maintenanceId        String?
+  maintenance          MaintenanceLog?   @relation(fields: [maintenanceId], references: [id], onDelete: Restrict)
+  itemNameSnapshot     String
+  roomLabelSnapshot    String?
+  brand                String?
+  serialNo             String?
+  reason               String?
+  notes                String?
+  createdById          String?
+  createdBy            User?             @relation("StockMovementCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  createdAt            DateTime          @default(now())
+
+  @@index([stockItemId, createdAt])
+  @@index([roomId, createdAt])
+  @@index([employeeId, createdAt])
+  @@index([maintenanceId])
+  @@index([type, createdAt])
 }
 
 model DisciplinaryNote {
@@ -262,40 +322,55 @@ model DisciplinaryNote {
 }
 
 model MaintenanceLog {
-  id             String              @id @default(uuid())
-  roomId         String
-  room           Room                @relation(fields: [roomId], references: [id], onDelete: Cascade)
-  category       String?
-  location       String?
-  title          String
-  description    String
-  priority       MaintenancePriority @default(MEDIUM)
-  status         MaintenanceStatus   @default(OPEN)
-  reportedBy     String
-  assignedTo     String?
-  createdAt      DateTime            @default(now())
-  updatedAt      DateTime            @updatedAt
-  resolvedAt     DateTime?
-  resolutionNote String?
+  id                        String               @id @default(uuid())
+  roomId                    String
+  room                      Room                 @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  type                      MaintenanceType      @default(GENERAL)
+  roomInventoryId           String?
+  roomInventory             RoomInventory?       @relation(fields: [roomInventoryId], references: [id], onDelete: Restrict)
+  inventoryStatus           RoomInventoryStatus?
+  inventoryItemNameSnapshot String?
+  inventoryBrandSnapshot    String?
+  inventorySerialNoSnapshot String?
+  inventoryQuantitySnapshot Int?
+  category                  String?
+  location                  String?
+  title                     String
+  description               String
+  priority                  MaintenancePriority  @default(MEDIUM)
+  status                    MaintenanceStatus    @default(OPEN)
+  reportedBy                String
+  assignedTo                String?
+  createdAt                 DateTime             @default(now())
+  updatedAt                 DateTime             @updatedAt
+  resolvedAt                DateTime?
+  resolutionNote            String?
+
+  stockMovements StockMovement[]
 
   @@index([roomId, status])
+  @@index([roomInventoryId, status])
+  @@index([type, createdAt])
   @@index([status, priority, createdAt])
 }
 
 model RoomInventory {
-  id          String              @id @default(uuid())
-  roomId      String
-  room        Room                @relation(fields: [roomId], references: [id], onDelete: Cascade)
-  itemName    String
-  brand       String?
-  serialNo    String?
-  quantity    Int                 @default(1)
-  installedAt DateTime            @default(now())
-  status      RoomInventoryStatus @default(HEALTHY)
-  stockItemId String?
-  stockItem   StockItem?          @relation(fields: [stockItemId], references: [id], onDelete: SetNull)
-  createdAt   DateTime            @default(now())
-  updatedAt   DateTime            @updatedAt
+  id           String              @id @default(uuid())
+  roomId       String
+  room         Room                @relation(fields: [roomId], references: [id], onDelete: Restrict)
+  itemName     String
+  brand        String?
+  serialNo     String?
+  quantity     Int                 @default(1)
+  installedAt  DateTime            @default(now())
+  status       RoomInventoryStatus @default(HEALTHY)
+  notes        String?
+  returnedAt   DateTime?
+  stockItemId  String
+  stockItem    StockItem           @relation(fields: [stockItemId], references: [id], onDelete: Restrict)
+  maintenances MaintenanceLog[]
+  createdAt    DateTime            @default(now())
+  updatedAt    DateTime            @updatedAt
 
   @@unique([roomId, itemName, serialNo])
   @@index([roomId, status])
@@ -366,20 +441,20 @@ enum NotificationTargetType {
 }
 
 model Notification {
-  id           String                 @id @default(uuid())
-  title        String
-  message      String
-  priority     NotificationPriority   @default(NORMAL)
-  targetType   NotificationTargetType @default(ALL)
-  targetValue  String?
-  createdById  String?
-  createdBy    User?                  @relation("NotificationCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
-  isDeleted    Boolean                @default(false)
-  deletedAt    DateTime?
-  deletedById  String?
-  deletedBy    User?                  @relation("NotificationDeletedBy", fields: [deletedById], references: [id], onDelete: SetNull)
-  createdAt    DateTime               @default(now())
-  recipients   NotificationRecipient[]
+  id          String                  @id @default(uuid())
+  title       String
+  message     String
+  priority    NotificationPriority    @default(NORMAL)
+  targetType  NotificationTargetType  @default(ALL)
+  targetValue String?
+  createdById String?
+  createdBy   User?                   @relation("NotificationCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  isDeleted   Boolean                 @default(false)
+  deletedAt   DateTime?
+  deletedById String?
+  deletedBy   User?                   @relation("NotificationDeletedBy", fields: [deletedById], references: [id], onDelete: SetNull)
+  createdAt   DateTime                @default(now())
+  recipients  NotificationRecipient[]
 
   @@index([createdAt])
   @@index([createdById])
@@ -412,4 +487,3 @@ model PushSubscription {
 
   @@index([userId])
 }
-

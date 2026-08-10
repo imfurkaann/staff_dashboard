@@ -9,12 +9,14 @@ import {
   FilePenLine,
   FileText,
   MapPin,
+  Package,
   RotateCcw,
   User,
   Wrench,
   X,
 } from 'lucide-react';
 import { MaintenanceLog, MaintenancePriority, MaintenanceStatus } from '../api/maintenanceApi';
+import { getInventoryStatusLabel } from '../utils/inventoryStatusLabels';
 
 interface MaintenanceDetailModalProps {
   log: MaintenanceLog | null;
@@ -159,6 +161,22 @@ export const MaintenanceDetailModal: React.FC<MaintenanceDetailModalProps> = ({
 
         {/* Modal Body Content */}
         <div className="p-6 overflow-y-auto space-y-5 text-xs font-semibold text-slate-700">
+          {log.type === 'ROOM_INVENTORY' && (
+            <div className="space-y-2 bg-amber-50 p-4 rounded-2xl border border-amber-200">
+              <h4 className="text-xs font-extrabold text-amber-900 uppercase tracking-wider flex items-center gap-1.5">
+                <Package className="w-4 h-4 text-amber-700" /> Bağlı Oda Demirbaşı
+              </h4>
+              <p className="text-sm font-black text-slate-950">{log.inventoryItemNameSnapshot || 'Demirbaş'}</p>
+              <p className="text-xs text-slate-700">
+                {log.inventoryBrandSnapshot || 'Marka yok'} · {log.inventorySerialNoSnapshot ? `S/N ${log.inventorySerialNoSnapshot}` : 'Seri no yok'} · {log.inventoryQuantitySnapshot || 1} adet
+              </p>
+              <p className={`font-extrabold ${log.inventoryStatus === 'LOST' ? 'text-rose-700' : 'text-amber-800'}`}>
+                Kayıt anındaki demirbaş durumu: {getInventoryStatusLabel(log.inventoryStatus)}
+                {log.inventoryStatus === 'LOST' ? ' · Stoktan düşüldü' : ''}
+              </p>
+            </div>
+          )}
+
           {/* Arıza Açıklaması */}
           <div className="space-y-2 bg-slate-50 p-4 rounded-2xl border border-slate-200">
             <h4 className="text-xs font-extrabold text-slate-900 uppercase tracking-wider flex items-center gap-1.5">

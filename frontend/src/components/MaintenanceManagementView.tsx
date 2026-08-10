@@ -35,6 +35,7 @@ import { AddMaintenanceModal } from './AddMaintenanceModal';
 import { DateRangePicker } from './DateRangePicker';
 import { MaintenanceDetailModal } from './MaintenanceDetailModal';
 import { MaintenanceReportModal, MaintenanceReportCriteria } from './MaintenanceReportModal';
+import { getInventoryStatusLabel } from '../utils/inventoryStatusLabels';
 
 const buttonBase =
   'group relative inline-flex items-center justify-center h-7 px-2 rounded-lg border transition-all duration-300 ease-out shadow-2xs hover:shadow-xs cursor-pointer overflow-hidden disabled:opacity-40';
@@ -580,7 +581,12 @@ export const MaintenanceManagementView: React.FC<MaintenanceManagementViewProps>
                         </p>
                         {log.category && (
                           <span className="inline-block text-[10px] font-bold text-[#1e3a8a] bg-blue-50 border border-blue-200 rounded-md px-1.5 py-0.5 mt-1">
-                            {log.category}
+                            {log.type === 'ROOM_INVENTORY' ? `Demirbaş · ${log.inventoryItemNameSnapshot || log.category}` : log.category}
+                          </span>
+                        )}
+                        {log.type === 'ROOM_INVENTORY' && log.inventoryStatus && (
+                          <span className={`inline-block text-[10px] font-bold rounded-md px-1.5 py-0.5 mt-1 ml-1 border ${log.inventoryStatus === 'LOST' ? 'bg-rose-50 border-rose-200 text-rose-700' : 'bg-amber-50 border-amber-200 text-amber-800'}`}>
+                            {getInventoryStatusLabel(log.inventoryStatus)}{log.inventoryStatus === 'LOST' ? ' · Stoktan düşüldü' : ''}
                           </span>
                         )}
                         {log.resolutionNote && (
@@ -714,6 +720,7 @@ export const MaintenanceManagementView: React.FC<MaintenanceManagementViewProps>
                         <span className="text-xs font-bold text-slate-500">Genel Lokasyon</span>
                       )}
                       <h3 className="font-extrabold text-slate-900 text-xs mt-1">{log.title}</h3>
+                      {log.type === 'ROOM_INVENTORY' && <p className="text-[10px] font-bold text-amber-800 mt-1">Demirbaş: {log.inventoryItemNameSnapshot} · {getInventoryStatusLabel(log.inventoryStatus)}</p>}
                     </div>
                     <div className="flex items-center gap-1.5 shrink-0">
                       {renderPriorityBadge(log.priority)}

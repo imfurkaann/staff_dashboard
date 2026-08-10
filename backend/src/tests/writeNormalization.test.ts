@@ -27,3 +27,21 @@ test('central policy keeps routing values and enums outside uppercase conversion
   assert.equal(writeNormalizationPolicy.Employee.photoUrl, undefined);
   assert.equal(writeNormalizationPolicy.InventoryItem.status, undefined);
 });
+
+test('stock cards are persisted with canonical Turkish uppercase values', () => {
+  const args = {
+    data: {
+      itemName: '  nevresim takımı ',
+      itemCode: ' tv led 32 ',
+      category: ' oda demirbaşı ',
+      unit: ' adet ',
+    },
+  };
+  normalizePrismaWriteArgs('StockItem', 'create', args);
+  assert.deepEqual(args.data, {
+    itemName: 'NEVRESİM TAKIMI',
+    itemCode: 'TVLED32',
+    category: 'ODA DEMİRBAŞI',
+    unit: 'ADET',
+  });
+});

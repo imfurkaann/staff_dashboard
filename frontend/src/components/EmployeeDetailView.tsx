@@ -1320,11 +1320,11 @@ export const EmployeeDetailView: React.FC<EmployeeDetailViewProps> = ({
                 >
                   <option value="">-- Depodan Malzeme Seçin --</option>
                   {stockItems.map((item) => {
-                    const available = item.totalStock - item.usedStock;
+                    const available = item.availableStock;
                     const isOutOfStock = available <= 0;
                     return (
                       <option key={item.id} value={item.id} disabled={isOutOfStock}>
-                        {item.itemName} {isOutOfStock ? '(Stok Tükendi)' : `(Müsait: ${available} Adet)`}
+                        {item.itemCode ? `${item.itemCode} · ` : ''}{item.itemName} {isOutOfStock ? '(Stok Tükendi)' : `(Müsait: ${available} ${item.unit})`}
                       </option>
                     );
                   })}

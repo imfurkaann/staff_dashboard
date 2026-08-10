@@ -1,7 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import { maintenanceService } from '../services/maintenanceService';
 import { createMaintenanceWorkbook } from '../services/maintenanceExportService';
-import { MaintenancePriority, MaintenanceStatus } from '@prisma/client';
+import { MaintenancePriority, MaintenanceStatus, MaintenanceType, RoomInventoryStatus } from '@prisma/client';
 import { AuthenticatedRequest } from '../middleware/authMiddleware';
 import { formatIstanbulDate } from '../utils/dateTime';
 
@@ -49,7 +49,18 @@ export const maintenanceController = {
 
   createMaintenance: async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
     try {
-      const { roomId, title, description, priority = 'MEDIUM', category, location, assignedTo } = req.body;
+      const {
+        roomId,
+        type = 'GENERAL',
+        roomInventoryId,
+        inventoryStatus,
+        title,
+        description,
+        priority = 'MEDIUM',
+        category,
+        location,
+        assignedTo,
+      } = req.body;
 
       const cleanTitle = cleanString(title, 100);
       const cleanDescription = cleanString(description, 2000);
@@ -68,12 +79,25 @@ export const maintenanceController = {
         return res.status(400).json({ success: false, message: 'Geçersiz oda kimliği.' });
       }
 
+      if (!Object.values(MaintenanceType).includes(type)) {
+        return res.status(400).json({ success: false, message: 'Geçersiz arıza kayıt türü.' });
+      }
+      if (roomInventoryId && !isUuid(String(roomInventoryId))) {
+        return res.status(400).json({ success: false, message: 'Geçersiz oda demirbaşı kimliği.' });
+      }
+      if (inventoryStatus && !Object.values(RoomInventoryStatus).includes(inventoryStatus)) {
+        return res.status(400).json({ success: false, message: 'Geçersiz demirbaş durumu.' });
+      }
+
       if (!Object.values(MaintenancePriority).includes(priority)) {
         return res.status(400).json({ success: false, message: 'Geçersiz arıza önceliği.' });
       }
 
       const maintenance = await maintenanceService.createMaintenance({
         roomId: roomId ? String(roomId) : undefined,
+        type,
+        roomInventoryId: roomInventoryId ? String(roomInventoryId) : undefined,
+        inventoryStatus,
         title: cleanTitle,
         description: cleanDescription,
         priority,
@@ -81,6 +105,7 @@ export const maintenanceController = {
         location: cleanLocation || undefined,
         reportedBy: req.user?.fullName || 'Lojman Yönetimi',
         assignedTo: cleanAssignedTo || undefined,
+        createdById: req.user?.id,
       });
 
       res.status(201).json({

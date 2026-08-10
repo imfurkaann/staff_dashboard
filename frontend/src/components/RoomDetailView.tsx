@@ -34,6 +34,8 @@ import {
 import { Room, RoomBed, RoomInventory, RoomInventoryStatus, RoomMaintenance, RoomStatusType, RoomCleaningLog, roomApi } from '../api/roomApi';
 import { stockApi, StockItem } from '../api/stockApi';
 import { MaintenanceDetailModal } from './MaintenanceDetailModal';
+import { AddMaintenanceModal } from './AddMaintenanceModal';
+import { getInventoryStatusLabel } from '../utils/inventoryStatusLabels';
 
 interface RoomDetailViewProps {
   room: Room;
@@ -57,7 +59,6 @@ export const RoomDetailView: React.FC<RoomDetailViewProps> = ({
     return ['overview', 'inventory', 'maintenance', 'history'].includes(savedTab) ? savedTab : 'overview';
   });
   const [historySearchQuery, setHistorySearchQuery] = useState<string>('');
-  const [updatingInventoryId, setUpdatingInventoryId] = useState<string | null>(null);
   const [showPrintModal, setShowPrintModal] = useState(false);
   const [printType, setPrintType] = useState<RoomPrintType>('all');
 
@@ -77,19 +78,12 @@ export const RoomDetailView: React.FC<RoomDetailViewProps> = ({
   // Maintenance Report Modal State
   const [showMaintenanceModal, setShowMaintenanceModal] = useState(false);
   const [selectedMaintenanceDetail, setSelectedMaintenanceDetail] = useState<RoomMaintenance | null>(null);
-  const [maintenanceSubmitting, setMaintenanceSubmitting] = useState(false);
   const [maintenanceError, setMaintenanceError] = useState<string | null>(null);
   const [roomError, setRoomError] = useState<string | null>(null);
   const [updatingMaintenanceId, setUpdatingMaintenanceId] = useState<string | null>(null);
   const [maintenanceToDelete, setMaintenanceToDelete] = useState<RoomMaintenance | null>(null);
   const [maintenanceToEdit, setMaintenanceToEdit] = useState<RoomMaintenance | null>(null);
   const [editMaintenanceForm, setEditMaintenanceForm] = useState({ category: '', description: '', priority: 'MEDIUM', location: '', assignedTo: '' });
-  const [maintenanceForm, setMaintenanceForm] = useState({
-    category: '',
-    description: '',
-    priority: 'MEDIUM',
-    location: '',
-  });
 
   // Edit Room Modal State
   const [showEditRoomModal, setShowEditRoomModal] = useState(false);
@@ -102,11 +96,10 @@ export const RoomDetailView: React.FC<RoomDetailViewProps> = ({
 
   // Add Room Fixture Inventory Modal State
   const [showAddInventoryModal, setShowAddInventoryModal] = useState(false);
-  const [addInventoryForm, setAddInventoryForm] = useState({ itemName: '', brand: '', serialNo: '', quantity: 1, status: 'HEALTHY' as RoomInventoryStatus });
+  const [addInventoryForm, setAddInventoryForm] = useState({ itemName: '' });
   const [addInventorySubmitting, setAddInventorySubmitting] = useState(false);
   const [stockItems, setStockItems] = useState<StockItem[]>([]);
   const [selectedStockItemId, setSelectedStockItemId] = useState<string>('');
-  const [lojmanAssignmentType, setLojmanAssignmentType] = useState<'stock' | 'custom'>('stock');
 
   useEffect(() => {
     if (showAddInventoryModal) {
@@ -115,10 +108,6 @@ export const RoomDetailView: React.FC<RoomDetailViewProps> = ({
         .catch(err => console.error("Stok kalemleri yüklenemedi", err));
     }
   }, [showAddInventoryModal]);
-
-  // Delete Inventory Modal State
-  const [inventoryToDelete, setInventoryToDelete] = useState<RoomInventory | null>(null);
-  const [deleteInventorySubmitting, setDeleteInventorySubmitting] = useState(false);
 
   const handleEditRoomSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -153,42 +142,27 @@ export const RoomDetailView: React.FC<RoomDetailViewProps> = ({
 
   const handleAddInventorySubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!addInventoryForm.itemName.trim()) return;
+    if (!selectedStockItemId || !addInventoryForm.itemName.trim()) {
+      setRoomError('Oda zimmeti için önce depo stok kartı seçilmelidir.');
+      return;
+    }
     setAddInventorySubmitting(true);
     setRoomError(null);
     try {
       await roomApi.createRoomInventory(currentRoom.id, {
         ...addInventoryForm,
-        stockItemId: lojmanAssignmentType === 'stock' ? selectedStockItemId || undefined : undefined,
+        stockItemId: selectedStockItemId,
       });
       const reloaded = await roomApi.getRoomById(currentRoom.id);
       setCurrentRoom(reloaded);
       if (onRoomUpdated) onRoomUpdated(reloaded);
       setShowAddInventoryModal(false);
-      setAddInventoryForm({ itemName: '', brand: '', serialNo: '', quantity: 1, status: 'HEALTHY' });
+      setAddInventoryForm({ itemName: '' });
       setSelectedStockItemId('');
-      setLojmanAssignmentType('stock');
     } catch (err: any) {
       setRoomError(err?.response?.data?.message || err?.message || 'Demirbaş eşya eklenemedi.');
     } finally {
       setAddInventorySubmitting(false);
-    }
-  };
-
-  const handleDeleteInventorySubmit = async () => {
-    if (!inventoryToDelete) return;
-    setDeleteInventorySubmitting(true);
-    setRoomError(null);
-    try {
-      await roomApi.deleteRoomInventory(inventoryToDelete.id);
-      const reloaded = await roomApi.getRoomById(currentRoom.id);
-      setCurrentRoom(reloaded);
-      if (onRoomUpdated) onRoomUpdated(reloaded);
-      setInventoryToDelete(null);
-    } catch (err: any) {
-      setRoomError(err?.response?.data?.message || err?.message || 'Demirbaş kaydı silinemedi.');
-    } finally {
-      setDeleteInventorySubmitting(false);
     }
   };
 
@@ -272,35 +246,6 @@ export const RoomDetailView: React.FC<RoomDetailViewProps> = ({
     { value: 'Diğer / Genel', label: 'Diğer / Genel' },
   ];
 
-  const handleMaintenanceSubmit = async () => {
-    if (!maintenanceForm.description.trim() || !maintenanceForm.category) {
-      setMaintenanceError('Lütfen arıza kategorisi ve detaylı açıklamayı eksiksiz doldurun.');
-      return;
-    }
-
-    setMaintenanceSubmitting(true);
-    setMaintenanceError(null);
-    try {
-      const created = await roomApi.createMaintenance(currentRoom.id, {
-        title: maintenanceForm.category,
-        description: maintenanceForm.description.trim(),
-        priority: maintenanceForm.priority,
-        category: maintenanceForm.category,
-        location: maintenanceForm.location.trim() || undefined,
-      });
-      const updatedRoom = { ...currentRoom, maintenances: [created, ...(currentRoom.maintenances || [])] };
-      setCurrentRoom(updatedRoom);
-      if (onRoomUpdated) onRoomUpdated(updatedRoom);
-
-      setShowMaintenanceModal(false);
-      setMaintenanceForm({ category: '', description: '', priority: 'MEDIUM', location: '' });
-    } catch (err: any) {
-      setMaintenanceError(err?.response?.data?.message || err?.message || 'Arıza kaydı oluşturulamadı.');
-    } finally {
-      setMaintenanceSubmitting(false);
-    }
-  };
-
   const replaceMaintenance = (updated: RoomMaintenance) => {
     const updatedRoom = {
       ...currentRoom,
@@ -373,19 +318,6 @@ export const RoomDetailView: React.FC<RoomDetailViewProps> = ({
     } finally {
       setUpdatingMaintenanceId(null);
     }
-  };
-
-  const handleInventoryStatusChange = async (invId: string, newStatus: RoomInventoryStatus) => {
-    setUpdatingInventoryId(invId);
-    setRoomError(null);
-    try {
-      const updated = await roomApi.updateInventory(invId, { status: newStatus });
-      const updatedRoom = { ...currentRoom, inventories: (currentRoom.inventories || []).map((item) => item.id === updated.id ? updated : item) };
-      setCurrentRoom(updatedRoom);
-      if (onRoomUpdated) onRoomUpdated(updatedRoom);
-    } catch (err: any) {
-      setRoomError(err?.response?.data?.message || err?.message || 'Zimmet durumu güncellenemedi.');
-    } finally { setUpdatingInventoryId(null); }
   };
 
   const handleSelectEmployee = (empId: string) => {
@@ -518,7 +450,7 @@ export const RoomDetailView: React.FC<RoomDetailViewProps> = ({
 
   const roomInventories = currentRoom.inventories || [];
   const roomOccupancyHistory = currentRoom.occupancyHistory || [];
-  const inventoryStatusLabels: Record<RoomInventoryStatus, string> = { HEALTHY: '🟢 Sağlam & Çalışır', MAINTENANCE_REQUIRED: '🟡 Arızalı / Bakım Bekliyor', DAMAGED: '🔴 Kırık / Hasarlı', LOST: '❓ Kayıp / Zayi', IN_SERVICE: '🛠️ Tamirde / Serviste', REPLACEMENT_REQUIRED: '🔄 Değişim Bekliyor', RETIRED: '⚪ İade Edildi / Düşüm Yapıldı' };
+  const inventoryStatusLabels: Record<RoomInventoryStatus, string> = { HEALTHY: 'Sağlam & Çalışır', MAINTENANCE_REQUIRED: 'Arızalı / Bakım Bekliyor', DAMAGED: 'Kırık / Hasarlı', LOST: 'Kayıp / Zayi', IN_SERVICE: 'Tamirde / Serviste', REPLACEMENT_REQUIRED: 'Değişim Bekliyor', RETIRED: 'İade Edildi / Düşüm Yapıldı' };
 
   const roomMaintenances = currentRoom.maintenances || [];
   const openMaintenances = roomMaintenances.filter((m) => m.status !== 'RESOLVED' && m.status !== 'CLOSED' && !m.resolvedAt);
@@ -580,7 +512,7 @@ export const RoomDetailView: React.FC<RoomDetailViewProps> = ({
                 <tbody>
                   {openMaintenances.length ? openMaintenances.map((item) => (
                     <tr key={item.id}>
-                      <td>{item.category || item.title}</td>
+                      <td>{item.type === 'ROOM_INVENTORY' ? `DEMİRBAŞ: ${item.inventoryItemNameSnapshot || item.title} / ${getInventoryStatusLabel(item.inventoryStatus)}` : (item.category || item.title)}</td>
                       <td>{item.location || 'ODA GENELİ'}</td>
                       <td>{item.description}</td>
                       <td>{item.priority}</td>
@@ -612,7 +544,7 @@ export const RoomDetailView: React.FC<RoomDetailViewProps> = ({
                 <tbody>
                   {resolvedMaintenances.length ? resolvedMaintenances.map((item) => (
                     <tr key={item.id}>
-                      <td>{item.category || item.title}</td>
+                      <td>{item.type === 'ROOM_INVENTORY' ? `DEMİRBAŞ: ${item.inventoryItemNameSnapshot || item.title} / ${getInventoryStatusLabel(item.inventoryStatus)}` : (item.category || item.title)}</td>
                       <td>{item.location || 'ODA GENELİ'}</td>
                       <td>{item.description}</td>
                       <td>{item.priority}</td>
@@ -992,13 +924,13 @@ export const RoomDetailView: React.FC<RoomDetailViewProps> = ({
             <button
               type="button"
               onClick={() => {
-                setAddInventoryForm({ itemName: '', brand: '', serialNo: '', quantity: 1, status: 'HEALTHY' });
+                setAddInventoryForm({ itemName: '' });
                 setShowAddInventoryModal(true);
               }}
               className="px-3.5 py-2 rounded-xl bg-[#1e3a8a] hover:bg-blue-900 text-white font-bold text-xs flex items-center gap-1.5 cursor-pointer shadow-md self-start sm:self-auto"
             >
               <Plus className="w-4 h-4" />
-              <span>Yeni Demirbaş Ekle</span>
+              <span>Stoktan Zimmet Ekle</span>
             </button>
           </div>
 
@@ -1014,19 +946,13 @@ export const RoomDetailView: React.FC<RoomDetailViewProps> = ({
                 <thead>
                   <tr>
                     <th>Sabit Oda Demirbaşı</th>
-                    <th className="w-32">Marka</th>
-                    <th className="w-32">Seri No</th>
                     <th className="w-28">Adet / Miktar</th>
                     <th className="w-36">Tesis Tarihi</th>
-                    <th className="w-48">Demirbaş Durumu</th>
-                    <th className="w-16 text-right">İşlem</th>
+                    <th className="w-52">Demirbaş Durumu</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {roomInventories.map((inv) => {
-                    const currentStatus = inv.status;
-
-                    return (
+                  {roomInventories.map((inv) => (
                       <tr key={inv.id}>
                         <td className="font-extrabold text-slate-900">
                           <div className="flex items-center gap-2">
@@ -1034,8 +960,6 @@ export const RoomDetailView: React.FC<RoomDetailViewProps> = ({
                             <span>{inv.itemName}</span>
                           </div>
                         </td>
-                        <td className="font-semibold text-slate-700">{inv.brand || '-'}</td>
-                        <td className="font-semibold text-slate-700">{inv.serialNo || '-'}</td>
                         <td className="font-bold text-slate-900">
                           <span className="bg-blue-50 text-blue-900 border border-blue-200 px-2 py-0.5 rounded-md text-[11px] font-extrabold">
                             {inv.quantity} Adet
@@ -1043,46 +967,26 @@ export const RoomDetailView: React.FC<RoomDetailViewProps> = ({
                         </td>
                         <td className="font-bold text-slate-600 whitespace-nowrap">{formatDateTime(inv.installedAt)}</td>
                         <td>
-                          <select
-                            value={currentStatus}
-                            disabled={updatingInventoryId === inv.id}
-                            onChange={(e) => handleInventoryStatusChange(inv.id, e.target.value as RoomInventoryStatus)}
-                            className={`text-[11px] font-extrabold px-2 py-0.5 rounded-md cursor-pointer focus:outline-none border transition-colors ${
-                              currentStatus === 'HEALTHY'
-                                ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
-                                : currentStatus === 'MAINTENANCE_REQUIRED'
-                                ? 'bg-amber-50 text-amber-800 border-amber-200'
-                                : currentStatus === 'DAMAGED'
-                                ? 'bg-rose-50 text-rose-800 border-rose-200'
-                                : currentStatus === 'LOST'
-                                ? 'bg-purple-50 text-purple-800 border-purple-200'
-                                : currentStatus === 'IN_SERVICE'
-                                ? 'bg-blue-50 text-blue-800 border-blue-200'
-                                : currentStatus === 'REPLACEMENT_REQUIRED'
-                                ? 'bg-orange-50 text-orange-800 border-orange-200'
-                                : 'bg-slate-100 text-slate-700 border-slate-200'
-                            }`}
-                          >
-                            {Object.entries(inventoryStatusLabels).map(([value, label]) => (
-                              <option key={value} value={value}>
-                                {label}
-                              </option>
-                            ))}
-                          </select>
-                        </td>
-                        <td className="text-right">
-                          <button
-                            type="button"
-                            onClick={() => setInventoryToDelete(inv)}
-                            title="Demirbaş Kaydını Sil"
-                            className="p-1.5 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-600 border border-rose-200 cursor-pointer transition-colors"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
+                          <span className={`inline-flex items-center rounded-md border px-2 py-1 text-[11px] font-extrabold ${
+                            inv.status === 'HEALTHY'
+                              ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                              : inv.status === 'MAINTENANCE_REQUIRED'
+                              ? 'bg-amber-50 text-amber-800 border-amber-200'
+                              : inv.status === 'DAMAGED'
+                              ? 'bg-rose-50 text-rose-800 border-rose-200'
+                              : inv.status === 'LOST'
+                              ? 'bg-purple-50 text-purple-800 border-purple-200'
+                              : inv.status === 'IN_SERVICE'
+                              ? 'bg-blue-50 text-blue-800 border-blue-200'
+                              : inv.status === 'REPLACEMENT_REQUIRED'
+                              ? 'bg-orange-50 text-orange-800 border-orange-200'
+                              : 'bg-slate-100 text-slate-700 border-slate-200'
+                          }`}>
+                            {inventoryStatusLabels[inv.status]}
+                          </span>
                         </td>
                       </tr>
-                    );
-                  })}
+                    ))}
                 </tbody>
               </table>
             </div>
@@ -1163,7 +1067,12 @@ export const RoomDetailView: React.FC<RoomDetailViewProps> = ({
                           </span>
                           {log.category && (
                             <span className="inline-block text-[10px] font-bold text-[#1e3a8a] bg-blue-50 border border-blue-200 rounded-md px-1.5 py-0.5 mt-0.5">
-                              {log.category}
+                              {log.type === 'ROOM_INVENTORY' ? `Demirbaş · ${log.inventoryItemNameSnapshot || log.category}` : log.category}
+                            </span>
+                          )}
+                          {log.type === 'ROOM_INVENTORY' && log.inventoryStatus && (
+                            <span className={`block w-fit text-[10px] font-bold border rounded-md px-1.5 py-0.5 mt-1 ${log.inventoryStatus === 'LOST' ? 'bg-rose-50 border-rose-200 text-rose-700' : 'bg-amber-50 border-amber-200 text-amber-800'}`}>
+                              {getInventoryStatusLabel(log.inventoryStatus)}{log.inventoryStatus === 'LOST' ? ' · Stoktan düşüldü' : ''}
                             </span>
                           )}
                         </div>
@@ -1673,159 +1582,18 @@ export const RoomDetailView: React.FC<RoomDetailViewProps> = ({
           </div>
         </div>
       )}
-      {/* MAINTENANCE REPORT MODAL */}
-      {showMaintenanceModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm overflow-y-auto">
-          <div className="bg-white border border-slate-300 rounded-3xl w-full max-w-lg max-h-[90vh] overflow-y-auto shadow-2xl my-auto">
-
-            {/* Modal Header - Matching AddEmployeeModal */}
-            <div className="p-6 border-b border-slate-200 flex justify-between items-center bg-slate-50 rounded-t-3xl sticky top-0 z-20">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl bg-[#1e3a8a] text-white flex items-center justify-center shadow-md">
-                  <Wrench className="w-5 h-5" />
-                </div>
-                <div>
-                  <h2 className="text-lg font-extrabold text-slate-900">Arıza / Bakım Bildirimi</h2>
-                  <p className="text-xs font-semibold text-slate-500">Oda {currentRoom.roomNumber} — {currentRoom.block?.name} Bloğu</p>
-                </div>
-              </div>
-              <button
-                onClick={() => { setShowMaintenanceModal(false); setMaintenanceForm({ category: '', description: '', priority: 'MEDIUM', location: '' }); }}
-                className="w-9 h-9 rounded-xl bg-slate-200 hover:bg-slate-300 text-slate-700 flex items-center justify-center transition-colors cursor-pointer"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            {/* Modal Form Content */}
-            <div className="p-6 space-y-5">
-
-              {maintenanceError && <div role="alert" className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-xs font-bold text-rose-800">{maintenanceError}</div>}
-
-              {/* Section 1: Arıza Kategorisi & Öncelik */}
-              <div className="p-4 rounded-2xl bg-blue-50/50 border border-blue-200 space-y-4">
-                <div className="flex items-center justify-between border-b border-blue-200/80 pb-2">
-                  <h3 className="text-xs font-extrabold text-[#1e3a8a] uppercase tracking-wider flex items-center gap-1.5">
-                    <span className="w-2.5 h-2.5 rounded-full bg-[#1e3a8a]"></span>
-                    <span>Arıza Bilgileri</span>
-                  </h3>
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  {/* Arıza Kategorisi (Dropdown) */}
-                  <div>
-                    <label className="block text-xs font-bold text-slate-800 mb-1">
-                      Arıza Kategorisi <span className="text-red-500 font-black">*</span>
-                    </label>
-                    <select
-                      value={maintenanceForm.category}
-                      onChange={(e) => setMaintenanceForm((prev) => ({ ...prev, category: e.target.value }))}
-                      className="w-full px-3.5 py-2.5 bg-white border border-slate-300 rounded-xl text-xs font-bold text-slate-900 focus:border-[#1e3a8a] focus:ring-1 focus:ring-[#1e3a8a] outline-none cursor-pointer"
-                    >
-                      <option value="">Kategori Seçin</option>
-                      {maintenanceCategories.map((cat) => (
-                        <option key={cat.value} value={cat.value}>{cat.label}</option>
-                      ))}
-                    </select>
-                  </div>
-
-                  {/* Öncelik Seviyesi (Dropdown) */}
-                  <div>
-                    <label className="block text-xs font-bold text-slate-800 mb-1">
-                      Öncelik Seviyesi
-                    </label>
-                    <select
-                      value={maintenanceForm.priority}
-                      onChange={(e) => setMaintenanceForm((prev) => ({ ...prev, priority: e.target.value }))}
-                      className={`w-full px-3.5 py-2.5 border rounded-xl text-xs font-bold outline-none cursor-pointer focus:ring-1 focus:ring-[#1e3a8a] ${
-                        maintenanceForm.priority === 'URGENT'
-                          ? 'bg-rose-50 border-rose-300 text-rose-800 focus:border-rose-400'
-                          : maintenanceForm.priority === 'HIGH'
-                          ? 'bg-orange-50 border-orange-300 text-orange-800 focus:border-orange-400'
-                          : maintenanceForm.priority === 'MEDIUM'
-                          ? 'bg-amber-50 border-amber-300 text-amber-800 focus:border-amber-400'
-                          : 'bg-emerald-50 border-emerald-300 text-emerald-800 focus:border-emerald-400'
-                      }`}
-                    >
-                      <option value="LOW">🟢 Düşük — Acil Değil</option>
-                      <option value="MEDIUM">🟡 Orta — Normal</option>
-                      <option value="HIGH">🟠 Yüksek — Öncelikli</option>
-                      <option value="URGENT">🔴 Acil — Kritik</option>
-                    </select>
-                  </div>
-                </div>
-              </div>
-
-              {/* Section 2: Detaylı Açıklama & Konum */}
-              <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200 space-y-4">
-                <div className="flex items-center justify-between border-b border-slate-200/80 pb-2">
-                  <h3 className="text-xs font-extrabold text-slate-700 uppercase tracking-wider flex items-center gap-1.5">
-                    <span className="w-2.5 h-2.5 rounded-full bg-slate-500"></span>
-                    <span>Arıza Detayları</span>
-                  </h3>
-                </div>
-
-                {/* Detaylı Açıklama */}
-                <div>
-                  <label className="block text-xs font-bold text-slate-800 mb-1">
-                    Arıza Açıklaması <span className="text-red-500 font-black">*</span>
-                  </label>
-                  <textarea
-                    placeholder="Arızanın detaylı açıklamasını yazın. Ne zaman başladı, sürekli mi aralıklı mı, hangi koşulda oluşuyor vb."
-                    value={maintenanceForm.description}
-                    onChange={(e) => setMaintenanceForm((prev) => ({ ...prev, description: e.target.value }))}
-                    rows={4}
-                    className="w-full px-3.5 py-2.5 bg-white border border-slate-300 rounded-xl text-xs font-bold text-slate-900 placeholder:text-slate-400 placeholder:font-semibold focus:border-[#1e3a8a] focus:ring-1 focus:ring-[#1e3a8a] outline-none resize-none"
-                  />
-                </div>
-
-                {/* Konum */}
-                <div>
-                  <label className="block text-xs font-bold text-slate-800 mb-1">
-                    Odadaki Konum <span className="text-slate-400 font-semibold text-[10px]">(İsteğe Bağlı)</span>
-                  </label>
-                  <input
-                    type="text"
-                    placeholder="Ör: Banyo girişi, Pencere kenarı, Yatak-A yanı..."
-                    value={maintenanceForm.location}
-                    onChange={(e) => setMaintenanceForm((prev) => ({ ...prev, location: e.target.value }))}
-                    className="w-full px-3.5 py-2.5 bg-white border border-slate-300 rounded-xl text-xs font-bold text-slate-900 placeholder:text-slate-400 placeholder:font-semibold focus:border-[#1e3a8a] focus:ring-1 focus:ring-[#1e3a8a] outline-none"
-                  />
-                </div>
-              </div>
-
-            </div>
-
-            {/* Modal Footer - Matching AddEmployeeModal */}
-            <div className="p-6 pt-4 border-t border-slate-200 flex justify-end gap-3">
-              <button
-                type="button"
-                onClick={() => { setShowMaintenanceModal(false); setMaintenanceForm({ category: '', description: '', priority: 'MEDIUM', location: '' }); }}
-                className="py-2.5 px-4 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl transition-all cursor-pointer"
-              >
-                İptal
-              </button>
-              <button
-                onClick={handleMaintenanceSubmit}
-                disabled={maintenanceSubmitting || !maintenanceForm.description || !maintenanceForm.category}
-                className="py-2.5 px-6 bg-[#1e3a8a] hover:bg-[#1e293b] text-white text-xs font-bold rounded-xl shadow-md shadow-blue-950/20 transition-all flex items-center gap-2 disabled:opacity-50 cursor-pointer"
-              >
-                {maintenanceSubmitting ? (
-                  <>
-                    <div className="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin" />
-                    <span>Gönderiliyor...</span>
-                  </>
-                ) : (
-                  <>
-                    <Check className="w-4 h-4 text-white" />
-                    <span>Arızayı Bildir</span>
-                  </>
-                )}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <AddMaintenanceModal
+        isOpen={showMaintenanceModal}
+        initialRoomId={currentRoom.id}
+        initialRoomLabel={`${currentRoom.block?.name} - Oda ${currentRoom.roomNumber} (${currentRoom.floor}. Kat)`}
+        onClose={() => setShowMaintenanceModal(false)}
+        onSuccess={() => {
+          roomApi.getRoomById(currentRoom.id).then((updated) => {
+            setCurrentRoom(updated);
+            onRoomUpdated?.(updated);
+          }).catch(() => setMaintenanceError('Oda arıza kayıtları yenilenemedi.'));
+        }}
+      />
 
       {/* CLEANING LOG CREATE / EDIT MODAL */}
       {showCleaningModal && (
@@ -2178,41 +1946,11 @@ export const RoomDetailView: React.FC<RoomDetailViewProps> = ({
             </div>
 
             <form onSubmit={handleAddInventorySubmit} className="space-y-4 text-xs">
-              <div className="flex gap-2 p-1 bg-slate-100 rounded-xl">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setLojmanAssignmentType('stock');
-                    setAddInventoryForm(prev => ({ ...prev, itemName: '' }));
-                    setSelectedStockItemId('');
-                  }}
-                  className={`flex-1 py-1.5 rounded-lg text-[10px] font-bold transition-all cursor-pointer ${
-                    lojmanAssignmentType === 'stock'
-                      ? 'bg-white text-blue-900 shadow-xs'
-                      : 'text-slate-600 hover:text-slate-900'
-                  }`}
-                >
-                  Depo / Stoktan Seç
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setLojmanAssignmentType('custom');
-                    setAddInventoryForm(prev => ({ ...prev, itemName: '' }));
-                    setSelectedStockItemId('');
-                  }}
-                  className={`flex-1 py-1.5 rounded-lg text-[10px] font-bold transition-all cursor-pointer ${
-                    lojmanAssignmentType === 'custom'
-                      ? 'bg-white text-blue-900 shadow-xs'
-                      : 'text-slate-600 hover:text-slate-900'
-                  }`}
-                >
-                  Özel Demirbaş Girişi
-                </button>
+              <div className="rounded-xl border border-blue-200 bg-blue-50 p-3 text-[10px] font-bold text-blue-900">
+                Oda zimmetleri yalnızca Depo & Stok Yönetimi sayfasında önceden tanımlanmış stok kartlarından verilir.
               </div>
 
-              {lojmanAssignmentType === 'stock' ? (
-                <div>
+              <div>
                   <label className="block font-bold text-slate-800 mb-1">
                     Depo Malzemesi Seçin *
                   </label>
@@ -2228,83 +1966,20 @@ export const RoomDetailView: React.FC<RoomDetailViewProps> = ({
                     className="w-full px-3 py-2.5 bg-slate-50 border border-slate-300 rounded-xl font-semibold text-slate-900 outline-none cursor-pointer"
                   >
                     <option value="">-- Depodan Malzeme Seçin --</option>
-                    {stockItems.map((item) => {
-                      const available = item.totalStock - (item.usedStock + item.usedInRooms);
+                    {stockItems.filter((item) => item.isActive).map((item) => {
+                      const available = item.availableStock;
                       const isOutOfStock = available <= 0;
                       return (
                         <option key={item.id} value={item.id} disabled={isOutOfStock}>
-                          {item.itemName} {isOutOfStock ? '(Stok Tükendi)' : `(Müsait: ${available} Adet)`}
+                          {item.itemCode ? `${item.itemCode} · ` : ''}{item.itemName} {isOutOfStock ? '(Stok Tükendi)' : `(Müsait: ${available} ${item.unit})`}
                         </option>
                       );
                     })}
                   </select>
-                </div>
-              ) : (
-                <div>
-                  <label className="block font-bold text-slate-800 mb-1">Demirbaş Eşya Adı *</label>
-                  <input
-                    type="text"
-                    required
-                    placeholder="Örn: Vestel LED TV, Arçelik Klima"
-                    value={addInventoryForm.itemName}
-                    onChange={(e) => setAddInventoryForm({ ...addInventoryForm, itemName: e.target.value })}
-                    className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl font-bold text-slate-900 outline-none"
-                  />
-                </div>
-              )}
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                <div>
-                  <label className="block font-bold text-slate-800 mb-1">Marka</label>
-                  <input
-                    type="text"
-                    placeholder="Örn: Vestel, Arçelik, Beko"
-                    value={addInventoryForm.brand}
-                    onChange={(e) => setAddInventoryForm({ ...addInventoryForm, brand: e.target.value })}
-                    className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl font-bold text-slate-900 outline-none"
-                  />
-                </div>
-
-                <div>
-                  <label className="block font-bold text-slate-800 mb-1">Seri Numarası</label>
-                  <input
-                    type="text"
-                    placeholder="Örn: SN-12345678"
-                    value={addInventoryForm.serialNo}
-                    onChange={(e) => setAddInventoryForm({ ...addInventoryForm, serialNo: e.target.value })}
-                    className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl font-bold text-slate-900 outline-none"
-                  />
-                </div>
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                <div>
-                  <label className="block font-bold text-slate-800 mb-1">Adet / Miktar *</label>
-                  <input
-                    type="number"
-                    required
-                    min={1}
-                    value={addInventoryForm.quantity}
-                    onChange={(e) => setAddInventoryForm({ ...addInventoryForm, quantity: Number(e.target.value) })}
-                    className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl font-bold text-slate-900 outline-none"
-                  />
-                </div>
-
-                <div>
-                  <label className="block font-bold text-slate-800 mb-1">Demirbaş Durumu</label>
-                  <select
-                    value={addInventoryForm.status}
-                    onChange={(e) => setAddInventoryForm({ ...addInventoryForm, status: e.target.value as RoomInventoryStatus })}
-                    className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl font-bold text-slate-900 outline-none cursor-pointer"
-                  >
-                    <option value="HEALTHY">🟢 Sağlam & Çalışır</option>
-                    <option value="MAINTENANCE_REQUIRED">🟡 Arızalı / Bakım Bekliyor</option>
-                    <option value="DAMAGED">🔴 Kırık / Hasarlı</option>
-                    <option value="LOST">❓ Kayıp / Zayi</option>
-                    <option value="IN_SERVICE">🛠️ Tamirde / Serviste</option>
-                    <option value="REPLACEMENT_REQUIRED">🔄 Değişim Bekliyor</option>
-                  </select>
-                </div>
+              <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-[10px] font-bold text-emerald-900">
+                Seçilen stok kartından 1 adet ürün sağlam durumda bu odaya zimmetlenir ve depo müsait stoğundan otomatik düşülür.
               </div>
 
               <div className="pt-2 flex justify-end gap-2">
@@ -2320,55 +1995,10 @@ export const RoomDetailView: React.FC<RoomDetailViewProps> = ({
                   disabled={addInventorySubmitting}
                   className="py-2.5 px-5 bg-[#1e3a8a] hover:bg-blue-900 text-white font-bold rounded-xl cursor-pointer shadow-md disabled:bg-blue-300"
                 >
-                  {addInventorySubmitting ? 'Ekleniyor...' : 'Demirbaş Ekle'}
+                  {addInventorySubmitting ? 'Ekleniyor...' : 'Zimmeti Ekle'}
                 </button>
               </div>
             </form>
-          </div>
-        </div>
-      )}
-
-      {/* DELETE INVENTORY CONFIRMATION MODAL */}
-      {inventoryToDelete && (
-        <div
-          onClick={() => setInventoryToDelete(null)}
-          className="fixed inset-0 z-[350] bg-slate-950/70 backdrop-blur-sm flex items-center justify-center p-4 animate-fadeIn"
-        >
-          <div
-            onClick={(e) => e.stopPropagation()}
-            className="bg-white border border-slate-300 rounded-3xl p-6 max-w-sm w-full shadow-2xl space-y-4"
-          >
-            <div className="flex items-start gap-3.5">
-              <div className="w-11 h-11 rounded-2xl bg-rose-100 text-rose-700 flex items-center justify-center shrink-0 border border-rose-200 shadow-2xs">
-                <Trash2 className="w-5.5 h-5.5" />
-              </div>
-              <div className="space-y-1">
-                <h3 className="text-sm font-extrabold text-slate-900">
-                  Demirbaş Kaydını Sil
-                </h3>
-                <p className="text-xs font-semibold text-slate-600">
-                  <strong>{inventoryToDelete.itemName} ({inventoryToDelete.serialNo || '-'})</strong> demirbaş kaydı oda zimmetinden kaldırılacaktır.
-                </p>
-              </div>
-            </div>
-
-            <div className="pt-2 flex justify-end gap-2">
-              <button
-                type="button"
-                onClick={() => setInventoryToDelete(null)}
-                className="py-2.5 px-4 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl cursor-pointer text-xs"
-              >
-                Vazgeç
-              </button>
-              <button
-                type="button"
-                disabled={deleteInventorySubmitting}
-                onClick={handleDeleteInventorySubmit}
-                className="py-2.5 px-5 bg-rose-700 hover:bg-rose-800 text-white font-bold rounded-xl cursor-pointer shadow-md text-xs disabled:bg-rose-400"
-              >
-                {deleteInventorySubmitting ? 'Siliniyor...' : 'Evet, Sil'}
-              </button>
-            </div>
           </div>
         </div>
       )}

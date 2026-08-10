@@ -35,6 +35,20 @@ const MODEL_FIELD_NORMALIZERS: Record<string, Record<string, StringNormalizer>> 
     serialNo: normalizeUpper,
     notes: normalizeUpper,
   },
+  StockItem: {
+    itemName: normalizeInventoryItemName,
+    itemCode: normalizeIdentifier,
+    category: normalizeUpper,
+    unit: normalizeUpper,
+  },
+  StockMovement: {
+    itemNameSnapshot: normalizeInventoryItemName,
+    roomLabelSnapshot: normalizeUpper,
+    brand: normalizeUpper,
+    serialNo: normalizeIdentifier,
+    reason: normalizeUpper,
+    notes: normalizeUpper,
+  },
   DisciplinaryNote: {
     title: normalizeUpper,
     content: normalizeUpper,
@@ -52,7 +66,8 @@ const MODEL_FIELD_NORMALIZERS: Record<string, Record<string, StringNormalizer>> 
   RoomInventory: {
     itemName: normalizeUpper,
     brand: normalizeUpper,
-    serialNo: normalizeUpper,
+    serialNo: normalizeIdentifier,
+    notes: normalizeUpper,
   },
   Visitor: {
     fullName: normalizeUpper,

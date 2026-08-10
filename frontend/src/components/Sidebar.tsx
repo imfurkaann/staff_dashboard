@@ -32,13 +32,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const [isHovered, setIsHovered] = useState(false);
 
   const menuItems = [
-    { id: 'dashboard', label: 'Genel Dashboard', icon: LayoutDashboard },
-    { id: 'employees', label: 'Personel Kayıtları', icon: Users },
-    { id: 'rooms', label: 'Oda Kayıtları', icon: BedDouble },
-    { id: 'visitors', label: 'Ziyaretçi Takibi', icon: UserCheck },
+    { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
+    { id: 'employees', label: 'Personel Yönetimi', icon: Users },
+    { id: 'rooms', label: 'Oda Yönetimi', icon: BedDouble },
+    { id: 'visitors', label: 'Ziyaretçi Yönetimi', icon: UserCheck },
     { id: 'issues', label: 'Arıza Yönetimi', icon: Wrench },
-    { id: 'warehouse', label: 'Depo & Stok Takibi', icon: Package },
-    { id: 'notifications', label: 'Duyuru Arşivi', icon: Bell },
+    { id: 'warehouse', label: 'Depo & Stok Yönetimi', icon: Package },
+    { id: 'notifications', label: 'Duyuru Yönetimi', icon: Bell },
   ].filter((item) => currentUser.role !== 'SECURITY' || ['dashboard', 'rooms', 'visitors', 'issues'].includes(item.id));
 
   return (<>

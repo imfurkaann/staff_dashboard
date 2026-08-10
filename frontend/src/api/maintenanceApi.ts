@@ -3,10 +3,20 @@ import { appConfig } from '../config/appConfig';
 
 export type MaintenanceStatus = 'OPEN' | 'IN_PROGRESS' | 'RESOLVED' | 'CLOSED';
 export type MaintenancePriority = 'LOW' | 'MEDIUM' | 'HIGH' | 'URGENT';
+export type MaintenanceType = 'GENERAL' | 'ROOM_INVENTORY';
+export type InventoryFaultStatus = 'MAINTENANCE_REQUIRED' | 'DAMAGED' | 'LOST' | 'IN_SERVICE' | 'REPLACEMENT_REQUIRED';
 
 export interface MaintenanceLog {
   id: string;
   roomId: string;
+  type: MaintenanceType;
+  roomInventoryId?: string | null;
+  inventoryStatus?: InventoryFaultStatus | null;
+  inventoryItemNameSnapshot?: string | null;
+  inventoryBrandSnapshot?: string | null;
+  inventorySerialNoSnapshot?: string | null;
+  inventoryQuantitySnapshot?: number | null;
+  roomInventory?: { id: string; status: string; returnedAt?: string | null } | null;
   room?: {
     id: string;
     roomNumber: string;
@@ -65,6 +75,9 @@ export interface MaintenanceListResponse {
 
 export interface CreateMaintenanceDTO {
   roomId?: string;
+  type?: MaintenanceType;
+  roomInventoryId?: string;
+  inventoryStatus?: InventoryFaultStatus;
   title?: string;
   description: string;
   priority?: MaintenancePriority;

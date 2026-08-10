@@ -33,6 +33,13 @@ export interface RoomBed {
 
 export interface RoomMaintenance {
   id: string;
+  type: 'GENERAL' | 'ROOM_INVENTORY';
+  roomInventoryId?: string | null;
+  inventoryStatus?: RoomInventoryStatus | null;
+  inventoryItemNameSnapshot?: string | null;
+  inventoryBrandSnapshot?: string | null;
+  inventorySerialNoSnapshot?: string | null;
+  inventoryQuantitySnapshot?: number | null;
   title: string;
   description?: string;
   priority: string;
@@ -57,6 +64,9 @@ export interface RoomInventory {
   quantity: number;
   installedAt: string;
   status: RoomInventoryStatus;
+  notes?: string | null;
+  returnedAt?: string | null;
+  stockItemId: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -129,7 +139,10 @@ export interface RoomStats {
 }
 
 export interface MaintenanceCreatePayload {
-  title: string;
+  type?: 'GENERAL' | 'ROOM_INVENTORY';
+  roomInventoryId?: string;
+  inventoryStatus?: RoomInventoryStatus;
+  title?: string;
   description: string;
   priority: string;
   category?: string;
@@ -195,11 +208,6 @@ export const roomApi = {
     await api.delete(`/maintenance/${maintenanceId}`);
   },
 
-  updateInventory: async (inventoryId: string, payload: { status?: RoomInventoryStatus }): Promise<RoomInventory> => {
-    const response = await api.patch<{ success: boolean; data: RoomInventory; message: string }>(`/inventories/${inventoryId}`, payload);
-    return response.data.data;
-  },
-
   createCleaningLog: async (roomId: string, payload: { requestedBy?: string; cleanedBy?: string; notes?: string; status?: string }): Promise<Room> => {
     const response = await api.post<{ success: boolean; data: Room; message: string }>(`/${roomId}/cleaning`, payload);
     return response.data.data;
@@ -227,10 +235,6 @@ export const roomApi = {
   createRoomInventory: async (roomId: string, payload: { itemName: string; brand?: string; serialNo?: string; quantity?: number; status?: RoomInventoryStatus; stockItemId?: string }): Promise<RoomInventory> => {
     const response = await api.post<{ success: boolean; data: RoomInventory; message: string }>(`/${roomId}/inventories`, payload);
     return response.data.data;
-  },
-
-  deleteRoomInventory: async (inventoryId: string): Promise<void> => {
-    await api.delete(`/inventories/${inventoryId}`);
   },
 
   exportOccupancyExcel: async (filter?: string, startDate?: string, endDate?: string): Promise<void> => {
