@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Building2,
   LayoutDashboard,
@@ -12,12 +12,14 @@ import {
   ChevronRight,
   UserCheck,
   Bell,
-  User as UserIcon
-  ,UserCog
+  User as UserIcon,
+  UserCog,
+  MessageSquareWarning
 } from 'lucide-react';
 import { User } from '../api/authApi';
 import { appConfig } from '../config/appConfig';
 import { canAccessTab, ROLE_LABELS } from '../security/accessControl';
+import { ticketApi } from '../api/ticketApi';
 
 interface SidebarProps {
   currentUser: User;
@@ -33,12 +35,36 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onLogout,
 }) => {
   const [isHovered, setIsHovered] = useState(false);
+  const [openTicketsCount, setOpenTicketsCount] = useState<number>(0);
+
+  useEffect(() => {
+    let isMounted = true;
+    const fetchPendingTickets = async () => {
+      if (!canAccessTab(currentUser.role, 'tickets')) return;
+      try {
+        const res = await ticketApi.getTickets({ status: 'OPEN' });
+        if (isMounted) {
+          setOpenTicketsCount(res.stats?.open || 0);
+        }
+      } catch (err) {
+        // silent fallback
+      }
+    };
+
+    fetchPendingTickets();
+    const interval = setInterval(fetchPendingTickets, 20000);
+    return () => {
+      isMounted = false;
+      clearInterval(interval);
+    };
+  }, [currentUser.role, activeTab]);
 
   const menuItems = [
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
     { id: 'employees', label: 'Personel Yönetimi', icon: Users },
     { id: 'rooms', label: 'Oda Yönetimi', icon: BedDouble },
     { id: 'visitors', label: 'Ziyaretçi Yönetimi', icon: UserCheck },
+    { id: 'tickets', label: 'Talep & Şikayetler', icon: MessageSquareWarning },
     { id: 'issues', label: 'Arıza Yönetimi', icon: Wrench },
     { id: 'warehouse', label: 'Depo & Stok Yönetimi', icon: Package },
     { id: 'shared-assets', label: 'Ortak Eşya Yönetimi', icon: Boxes },
@@ -72,6 +98,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
           {menuItems.map((item) => {
             const Icon = item.icon;
             const isActive = activeTab === item.id;
+            const hasNewTickets = item.id === 'tickets' && openTicketsCount > 0;
+
             return (
               <button
                 key={item.id}
@@ -82,14 +110,33 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   }`}
                 title={!isHovered ? item.label : undefined}
               >
-                <Icon className={`w-5 h-5 shrink-0 ${isActive ? 'text-white' : 'text-slate-600 group-hover:text-[#1e3a8a]'}`} />
+                <div className="relative shrink-0 flex items-center justify-center">
+                  <Icon className={`w-5 h-5 ${isActive ? 'text-white' : 'text-slate-600 group-hover:text-[#1e3a8a]'}`} />
+                  {hasNewTickets && !isHovered && (
+                    <span className="absolute -top-1 -right-1 flex h-3 w-3">
+                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75"></span>
+                      <span className="relative inline-flex rounded-full h-3 w-3 bg-rose-500 border-2 border-white"></span>
+                    </span>
+                  )}
+                </div>
 
                 <span className={`whitespace-nowrap transition-opacity duration-200 flex-1 text-left ${isHovered ? 'opacity-100' : 'opacity-0 hidden'}`}>
                   {item.label}
                 </span>
 
+                {/* Pulsing indicator badge for new tickets */}
+                {hasNewTickets && isHovered && (
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-rose-500 text-white text-[10px] font-black shadow-xs animate-pulse">
+                    <span className="relative flex h-1.5 w-1.5">
+                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-white opacity-75"></span>
+                      <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-white"></span>
+                    </span>
+                    <span>{openTicketsCount} Yeni</span>
+                  </span>
+                )}
+
                 {/* Indicator arrow if active */}
-                {isActive && isHovered && (
+                {isActive && isHovered && !hasNewTickets && (
                   <ChevronRight className="w-4 h-4 text-white shrink-0" />
                 )}
               </button>
@@ -118,20 +165,16 @@ export const Sidebar: React.FC<SidebarProps> = ({
         {/* Logout Button */}
         <button
           onClick={onLogout}
-          className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl font-bold text-xs text-red-700 bg-red-50 hover:bg-red-600 hover:text-white border border-red-200 transition-all cursor-pointer shadow-sm ${!isHovered ? 'justify-center' : ''
+          className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl font-bold text-xs text-rose-700 bg-rose-50 hover:bg-rose-600 hover:text-white border border-rose-200 transition-all group cursor-pointer ${isHovered ? 'justify-start' : 'justify-center'
             }`}
-          title="Güvenli Çıkış Yap"
+          title={!isHovered ? 'Çıkış Yap' : undefined}
         >
           <LogOut className="w-4 h-4 shrink-0" />
           <span className={`whitespace-nowrap transition-opacity duration-200 ${isHovered ? 'opacity-100' : 'opacity-0 hidden'}`}>
-            Çıkış Yap
+            Oturumu Kapat
           </span>
         </button>
       </div>
     </aside>
-    <nav aria-label="Mobil ana menü" className="sm:hidden fixed inset-x-0 bottom-0 z-50 h-16 bg-white border-t border-slate-300 shadow-2xl flex items-stretch no-print">
-      {menuItems.map((item) => { const Icon = item.icon; const active = activeTab === item.id; return <button key={item.id} onClick={() => onTabChange(item.id)} aria-current={active ? 'page' : undefined} className={`flex-1 flex flex-col items-center justify-center gap-1 text-[11px] font-bold ${active ? 'text-[#1e3a8a] bg-blue-50' : 'text-slate-600'}`}><Icon className="w-5 h-5" /><span>{item.label.replace('Genel ', '')}</span></button>; })}
-      <button onClick={onLogout} className="flex-1 flex flex-col items-center justify-center gap-1 text-[11px] font-bold text-rose-700"><LogOut className="w-5 h-5" /><span>Çıkış</span></button>
-    </nav>
   </>);
 };

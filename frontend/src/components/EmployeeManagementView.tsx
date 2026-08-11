@@ -35,6 +35,8 @@ import {
   DoorOpen
 } from 'lucide-react';
 import { employeeApi, Employee } from '../api/employeeApi';
+import { User } from '../api/authApi';
+import { can } from '../security/accessControl';
 import { AddEmployeeModal } from './AddEmployeeModal';
 import { EmployeeDetailView } from './EmployeeDetailView';
 import { EmployeeExportModal, EmployeeExportFilter } from './EmployeeExportModal';
@@ -75,7 +77,12 @@ export function formatPhone(phone?: string | null): string {
   return phone;
 }
 
-export const EmployeeManagementView: React.FC = () => {
+interface EmployeeManagementViewProps {
+  currentUser?: User | null;
+}
+
+export const EmployeeManagementView: React.FC<EmployeeManagementViewProps> = ({ currentUser }) => {
+  const canManage = currentUser ? can(currentUser.role, 'EMPLOYEE_MANAGE') : true;
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -271,6 +278,7 @@ export const EmployeeManagementView: React.FC = () => {
       <EmployeeDetailView
         employee={activeEmployeeDetail}
         onBack={closeEmployeeDetail}
+        currentUser={currentUser}
       />
     );
   }
@@ -377,13 +385,15 @@ export const EmployeeManagementView: React.FC = () => {
               <span>{isExporting ? 'Aktarılıyor...' : 'Excel Listesini İndir'}</span>
             </button>
 
-            <button
-              onClick={() => setIsAddModalOpen(true)}
-              className="py-2 px-4 bg-[#1e3a8a] hover:bg-[#1e293b] text-white font-bold text-xs rounded-xl shadow-sm flex items-center gap-1.5 transition-all cursor-pointer shrink-0 ml-auto lg:ml-0"
-            >
-              <UserPlus className="w-4 h-4 text-white" />
-              <span>Yeni Personel Kaydı</span>
-            </button>
+            {canManage && (
+              <button
+                onClick={() => setIsAddModalOpen(true)}
+                className="py-2 px-4 bg-[#1e3a8a] hover:bg-[#1e293b] text-white font-bold text-xs rounded-xl shadow-sm flex items-center gap-1.5 transition-all cursor-pointer shrink-0 ml-auto lg:ml-0"
+              >
+                <UserPlus className="w-4 h-4 text-white" />
+                <span>Yeni Personel Kaydı</span>
+              </button>
+            )}
           </div>
 
         </div>
@@ -562,52 +572,56 @@ export const EmployeeManagementView: React.FC = () => {
                       {/* 6. Aksiyonlar */}
                       <td className="py-3.5 px-4 text-right whitespace-nowrap">
                         <div className="flex items-center justify-end gap-1.5 min-h-[32px] whitespace-nowrap shrink-0">
-                          {hasBed ? (
+                          {canManage && (
+                            hasBed ? (
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setCheckoutConfirmModal({ id: emp.id, name: `${emp.firstName} ${emp.lastName}` });
+                                }}
+                                title="Odadan Çıkış Yap"
+                                className="group relative inline-flex items-center justify-center h-8 px-2.5 rounded-xl bg-amber-50 text-amber-700 hover:bg-amber-600 hover:text-white border border-amber-200/80 hover:border-amber-600 transition-all duration-500 ease-out shadow-xs hover:shadow-md cursor-pointer overflow-hidden"
+                              >
+                                <DoorOpen className="w-4 h-4 shrink-0 transition-transform duration-500 group-hover:scale-110" />
+                                <span className="max-w-0 opacity-0 group-hover:max-w-[70px] group-hover:opacity-100 group-hover:ml-1.5 transition-all duration-500 ease-out text-xs font-extrabold whitespace-nowrap overflow-hidden">
+                                  Çıkış Yap
+                                </span>
+                              </button>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setAssignRoomEmployee(emp);
+                                }}
+                                title="Personele Oda Ata"
+                                className="group relative inline-flex items-center justify-center h-8 px-2.5 rounded-xl bg-emerald-50 text-emerald-700 hover:bg-emerald-600 hover:text-white border border-emerald-200/80 hover:border-emerald-600 transition-all duration-500 ease-out shadow-xs hover:shadow-md cursor-pointer overflow-hidden"
+                              >
+                                <BedDouble className="w-4 h-4 shrink-0 transition-transform duration-500 group-hover:scale-110" />
+                                <span className="max-w-0 opacity-0 group-hover:max-w-[70px] group-hover:opacity-100 group-hover:ml-1.5 transition-all duration-500 ease-out text-xs font-extrabold whitespace-nowrap overflow-hidden">
+                                  Oda Ata
+                                </span>
+                              </button>
+                            )
+                          )}
+
+                          {canManage && (
                             <button
                               type="button"
                               onClick={(e) => {
                                 e.stopPropagation();
-                                setCheckoutConfirmModal({ id: emp.id, name: `${emp.firstName} ${emp.lastName}` });
+                                handleDeleteEmployee(emp.id, `${emp.firstName} ${emp.lastName}`);
                               }}
-                              title="Odadan Çıkış Yap"
-                              className="group relative inline-flex items-center justify-center h-8 px-2.5 rounded-xl bg-amber-50 text-amber-700 hover:bg-amber-600 hover:text-white border border-amber-200/80 hover:border-amber-600 transition-all duration-500 ease-out shadow-xs hover:shadow-md cursor-pointer overflow-hidden"
+                              title="Sil"
+                              className="group relative inline-flex items-center justify-center h-8 px-2.5 rounded-xl bg-rose-50 text-rose-600 hover:bg-rose-600 hover:text-white border border-rose-200/80 hover:border-rose-600 transition-all duration-500 ease-out shadow-xs hover:shadow-md cursor-pointer overflow-hidden"
                             >
-                              <DoorOpen className="w-4 h-4 shrink-0 transition-transform duration-500 group-hover:scale-110" />
-                              <span className="max-w-0 opacity-0 group-hover:max-w-[70px] group-hover:opacity-100 group-hover:ml-1.5 transition-all duration-500 ease-out text-xs font-extrabold whitespace-nowrap overflow-hidden">
-                                Çıkış Yap
-                              </span>
-                            </button>
-                          ) : (
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setAssignRoomEmployee(emp);
-                              }}
-                              title="Personele Oda Ata"
-                              className="group relative inline-flex items-center justify-center h-8 px-2.5 rounded-xl bg-emerald-50 text-emerald-700 hover:bg-emerald-600 hover:text-white border border-emerald-200/80 hover:border-emerald-600 transition-all duration-500 ease-out shadow-xs hover:shadow-md cursor-pointer overflow-hidden"
-                            >
-                              <BedDouble className="w-4 h-4 shrink-0 transition-transform duration-500 group-hover:scale-110" />
-                              <span className="max-w-0 opacity-0 group-hover:max-w-[70px] group-hover:opacity-100 group-hover:ml-1.5 transition-all duration-500 ease-out text-xs font-extrabold whitespace-nowrap overflow-hidden">
-                                Oda Ata
+                              <Trash2 className="w-4 h-4 shrink-0 transition-transform duration-500 group-hover:scale-110" />
+                              <span className="max-w-0 opacity-0 group-hover:max-w-[40px] group-hover:opacity-100 group-hover:ml-1.5 transition-all duration-500 ease-out text-xs font-extrabold whitespace-nowrap overflow-hidden">
+                                Sil
                               </span>
                             </button>
                           )}
-
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleDeleteEmployee(emp.id, `${emp.firstName} ${emp.lastName}`);
-                            }}
-                            title="Sil"
-                            className="group relative inline-flex items-center justify-center h-8 px-2.5 rounded-xl bg-rose-50 text-rose-600 hover:bg-rose-600 hover:text-white border border-rose-200/80 hover:border-rose-600 transition-all duration-500 ease-out shadow-xs hover:shadow-md cursor-pointer overflow-hidden"
-                          >
-                            <Trash2 className="w-4 h-4 shrink-0 transition-transform duration-500 group-hover:scale-110" />
-                            <span className="max-w-0 opacity-0 group-hover:max-w-[40px] group-hover:opacity-100 group-hover:ml-1.5 transition-all duration-500 ease-out text-xs font-extrabold whitespace-nowrap overflow-hidden">
-                              Sil
-                            </span>
-                          </button>
                         </div>
                       </td>
 

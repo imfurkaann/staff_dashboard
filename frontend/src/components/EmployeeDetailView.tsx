@@ -46,10 +46,13 @@ import { AssignRoomModal } from './AssignRoomModal';
 import { Visitor, visitorApi } from '../api/visitorApi';
 import { VisitorRecordsTable } from './VisitorRecordsTable';
 import { AddVisitorModal } from './AddVisitorModal';
+import { User as UserEntity } from '../api/authApi';
+import { can } from '../security/accessControl';
 
 interface EmployeeDetailViewProps {
   employee: Employee;
   onBack: () => void;
+  currentUser?: UserEntity | null;
 }
 
 type TabType = 'general' | 'inventory' | 'complaints' | 'transfers' | 'visitors' | 'occupancyHistory';
@@ -81,7 +84,9 @@ export function formatDateTime(dateStr?: string | null): string {
 export const EmployeeDetailView: React.FC<EmployeeDetailViewProps> = ({
   employee,
   onBack,
+  currentUser,
 }) => {
+  const canManage = currentUser ? can(currentUser.role, 'EMPLOYEE_MANAGE') : true;
   // currentEmp tracks local state for immediate UI updates after edit
   const [currentEmp, setCurrentEmp] = useState<Employee>(employee || {} as Employee);
   const [operationError, setOperationError] = useState<string | null>(null);
@@ -1711,34 +1716,38 @@ export const EmployeeDetailView: React.FC<EmployeeDetailViewProps> = ({
           {/* Right Action Stack: Edit Profile & Print Buttons TOP, Status Badge BOTTOM */}
           <div className="shrink-0 text-center sm:text-right space-y-3">
             <div className="flex flex-col sm:flex-row items-center justify-center sm:justify-end gap-2">
-              {currentBed ? (
-                <button
-                  type="button"
-                  onClick={() => setIsCheckoutConfirmOpen(true)}
-                  className="py-2.5 px-4 bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs rounded-2xl border border-rose-700 flex items-center justify-center gap-1.5 transition-all cursor-pointer shadow-md w-full sm:w-auto"
-                >
-                  <DoorOpen className="w-4 h-4 text-white" />
-                  <span>Odadan Çıkış Yap</span>
-                </button>
-              ) : (
-                <button
-                  type="button"
-                  onClick={() => setIsAssignRoomOpen(true)}
-                  className="py-2.5 px-4 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-2xl border border-emerald-700 flex items-center justify-center gap-1.5 transition-all cursor-pointer shadow-md w-full sm:w-auto"
-                >
-                  <BedDouble className="w-4 h-4 text-white" />
-                  <span>Personele Oda Ata</span>
-                </button>
+              {canManage && (
+                currentBed ? (
+                  <button
+                    type="button"
+                    onClick={() => setIsCheckoutConfirmOpen(true)}
+                    className="py-2.5 px-4 bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs rounded-2xl border border-rose-700 flex items-center justify-center gap-1.5 transition-all cursor-pointer shadow-md w-full sm:w-auto"
+                  >
+                    <DoorOpen className="w-4 h-4 text-white" />
+                    <span>Odadan Çıkış Yap</span>
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setIsAssignRoomOpen(true)}
+                    className="py-2.5 px-4 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-2xl border border-emerald-700 flex items-center justify-center gap-1.5 transition-all cursor-pointer shadow-md w-full sm:w-auto"
+                  >
+                    <BedDouble className="w-4 h-4 text-white" />
+                    <span>Personele Oda Ata</span>
+                  </button>
+                )
               )}
 
-              <button
-                type="button"
-                onClick={() => setIsEditProfileModalOpen(true)}
-                className="py-2.5 px-4 bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs rounded-2xl border border-amber-700 flex items-center justify-center gap-1.5 transition-all cursor-pointer shadow-md w-full sm:w-auto"
-              >
-                <Pencil className="w-4 h-4 text-white" />
-                <span>Personel Bilgilerini Düzenle</span>
-              </button>
+              {canManage && (
+                <button
+                  type="button"
+                  onClick={() => setIsEditProfileModalOpen(true)}
+                  className="py-2.5 px-4 bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs rounded-2xl border border-amber-700 flex items-center justify-center gap-1.5 transition-all cursor-pointer shadow-md w-full sm:w-auto"
+                >
+                  <Pencil className="w-4 h-4 text-white" />
+                  <span>Personel Bilgilerini Düzenle</span>
+                </button>
+              )}
 
               <button
                 type="button"

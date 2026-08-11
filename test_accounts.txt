@@ -1,0 +1,25 @@
+================================================================================
+                    LOJMAN YÖNETİM SİSTEMİ - TEST HESAPLARI
+================================================================================
+
+Aşağıdaki hesaplar sistemdeki tüm farklı roller için tanımlanmıştır.
+Giriş adresi: http://localhost
+
+--------------------------------------------------------------------------------
+ROL                    | KULLANICI ADI       | E-POSTA                    | ŞİFRE
+--------------------------------------------------------------------------------
+1. Ana Yönetici        | admin               | admin@example.com          | admin12345678
+2. Sistem Yöneticisi   | test_admin          | test_admin@example.com     | Test12345678!
+3. Lojman Yöneticisi   | test_housing_mgr    | housing_mgr@example.com    | Test12345678!
+4. Lojman Personeli    | test_housing_staff  | housing_staff@example.com  | Test12345678!
+5. Teknik Yönetici     | test_tech_mgr       | tech_mgr@example.com       | Test12345678!
+6. Teknik Personel     | test_technician     | technician@example.com     | Test12345678!
+7. Temizlik Görevlisi  | test_housekeeping   | housekeeping@example.com   | Test12345678!
+8. Depo Yöneticisi     | test_warehouse_mgr  | warehouse_mgr@example.com  | Test12345678!
+9. İnsan Kaynakları    | test_hr_mgr         | hr_mgr@example.com         | Test12345678!
+10. Güvenlik Görevlisi | test_security       | security@example.com       | Test12345678!
+11. Standart Personel  | test_staff          | staff@example.com          | Test12345678!
+--------------------------------------------------------------------------------
+
+Not: Tüm hesaplar aktif durumdadır. Kullanıcı adı veya e-posta adresi ile giriş yapılabilir.
+================================================================================

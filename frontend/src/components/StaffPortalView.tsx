@@ -1,6 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { User } from '../api/authApi';
 import { portalApi, StaffPortalData } from '../api/portalApi';
+import { sharedAssetApi, SharedAsset } from '../api/sharedAssetApi';
+import { ticketApi, SupportTicket } from '../api/ticketApi';
 import { appConfig } from '../config/appConfig';
 import { 
   Building2, 
@@ -16,7 +18,14 @@ import {
   ShieldCheck,
   Briefcase,
   AlertCircle,
-  BellRing
+  BellRing,
+  Boxes,
+  Search,
+  RefreshCw,
+  Wrench,
+  MessageSquareWarning,
+  Plus,
+  X
 } from 'lucide-react';
 
 interface StaffPortalViewProps {
@@ -28,7 +37,25 @@ export const StaffPortalView: React.FC<StaffPortalViewProps> = ({ currentUser: _
   const [data, setData] = useState<StaffPortalData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<'room' | 'notifications' | 'inventories'>('room');
+  const [activeTab, setActiveTab] = useState<'room' | 'notifications' | 'inventories' | 'sharedAssets' | 'tickets'>('room');
+
+  // Shared assets availability state
+  const [sharedAssets, setSharedAssets] = useState<SharedAsset[]>([]);
+  const [sharedAssetsLoading, setSharedAssetsLoading] = useState<boolean>(false);
+  const [sharedAssetsError, setSharedAssetsError] = useState<string | null>(null);
+  const [sharedAssetSearch, setSharedAssetSearch] = useState<string>('');
+
+  // Support Tickets state
+  const [myTickets, setMyTickets] = useState<SupportTicket[]>([]);
+  const [myTicketsLoading, setMyTicketsLoading] = useState<boolean>(false);
+  const [myTicketsError, setMyTicketsError] = useState<string | null>(null);
+  const [isTicketModalOpen, setIsTicketModalOpen] = useState<boolean>(false);
+  const [ticketSubmitting, setTicketSubmitting] = useState<boolean>(false);
+  const [ticketForm, setTicketForm] = useState({
+    category: 'GÜRÜLTÜ / RAHATSIZLIK',
+    subject: '',
+    description: '',
+  });
 
   // PWA Deferred Prompt State
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
@@ -236,6 +263,70 @@ export const StaffPortalView: React.FC<StaffPortalViewProps> = ({ currentUser: _
     setDeferredPrompt(null);
   };
 
+  const fetchSharedAssets = async () => {
+    try {
+      setSharedAssetsLoading(true);
+      setSharedAssetsError(null);
+      const res = await sharedAssetApi.getOverview();
+      setSharedAssets(res.assets || []);
+    } catch (err: any) {
+      setSharedAssetsError(err instanceof Error ? err.message : 'Ortak eşya bilgileri alınamadı.');
+    } finally {
+      setSharedAssetsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (activeTab === 'sharedAssets' && sharedAssets.length === 0 && !sharedAssetsLoading) {
+      fetchSharedAssets();
+    }
+  }, [activeTab]);
+
+  const fetchMyTickets = async () => {
+    try {
+      setMyTicketsLoading(true);
+      setMyTicketsError(null);
+      const res = await ticketApi.getMyTickets();
+      setMyTickets(res || []);
+    } catch (err: any) {
+      setMyTicketsError(err instanceof Error ? err.message : 'Talepleriniz alınamadı.');
+    } finally {
+      setMyTicketsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (activeTab === 'tickets' && myTickets.length === 0 && !myTicketsLoading) {
+      fetchMyTickets();
+    }
+  }, [activeTab]);
+
+  const handleCreateTicket = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      setTicketSubmitting(true);
+      await ticketApi.createTicket({
+        creatorName: `${data?.profile?.firstName || ''} ${data?.profile?.lastName || ''}`.trim() || 'Lojman Sakini',
+        roomNumber: data?.roomInfo?.roomNumber ? String(data.roomInfo.roomNumber) : undefined,
+        blockName: data?.roomInfo?.blockName || undefined,
+        category: ticketForm.category,
+        subject: ticketForm.subject,
+        description: ticketForm.description,
+      });
+      setIsTicketModalOpen(false);
+      setTicketForm({
+        category: 'GÜRÜLTÜ / RAHATSIZLIK',
+        subject: '',
+        description: '',
+      });
+      await fetchMyTickets();
+    } catch (err: any) {
+      setMyTicketsError(err instanceof Error ? err.message : 'Talep oluşturulamadı.');
+    } finally {
+      setTicketSubmitting(false);
+    }
+  };
+
   // Helper for Turkish Room Status Labels
   const formatRoomStatus = (status: string) => {
     switch (status) {
@@ -355,10 +446,10 @@ export const StaffPortalView: React.FC<StaffPortalViewProps> = ({ currentUser: _
       {/* Main Container */}
       <main className="max-w-3xl mx-auto w-full px-4 pt-6 space-y-6">
         {/* Navigation Tabs Bar */}
-        <div className="grid grid-cols-3 bg-white p-1.5 rounded-2xl border border-slate-300 shadow-sm text-xs font-bold">
+        <div className="grid grid-cols-2 sm:grid-cols-5 bg-white p-1.5 rounded-2xl border border-slate-300 shadow-sm text-xs font-bold gap-1">
           <button
             onClick={() => setActiveTab('room')}
-            className={`py-3 rounded-xl transition flex items-center justify-center gap-1.5 whitespace-nowrap ${
+            className={`py-2.5 rounded-xl transition flex items-center justify-center gap-1.5 whitespace-nowrap ${
               activeTab === 'room'
                 ? 'bg-[#1e3a8a] text-white shadow-md shadow-blue-950/20'
                 : 'text-slate-700 hover:bg-slate-100 hover:text-[#1e3a8a]'
@@ -370,7 +461,7 @@ export const StaffPortalView: React.FC<StaffPortalViewProps> = ({ currentUser: _
 
           <button
             onClick={() => setActiveTab('notifications')}
-            className={`py-3 rounded-xl transition flex items-center justify-center gap-1.5 whitespace-nowrap relative ${
+            className={`py-2.5 rounded-xl transition flex items-center justify-center gap-1.5 whitespace-nowrap relative ${
               activeTab === 'notifications'
                 ? 'bg-[#1e3a8a] text-white shadow-md shadow-blue-950/20'
                 : 'text-slate-700 hover:bg-slate-100 hover:text-[#1e3a8a]'
@@ -387,7 +478,7 @@ export const StaffPortalView: React.FC<StaffPortalViewProps> = ({ currentUser: _
 
           <button
             onClick={() => setActiveTab('inventories')}
-            className={`py-3 rounded-xl transition flex items-center justify-center gap-1.5 whitespace-nowrap ${
+            className={`py-2.5 rounded-xl transition flex items-center justify-center gap-1.5 whitespace-nowrap ${
               activeTab === 'inventories'
                 ? 'bg-[#1e3a8a] text-white shadow-md shadow-blue-950/20'
                 : 'text-slate-700 hover:bg-slate-100 hover:text-[#1e3a8a]'
@@ -395,6 +486,30 @@ export const StaffPortalView: React.FC<StaffPortalViewProps> = ({ currentUser: _
           >
             <Package className="w-4 h-4 shrink-0" />
             <span>Zimmetlerim</span>
+          </button>
+
+          <button
+            onClick={() => setActiveTab('sharedAssets')}
+            className={`py-2.5 rounded-xl transition flex items-center justify-center gap-1.5 whitespace-nowrap ${
+              activeTab === 'sharedAssets'
+                ? 'bg-[#1e3a8a] text-white shadow-md shadow-blue-950/20'
+                : 'text-slate-700 hover:bg-slate-100 hover:text-[#1e3a8a]'
+            }`}
+          >
+            <Boxes className="w-4 h-4 shrink-0 text-amber-400" />
+            <span>Ortak Eşyalar</span>
+          </button>
+
+          <button
+            onClick={() => setActiveTab('tickets')}
+            className={`py-2.5 rounded-xl transition flex items-center justify-center gap-1.5 whitespace-nowrap col-span-2 sm:col-span-1 ${
+              activeTab === 'tickets'
+                ? 'bg-[#1e3a8a] text-white shadow-md shadow-blue-950/20'
+                : 'text-slate-700 hover:bg-slate-100 hover:text-[#1e3a8a]'
+            }`}
+          >
+            <MessageSquareWarning className="w-4 h-4 shrink-0 text-rose-400" />
+            <span>Taleplerim</span>
           </button>
         </div>
 
@@ -702,7 +817,264 @@ export const StaffPortalView: React.FC<StaffPortalViewProps> = ({ currentUser: _
             </div>
           </div>
         )}
+
+        {/* TAB 4: ORTAK EŞYALAR & CİHAZ MÜSAİTLİK DURUMU */}
+        {activeTab === 'sharedAssets' && (
+          <div className="bg-white border border-slate-300 rounded-3xl p-6 shadow-sm space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-200">
+              <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
+                <Boxes className="w-4 h-4 text-[#1e3a8a] shrink-0" />
+                <span className="whitespace-nowrap">Ortak Eşya Durumları</span>
+                <span className="px-2.5 py-0.5 bg-[#1e3a8a]/10 text-[#1e3a8a] text-xs font-extrabold rounded-full border border-[#1e3a8a]/20">
+                  {sharedAssets.length}
+                </span>
+              </h3>
+              <button
+                type="button"
+                onClick={fetchSharedAssets}
+                disabled={sharedAssetsLoading}
+                className="p-1.5 rounded-xl bg-slate-100 text-slate-700 hover:bg-blue-50 hover:text-[#1e3a8a] transition disabled:opacity-50 shrink-0 cursor-pointer"
+                title="Yenile"
+              >
+                <RefreshCw className={`w-4 h-4 ${sharedAssetsLoading ? 'animate-spin' : ''}`} />
+              </button>
+            </div>
+
+            {sharedAssetsLoading ? (
+              <p className="text-xs text-slate-500 font-semibold italic text-center py-6">
+                Cihaz durumları yükleniyor...
+              </p>
+            ) : sharedAssetsError ? (
+              <div className="p-4 bg-rose-50 border border-rose-200 rounded-2xl text-xs font-bold text-rose-800 flex items-center justify-between">
+                <span>{sharedAssetsError}</span>
+                <button type="button" onClick={fetchSharedAssets} className="underline text-rose-900 font-extrabold cursor-pointer">Tekrar Dene</button>
+              </div>
+            ) : sharedAssets.length === 0 ? (
+              <p className="text-xs text-slate-500 font-semibold italic text-center py-6">
+                Kayıtlı ortak eşya bulunmamaktadır.
+              </p>
+            ) : (
+              <div className="space-y-3">
+                {sharedAssets.map((item) => {
+                  const isLoaned = item.status === 'LOANED' || Boolean(item.currentEmployeeId || item.currentRoomId);
+                  const isMaintenance = item.status === 'MAINTENANCE';
+                  const isAvailable = item.status === 'AVAILABLE' && !isLoaned;
+
+                  return (
+                    <div
+                      key={item.id}
+                      className="p-4 bg-slate-50 border border-slate-200 rounded-2xl flex items-center justify-between gap-3 shadow-xs"
+                    >
+                      <div className="min-w-0 flex-1">
+                        <div className="text-sm font-bold text-slate-900">
+                          {item.assetName}
+                        </div>
+                      </div>
+
+                      {isLoaned ? (
+                        <span className="px-3.5 py-1.5 text-xs font-black rounded-xl border border-rose-200 bg-rose-50 text-rose-700 whitespace-nowrap shrink-0">
+                          🔴 Dolu
+                        </span>
+                      ) : isMaintenance ? (
+                        <span className="px-3.5 py-1.5 text-xs font-black rounded-xl border border-amber-200 bg-amber-50 text-amber-800 whitespace-nowrap shrink-0">
+                          🟡 Bakımda
+                        </span>
+                      ) : isAvailable ? (
+                        <span className="px-3.5 py-1.5 text-xs font-black rounded-xl border border-emerald-200 bg-emerald-50 text-emerald-700 whitespace-nowrap shrink-0">
+                          🟢 Müsait
+                        </span>
+                      ) : (
+                        <span className="px-3.5 py-1.5 text-xs font-bold rounded-xl border border-slate-200 bg-slate-100 text-slate-600 whitespace-nowrap shrink-0">
+                          ⚪ Kullanım Dışı
+                        </span>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* TAB 5: TALEPLERİM & ŞİKAYET */}
+        {activeTab === 'tickets' && (
+          <div className="bg-white border border-slate-300 rounded-3xl p-6 shadow-sm space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-200">
+              <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
+                <MessageSquareWarning className="w-4 h-4 text-[#1e3a8a] shrink-0" />
+                <span className="whitespace-nowrap">Taleplerim & Şikayetlerim</span>
+                <span className="px-2.5 py-0.5 bg-[#1e3a8a]/10 text-[#1e3a8a] text-xs font-extrabold rounded-full border border-[#1e3a8a]/20">
+                  {myTickets.length}
+                </span>
+              </h3>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={fetchMyTickets}
+                  disabled={myTicketsLoading}
+                  className="p-1.5 rounded-xl bg-slate-100 text-slate-700 hover:bg-blue-50 hover:text-[#1e3a8a] transition disabled:opacity-50 shrink-0 cursor-pointer"
+                  title="Yenile"
+                >
+                  <RefreshCw className={`w-4 h-4 ${myTicketsLoading ? 'animate-spin' : ''}`} />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setIsTicketModalOpen(true)}
+                  className="inline-flex h-8 items-center justify-center gap-1 rounded-xl bg-[#1e3a8a] px-3 text-xs font-extrabold text-white shadow-xs transition-all hover:bg-[#172554] cursor-pointer shrink-0"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>Yeni Talep</span>
+                </button>
+              </div>
+            </div>
+
+            {myTicketsLoading ? (
+              <p className="text-xs text-slate-500 font-semibold italic text-center py-6">
+                Talepleriniz yükleniyor...
+              </p>
+            ) : myTicketsError ? (
+              <div className="p-4 bg-rose-50 border border-rose-200 rounded-2xl text-xs font-bold text-rose-800 flex items-center justify-between">
+                <span>{myTicketsError}</span>
+                <button type="button" onClick={fetchMyTickets} className="underline text-rose-900 font-extrabold cursor-pointer">Tekrar Dene</button>
+              </div>
+            ) : myTickets.length === 0 ? (
+              <div className="text-center py-8 space-y-3">
+                <MessageSquareWarning className="w-10 h-10 text-slate-300 mx-auto" />
+                <p className="text-xs text-slate-500 font-semibold italic">
+                  Henüz ilettiğiniz bir talep veya şikayet bulunmamaktadır.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setIsTicketModalOpen(true)}
+                  className="inline-flex items-center gap-1.5 px-4 py-2 bg-[#1e3a8a] text-white text-xs font-extrabold rounded-xl hover:bg-[#172554] transition shadow-xs cursor-pointer"
+                >
+                  <Plus className="w-4 h-4" /> Yeni Talep Oluştur
+                </button>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {myTickets.map((ticket) => {
+                  return (
+                    <div
+                      key={ticket.id}
+                      className="p-4 bg-slate-50 border border-slate-200 rounded-2xl space-y-2 shadow-xs"
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <div>
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="font-mono font-black text-xs text-[#1e3a8a] bg-blue-100/60 px-2 py-0.5 rounded border border-blue-200">{ticket.ticketNo}</span>
+                            <span className="text-[10px] font-extrabold uppercase px-2 py-0.5 rounded bg-slate-200 text-slate-700">{ticket.category}</span>
+                          </div>
+                          <h4 className="text-sm font-bold text-slate-900 mt-1">{ticket.subject}</h4>
+                        </div>
+
+                        {ticket.status === 'OPEN' && (
+                          <span className="px-2.5 py-1 text-[10px] font-black rounded-xl border border-amber-200 bg-amber-50 text-amber-800 whitespace-nowrap shrink-0">
+                            🟡 İncelemede
+                          </span>
+                        )}
+                        {ticket.status === 'IN_PROGRESS' && (
+                          <span className="px-2.5 py-1 text-[10px] font-black rounded-xl border border-blue-200 bg-blue-50 text-blue-800 whitespace-nowrap shrink-0">
+                            🔵 İşleme Alındı
+                          </span>
+                        )}
+                        {ticket.status === 'RESOLVED' && (
+                          <span className="px-2.5 py-1 text-[10px] font-black rounded-xl border border-emerald-200 bg-emerald-50 text-emerald-800 whitespace-nowrap shrink-0">
+                            🟢 Çözüldü
+                          </span>
+                        )}
+                        {ticket.status === 'REJECTED' && (
+                          <span className="px-2.5 py-1 text-[10px] font-black rounded-xl border border-rose-200 bg-rose-50 text-rose-800 whitespace-nowrap shrink-0">
+                            🔴 Reddedildi
+                          </span>
+                        )}
+                      </div>
+
+                      <p className="text-xs text-slate-700 font-medium whitespace-pre-wrap leading-relaxed">
+                        {ticket.description}
+                      </p>
+
+                      {ticket.adminNote && (
+                        <div className="mt-2 pt-2 border-t border-slate-200/80 bg-blue-50/70 p-3 rounded-xl border border-blue-200/60">
+                          <span className="text-[10px] font-black uppercase text-blue-900 block">Yönetim Yanıtı:</span>
+                          <p className="text-xs font-bold text-slate-900 mt-0.5">{ticket.adminNote}</p>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
       </main>
+
+      {/* Modal: Mobile Staff Ticket Creation */}
+      {isTicketModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 p-4" onClick={() => setIsTicketModalOpen(false)}>
+          <div className="w-full max-w-md rounded-3xl border border-slate-300 bg-white shadow-2xl overflow-hidden" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between border-b border-slate-200 bg-slate-50 px-5 py-4">
+              <h3 className="font-black text-slate-900 text-sm flex items-center gap-2">
+                <MessageSquareWarning className="w-4 h-4 text-[#1e3a8a]" />
+                Yeni Talep / Şikayet İlet
+              </h3>
+              <button type="button" onClick={() => setIsTicketModalOpen(false)} className="p-1 rounded-xl text-slate-400 hover:bg-slate-200 hover:text-slate-700">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleCreateTicket} className="p-5 space-y-4 max-h-[75vh] overflow-y-auto text-xs">
+              <div>
+                <label className="block mb-1 text-[10px] font-extrabold uppercase text-slate-600">Kategori *</label>
+                <select
+                  value={ticketForm.category}
+                  onChange={(e) => setTicketForm({ ...ticketForm, category: e.target.value })}
+                  className="w-full h-10 px-3 rounded-xl border border-slate-300 bg-slate-50 focus:bg-white focus:border-[#1e3a8a] outline-none font-bold text-slate-900"
+                >
+                  <option value="GÜRÜLTÜ / RAHATSIZLIK">GÜRÜLTÜ / RAHATSIZLIK</option>
+                  <option value="İNTERNET / İLETİŞİM">İNTERNET / İLETİŞİM</option>
+                  <option value="EK EŞYA / MOBİLYA">EK EŞYA / MOBİLYA</option>
+                  <option value="TEMİZLİK / ÇEVRE">TEMİZLİK / ÇEVRE</option>
+                  <option value="GENEL TALEPLER">GENEL TALEPLER</option>
+                  <option value="DİĞER">DİĞER</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block mb-1 text-[10px] font-extrabold uppercase text-slate-600">Konu *</label>
+                <input
+                  required
+                  value={ticketForm.subject}
+                  onChange={(e) => setTicketForm({ ...ticketForm, subject: e.target.value })}
+                  placeholder="Örn: Koridorda gürültü / Wi-Fi yavaş"
+                  className="w-full h-10 px-3 rounded-xl border border-slate-300 bg-slate-50 focus:bg-white focus:border-[#1e3a8a] outline-none font-bold text-slate-900"
+                />
+              </div>
+
+              <div>
+                <label className="block mb-1 text-[10px] font-extrabold uppercase text-slate-600">Açıklama & Detay *</label>
+                <textarea
+                  required
+                  rows={4}
+                  value={ticketForm.description}
+                  onChange={(e) => setTicketForm({ ...ticketForm, description: e.target.value })}
+                  placeholder="Talebinizi veya yaşadığınız rahatsızlığı detaylıca yazınız..."
+                  className="w-full p-3 rounded-xl border border-slate-300 bg-slate-50 focus:bg-white focus:border-[#1e3a8a] outline-none font-semibold text-slate-900"
+                />
+              </div>
+
+              <div className="flex justify-end gap-2 pt-2 border-t border-slate-200">
+                <button type="button" onClick={() => setIsTicketModalOpen(false)} className="px-4 py-2.5 bg-slate-100 text-slate-700 text-xs font-bold rounded-xl hover:bg-slate-200 transition">
+                  Vazgeç
+                </button>
+                <button type="submit" disabled={ticketSubmitting} className="px-4 py-2.5 bg-[#1e3a8a] text-white text-xs font-extrabold rounded-xl hover:bg-[#172554] transition shadow-xs cursor-pointer disabled:opacity-50">
+                  {ticketSubmitting ? 'Gönderiliyor...' : 'Talebi İlet'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       {/* iOS Notification Setup Guide Modal */}
       {showIOSNotifGuide && (

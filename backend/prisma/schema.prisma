@@ -112,6 +112,7 @@ model User {
   sharedAssetLogs          SharedAssetLog[]        @relation("SharedAssetLogCreatedBy")
   userAuditActions         UserAuditLog[]           @relation("UserAuditActor")
   userAuditHistory         UserAuditLog[]           @relation("UserAuditTarget")
+  supportTicketsCreated    SupportTicket[]         @relation("SupportTicketCreatedBy")
 }
 
 model UserAuditLog {
@@ -174,6 +175,7 @@ model Employee {
   occupancies       OccupancyLog[]
   visitors          Visitor[]
   stockMovements    StockMovement[]
+  supportTickets    SupportTicket[]
 
   @@index([status, isDeleted])
   @@index([department])
@@ -606,4 +608,35 @@ model SharedAssetLog {
   createdAt          DateTime    @default(now())
 
   @@index([assetId])
+}
+
+enum SupportTicketStatus {
+  OPEN
+  IN_PROGRESS
+  RESOLVED
+  REJECTED
+}
+
+model SupportTicket {
+  id           String              @id @default(uuid())
+  ticketNo     String              @unique
+  employeeId   String?
+  employee     Employee?           @relation(fields: [employeeId], references: [id], onDelete: SetNull)
+  creatorName  String
+  roomNumber   String?
+  blockName    String?
+  category     String              @default("GENEL")
+  subject      String
+  description  String
+  status       SupportTicketStatus @default(OPEN)
+  adminNote    String?
+  resolvedAt   DateTime?
+  createdById  String?
+  createdBy    User?               @relation("SupportTicketCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  createdAt    DateTime            @default(now())
+  updatedAt    DateTime            @updatedAt
+
+  @@index([status])
+  @@index([category])
+  @@index([employeeId])
 }

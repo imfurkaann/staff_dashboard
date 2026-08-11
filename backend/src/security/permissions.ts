@@ -34,6 +34,9 @@ export const permissions = {
   NOTIFICATION_VIEW: 'NOTIFICATION_VIEW',
   NOTIFICATION_MANAGE: 'NOTIFICATION_MANAGE',
   NOTIFICATION_DELETE: 'NOTIFICATION_DELETE',
+  TICKET_VIEW: 'TICKET_VIEW',
+  TICKET_MANAGE: 'TICKET_MANAGE',
+  TICKET_CREATE: 'TICKET_CREATE',
   USER_MANAGE: 'USER_MANAGE',
   PORTAL_SELF: 'PORTAL_SELF',
 } as const;
@@ -53,6 +56,7 @@ export const rolePermissions: Record<AppRole, ReadonlySet<Permission>> = {
     permissions.VISITOR_ARCHIVE, permissions.VISITOR_EXPORT, permissions.STOCK_VIEW, permissions.STOCK_MANAGE,
     permissions.STOCK_DEVICE_LIFECYCLE, permissions.SHARED_ASSET_VIEW, permissions.SHARED_ASSET_MANAGE,
     permissions.NOTIFICATION_VIEW, permissions.NOTIFICATION_MANAGE,
+    permissions.TICKET_VIEW, permissions.TICKET_MANAGE,
   ]),
   TECHNICAL_MANAGER: new Set([
     permissions.DASHBOARD_VIEW, permissions.ROOM_VIEW, permissions.ROOM_INVENTORY_MANAGE,
@@ -72,14 +76,16 @@ export const rolePermissions: Record<AppRole, ReadonlySet<Permission>> = {
   ]),
   HR_MANAGER: new Set([
     permissions.DASHBOARD_VIEW, permissions.EMPLOYEE_VIEW, permissions.EMPLOYEE_SENSITIVE_VIEW,
-    permissions.EMPLOYEE_MANAGE, permissions.EMPLOYEE_EXPORT, permissions.ROOM_VIEW,
-    permissions.ROOM_OCCUPANCY_EXPORT,
+    permissions.EMPLOYEE_EXPORT, permissions.ROOM_VIEW, permissions.ROOM_OCCUPANCY_EXPORT,
+    permissions.NOTIFICATION_VIEW, permissions.NOTIFICATION_MANAGE, permissions.TICKET_VIEW,
   ]),
   SECURITY: new Set([
-    permissions.DASHBOARD_VIEW, permissions.ROOM_VIEW, permissions.MAINTENANCE_VIEW,
+    permissions.DASHBOARD_VIEW, permissions.EMPLOYEE_VIEW, permissions.ROOM_VIEW, permissions.MAINTENANCE_VIEW,
     permissions.MAINTENANCE_CREATE, permissions.VISITOR_VIEW, permissions.VISITOR_MANAGE,
+    permissions.SHARED_ASSET_VIEW, permissions.NOTIFICATION_VIEW, permissions.NOTIFICATION_MANAGE,
+    permissions.TICKET_VIEW,
   ]),
-  STAFF: new Set([permissions.PORTAL_SELF]),
+  STAFF: new Set([permissions.PORTAL_SELF, permissions.SHARED_ASSET_VIEW, permissions.TICKET_CREATE]),
 };
 
 export const isAppRole = (role: unknown): role is AppRole => typeof role === 'string' && (appRoles as readonly string[]).includes(role);

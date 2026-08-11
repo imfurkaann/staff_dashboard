@@ -221,27 +221,48 @@ export const AddEmployeeModal: React.FC<AddEmployeeModalProps> = ({
     }
   }, [assignBed, gender]);
 
-  // Clean up camera stream on unmount
+  // Attach stream to video element whenever photoTab or isCameraActive updates
   useEffect(() => {
+    if (photoTab === 'camera' && isCameraActive && streamRef.current && videoRef.current) {
+      videoRef.current.srcObject = streamRef.current;
+      videoRef.current.play().catch(() => {});
+    }
+  }, [photoTab, isCameraActive]);
+
+  // Clean up camera stream on unmount or tab switch
+  useEffect(() => {
+    if (photoTab !== 'camera') {
+      stopCamera();
+    }
     return () => {
       stopCamera();
     };
-  }, []);
+  }, [photoTab]);
 
   const startCamera = async () => {
     try {
       setErrorPopUpMessage(null);
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        setErrorPopUpMessage('Kamera erişimi tarayıcınız veya bağlantı türünüz (Güvenli HTTPS bağlantısı veya localhost gereklidir) tarafından desteklenmiyor.');
+        setIsCameraActive(false);
+        return;
+      }
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach((track) => track.stop());
+        streamRef.current = null;
+      }
       const stream = await navigator.mediaDevices.getUserMedia({ 
         video: { width: { ideal: 640 }, height: { ideal: 480 }, facingMode: 'user' } 
       });
       streamRef.current = stream;
+      setIsCameraActive(true);
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
-        videoRef.current.play();
+        videoRef.current.play().catch(() => {});
       }
-      setIsCameraActive(true);
     } catch (err: any) {
-      setErrorPopUpMessage('Kamera erişimi sağlanamadı. Lütfen dosya yükleme modunu kullanınız.');
+      console.error('Kamera erişim hatası:', err);
+      setErrorPopUpMessage('Kamera erişimi sağlanamadı. Lütfen tarayıcı kamera izinlerini ve cihazınızın kamerasının aktif olduğunu kontrol ediniz.');
       setIsCameraActive(false);
     }
   };
@@ -258,8 +279,8 @@ export const AddEmployeeModal: React.FC<AddEmployeeModalProps> = ({
     if (videoRef.current) {
       const video = videoRef.current;
       const maxDim = 400;
-      let width = video.videoWidth || 640;
-      let height = video.videoHeight || 480;
+      let width = video.videoWidth || video.clientWidth || 640;
+      let height = video.videoHeight || video.clientHeight || 480;
       if (width > maxDim || height > maxDim) {
         if (width > height) {
           height = Math.round((height * maxDim) / width);
@@ -278,6 +299,7 @@ export const AddEmployeeModal: React.FC<AddEmployeeModalProps> = ({
         const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
         setPhotoUrl(dataUrl);
         stopCamera();
+        setPhotoTab('upload');
       }
     }
   };
@@ -649,7 +671,7 @@ export const AddEmployeeModal: React.FC<AddEmployeeModalProps> = ({
                   <div className="space-y-2">
                     {isCameraActive ? (
                       <div className="relative rounded-xl overflow-hidden bg-black max-w-xs h-36">
-                        <video ref={videoRef} className="w-full h-full object-cover" />
+                        <video ref={videoRef} autoPlay playsInline muted className="w-full h-full object-cover" />
                         <button
                           type="button"
                           onClick={capturePhoto}

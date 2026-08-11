@@ -64,8 +64,11 @@ export const RoomDetailView: React.FC<RoomDetailViewProps> = ({
   const canManageInventory = can(currentUser.role, 'ROOM_INVENTORY_MANAGE');
   const [currentRoom, setCurrentRoom] = useState<Room>(room);
   const [activeTab, setActiveTab] = useState<RoomTabType>(() => {
+    if (currentUser.role === 'TECHNICIAN') return 'maintenance';
+    if (currentUser.role === 'HOUSEKEEPING') return 'cleaning';
+    if (currentUser.role === 'WAREHOUSE_MANAGER') return 'inventory';
     const savedTab = localStorage.getItem('staff_app_room_detail_tab') as RoomTabType;
-    return ['overview', 'inventory', 'maintenance', 'history'].includes(savedTab) ? savedTab : 'overview';
+    return ['overview', 'inventory', 'maintenance', 'cleaning', 'history'].includes(savedTab) ? savedTab : 'overview';
   });
   const [historySearchQuery, setHistorySearchQuery] = useState<string>('');
   const [showPrintModal, setShowPrintModal] = useState(false);
@@ -318,6 +321,9 @@ export const RoomDetailView: React.FC<RoomDetailViewProps> = ({
   };
 
   const handleTabChange = (tab: RoomTabType) => {
+    if (currentUser.role === 'TECHNICIAN' && tab !== 'maintenance') return;
+    if (currentUser.role === 'HOUSEKEEPING' && tab !== 'cleaning') return;
+    if (currentUser.role === 'WAREHOUSE_MANAGER' && tab !== 'inventory') return;
     setActiveTab(tab);
     localStorage.setItem('staff_app_room_detail_tab', tab);
   };
@@ -372,7 +378,7 @@ export const RoomDetailView: React.FC<RoomDetailViewProps> = ({
     try {
       const updated = await roomApi.updateCleaningLog(log.id, {
         status: 'CLEANED',
-        cleanedBy: 'Lojman Yönetimi',
+        cleanedBy: currentUser.fullName || 'Temizlik Personeli',
         notes: log.notes ? `${log.notes} (Temizlendi olarak işaretlendi)` : 'Oda temizlendi ve hazır hale getirildi.',
       });
       setCurrentRoom(updated);
@@ -557,39 +563,45 @@ export const RoomDetailView: React.FC<RoomDetailViewProps> = ({
       </div>
       {/* Top Action Bar */}
       <div className="flex items-center justify-end gap-2 no-print">
-        <button
-          type="button"
-          onClick={() => {
-            setEditRoomForm({
-              roomNumber: currentRoom.roomNumber,
-              floor: currentRoom.floor,
-              capacity: currentRoom.capacity,
-              status: currentRoom.status,
-            });
-            setShowEditRoomModal(true);
-          }}
-          className="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs shadow-md transition-all cursor-pointer"
-        >
-          <Edit className="w-4 h-4" />
-          <span>Oda Bilgilerini Düzenle</span>
-        </button>
+        {canManageRooms && (
+          <>
+            <button
+              type="button"
+              onClick={() => {
+                setEditRoomForm({
+                  roomNumber: currentRoom.roomNumber,
+                  floor: currentRoom.floor,
+                  capacity: currentRoom.capacity,
+                  status: currentRoom.status,
+                });
+                setShowEditRoomModal(true);
+              }}
+              className="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs shadow-md transition-all cursor-pointer"
+            >
+              <Edit className="w-4 h-4" />
+              <span>Oda Bilgilerini Düzenle</span>
+            </button>
 
-        <button
-          type="button"
-          onClick={() => setShowDeleteRoomModal(true)}
-          className="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-rose-700 hover:bg-rose-800 text-white font-bold text-xs shadow-md transition-all cursor-pointer"
-        >
-          <Trash2 className="w-4 h-4" />
-          <span>Odayı Sil</span>
-        </button>
+            <button
+              type="button"
+              onClick={() => setShowDeleteRoomModal(true)}
+              className="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-rose-700 hover:bg-rose-800 text-white font-bold text-xs shadow-md transition-all cursor-pointer"
+            >
+              <Trash2 className="w-4 h-4" />
+              <span>Odayı Sil</span>
+            </button>
+          </>
+        )}
 
-        <button
-          onClick={() => setShowPrintModal(true)}
-          className="flex items-center gap-2 px-4 py-2 rounded-xl bg-[#1e3a8a] text-white font-bold text-xs shadow-md shadow-blue-950/20 hover:bg-blue-900 transition-all cursor-pointer active:scale-95"
-        >
-          <Printer className="w-4 h-4" />
-          <span>Döküm Yazdır</span>
-        </button>
+        {currentUser.role !== 'TECHNICIAN' && currentUser.role !== 'HOUSEKEEPING' && currentUser.role !== 'WAREHOUSE_MANAGER' && (
+          <button
+            onClick={() => setShowPrintModal(true)}
+            className="flex items-center gap-2 px-4 py-2 rounded-xl bg-[#1e3a8a] text-white font-bold text-xs shadow-md shadow-blue-950/20 hover:bg-blue-900 transition-all cursor-pointer active:scale-95"
+          >
+            <Printer className="w-4 h-4" />
+            <span>Döküm Yazdır</span>
+          </button>
+        )}
       </div>
       {roomError && <div role="alert" className="no-print p-3 rounded-xl bg-rose-50 border border-rose-200 text-xs font-bold text-rose-800 flex items-center justify-between gap-3"><span>{roomError}</span><button aria-label="Hata mesajını kapat" onClick={() => setRoomError(null)}><X className="w-4 h-4"/></button></div>}
 
@@ -660,17 +672,19 @@ export const RoomDetailView: React.FC<RoomDetailViewProps> = ({
       {/* Tabs Navigation Bar */}
       <div className="bg-white border border-slate-300 rounded-3xl p-1.5 shadow-sm no-print">
         <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar">
-          <button
-            onClick={() => handleTabChange('overview')}
-            className={`px-4 py-2.5 rounded-2xl text-xs font-extrabold flex items-center gap-2 transition-all cursor-pointer whitespace-nowrap ${
-              activeTab === 'overview'
-                ? 'bg-[#1e3a8a] text-white shadow-md shadow-blue-950/20'
-                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
-            }`}
-          >
-            <BedDouble className="w-4 h-4" />
-            <span>Genel</span>
-          </button>
+          {currentUser.role !== 'TECHNICIAN' && currentUser.role !== 'HOUSEKEEPING' && currentUser.role !== 'WAREHOUSE_MANAGER' && (
+            <button
+              onClick={() => handleTabChange('overview')}
+              className={`px-4 py-2.5 rounded-2xl text-xs font-extrabold flex items-center gap-2 transition-all cursor-pointer whitespace-nowrap ${
+                activeTab === 'overview'
+                  ? 'bg-[#1e3a8a] text-white shadow-md shadow-blue-950/20'
+                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
+              }`}
+            >
+              <BedDouble className="w-4 h-4" />
+              <span>Genel</span>
+            </button>
+          )}
 
           <button
             onClick={() => handleTabChange('inventory')}
@@ -684,41 +698,47 @@ export const RoomDetailView: React.FC<RoomDetailViewProps> = ({
             <span>Oda Zimmetleri ({roomInventories.length})</span>
           </button>
 
-          <button
-            onClick={() => handleTabChange('maintenance')}
-            className={`px-4 py-2.5 rounded-2xl text-xs font-extrabold flex items-center gap-2 transition-all cursor-pointer whitespace-nowrap ${
-              activeTab === 'maintenance'
-                ? 'bg-[#1e3a8a] text-white shadow-md shadow-blue-950/20'
-                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
-            }`}
-          >
-            <Wrench className="w-4 h-4" />
-            <span>Arıza & Bakım Kayıtları ({roomMaintenances.length})</span>
-          </button>
+          {currentUser.role !== 'HOUSEKEEPING' && currentUser.role !== 'WAREHOUSE_MANAGER' && (
+            <button
+              onClick={() => handleTabChange('maintenance')}
+              className={`px-4 py-2.5 rounded-2xl text-xs font-extrabold flex items-center gap-2 transition-all cursor-pointer whitespace-nowrap ${
+                activeTab === 'maintenance'
+                  ? 'bg-[#1e3a8a] text-white shadow-md shadow-blue-950/20'
+                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
+              }`}
+            >
+              <Wrench className="w-4 h-4" />
+              <span>Arıza & Bakım Kayıtları ({roomMaintenances.length})</span>
+            </button>
+          )}
 
-          <button
-            onClick={() => handleTabChange('cleaning')}
-            className={`px-4 py-2.5 rounded-2xl text-xs font-extrabold flex items-center gap-2 transition-all cursor-pointer whitespace-nowrap ${
-              activeTab === 'cleaning'
-                ? 'bg-[#1e3a8a] text-white shadow-md shadow-blue-950/20'
-                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
-            }`}
-          >
-            <Sparkles className="w-4 h-4" />
-            <span>Temizlik Kayıtları ({roomCleaningLogs.length})</span>
-          </button>
+          {currentUser.role !== 'TECHNICIAN' && currentUser.role !== 'WAREHOUSE_MANAGER' && (
+            <button
+              onClick={() => handleTabChange('cleaning')}
+              className={`px-4 py-2.5 rounded-2xl text-xs font-extrabold flex items-center gap-2 transition-all cursor-pointer whitespace-nowrap ${
+                activeTab === 'cleaning'
+                  ? 'bg-[#1e3a8a] text-white shadow-md shadow-blue-950/20'
+                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
+              }`}
+            >
+              <Sparkles className="w-4 h-4" />
+              <span>Temizlik Kayıtları ({roomCleaningLogs.length})</span>
+            </button>
+          )}
 
-          <button
-            onClick={() => handleTabChange('history')}
-            className={`px-4 py-2.5 rounded-2xl text-xs font-extrabold flex items-center gap-2 transition-all cursor-pointer whitespace-nowrap ${
-              activeTab === 'history'
-                ? 'bg-[#1e3a8a] text-white shadow-md shadow-blue-950/20'
-                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
-            }`}
-          >
-            <History className="w-4 h-4" />
-            <span>Konaklama Geçmişi</span>
-          </button>
+          {currentUser.role !== 'TECHNICIAN' && currentUser.role !== 'HOUSEKEEPING' && currentUser.role !== 'WAREHOUSE_MANAGER' && (
+            <button
+              onClick={() => handleTabChange('history')}
+              className={`px-4 py-2.5 rounded-2xl text-xs font-extrabold flex items-center gap-2 transition-all cursor-pointer whitespace-nowrap ${
+                activeTab === 'history'
+                  ? 'bg-[#1e3a8a] text-white shadow-md shadow-blue-950/20'
+                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
+              }`}
+            >
+              <History className="w-4 h-4" />
+              <span>Konaklama Geçmişi</span>
+            </button>
+          )}
         </div>
       </div>
 
@@ -1341,39 +1361,43 @@ export const RoomDetailView: React.FC<RoomDetailViewProps> = ({
                               </button>
                             )}
 
-                            <button
-                              type="button"
-                              title="Düzenle"
-                              disabled={updatingCleaningId === log.id}
-                              onClick={() => {
-                                setCleaningToEdit(log);
-                                setCleaningForm({
-                                  requestedBy: log.requestedBy || 'Lojman Yönetimi',
-                                  notes: log.notes || '',
-                                });
-                                setCleaningError(null);
-                                setShowCleaningModal(true);
-                              }}
-                              className="group relative inline-flex items-center justify-center h-7 px-2 rounded-lg bg-slate-100 text-slate-700 hover:bg-slate-800 hover:text-white border border-slate-300 hover:border-slate-800 transition-all duration-500 ease-out shadow-2xs hover:shadow-md cursor-pointer overflow-hidden disabled:opacity-50"
-                            >
-                              <Edit className="w-3.5 h-3.5 shrink-0 transition-transform duration-500 group-hover:scale-110" />
-                              <span className="max-w-0 opacity-0 group-hover:max-w-[60px] group-hover:opacity-100 group-hover:ml-1.5 transition-all duration-500 ease-out text-[11px] font-extrabold whitespace-nowrap overflow-hidden">
-                                Düzenle
-                              </span>
-                            </button>
+                            {currentUser.role !== 'HOUSEKEEPING' && (
+                              <button
+                                type="button"
+                                title="Düzenle"
+                                disabled={updatingCleaningId === log.id}
+                                onClick={() => {
+                                  setCleaningToEdit(log);
+                                  setCleaningForm({
+                                    requestedBy: log.requestedBy || 'Lojman Yönetimi',
+                                    notes: log.notes || '',
+                                  });
+                                  setCleaningError(null);
+                                  setShowCleaningModal(true);
+                                }}
+                                className="group relative inline-flex items-center justify-center h-7 px-2 rounded-lg bg-slate-100 text-slate-700 hover:bg-slate-800 hover:text-white border border-slate-300 hover:border-slate-800 transition-all duration-500 ease-out shadow-2xs hover:shadow-md cursor-pointer overflow-hidden disabled:opacity-50"
+                              >
+                                <Edit className="w-3.5 h-3.5 shrink-0 transition-transform duration-500 group-hover:scale-110" />
+                                <span className="max-w-0 opacity-0 group-hover:max-w-[60px] group-hover:opacity-100 group-hover:ml-1.5 transition-all duration-500 ease-out text-[11px] font-extrabold whitespace-nowrap overflow-hidden">
+                                  Düzenle
+                                </span>
+                              </button>
+                            )}
 
-                            <button
-                              type="button"
-                              title="Sil"
-                              disabled={updatingCleaningId === log.id}
-                              onClick={() => setCleaningToDelete(log)}
-                              className="group relative inline-flex items-center justify-center h-7 px-2 rounded-lg bg-red-50 text-red-700 hover:bg-red-600 hover:text-white border border-red-200/80 hover:border-red-600 transition-all duration-500 ease-out shadow-2xs hover:shadow-md cursor-pointer overflow-hidden disabled:opacity-50"
-                            >
-                              <Trash2 className="w-3.5 h-3.5 shrink-0 transition-transform duration-500 group-hover:scale-110" />
-                              <span className="max-w-0 opacity-0 group-hover:max-w-[50px] group-hover:opacity-100 group-hover:ml-1.5 transition-all duration-500 ease-out text-[11px] font-extrabold whitespace-nowrap overflow-hidden">
-                                Sil
-                              </span>
-                            </button>
+                            {currentUser.role !== 'HOUSEKEEPING' && (
+                              <button
+                                type="button"
+                                title="Sil"
+                                disabled={updatingCleaningId === log.id}
+                                onClick={() => setCleaningToDelete(log)}
+                                className="group relative inline-flex items-center justify-center h-7 px-2 rounded-lg bg-red-50 text-red-700 hover:bg-red-600 hover:text-white border border-red-200/80 hover:border-red-600 transition-all duration-500 ease-out shadow-2xs hover:shadow-md cursor-pointer overflow-hidden disabled:opacity-50"
+                              >
+                                <Trash2 className="w-3.5 h-3.5 shrink-0 transition-transform duration-500 group-hover:scale-110" />
+                                <span className="max-w-0 opacity-0 group-hover:max-w-[50px] group-hover:opacity-100 group-hover:ml-1.5 transition-all duration-500 ease-out text-[11px] font-extrabold whitespace-nowrap overflow-hidden">
+                                  Sil
+                                </span>
+                              </button>
+                            )}
                           </div>
                         </td>
                       </tr>

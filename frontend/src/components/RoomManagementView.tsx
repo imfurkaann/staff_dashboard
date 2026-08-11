@@ -416,28 +416,32 @@ export const RoomManagementView: React.FC<RoomManagementViewProps> = ({ onNaviga
             </div>
 
             {/* Action Buttons */}
-            <button
-              onClick={() => openCreateModal('block')}
-              className="px-3.5 py-2 rounded-xl border border-slate-300 bg-white text-slate-700 hover:border-[#1e3a8a] hover:text-[#1e3a8a] text-xs font-bold inline-flex items-center gap-1.5 transition-colors cursor-pointer"
-            >
-              <Building2 className="w-3.5 h-3.5" />
-              Yeni Blok
-            </button>
-            <button
-              onClick={() => openCreateModal('room')}
-              disabled={availableBlocks.length === 0}
-              className="px-3.5 py-2 rounded-xl border border-[#1e3a8a] bg-[#1e3a8a] text-white hover:bg-blue-900 text-xs font-bold inline-flex items-center gap-1.5 transition-colors disabled:opacity-50 cursor-pointer"
-            >
-              <Plus className="w-3.5 h-3.5" />
-              Yeni Oda
-            </button>
-            <button
-              onClick={() => setIsExportModalOpen(true)}
-              className="px-3.5 py-2 rounded-xl border border-emerald-300 bg-emerald-50 text-emerald-800 hover:bg-emerald-100 hover:border-emerald-400 text-xs font-bold inline-flex items-center gap-1.5 transition-colors cursor-pointer"
-            >
-              <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-700" />
-              <span>Rapor / Çıktı Al</span>
-            </button>
+            {canManageRooms && (
+              <>
+                <button
+                  onClick={() => openCreateModal('block')}
+                  className="px-3.5 py-2 rounded-xl border border-slate-300 bg-white text-slate-700 hover:border-[#1e3a8a] hover:text-[#1e3a8a] text-xs font-bold inline-flex items-center gap-1.5 transition-colors cursor-pointer"
+                >
+                  <Building2 className="w-3.5 h-3.5" />
+                  Yeni Blok
+                </button>
+                <button
+                  onClick={() => openCreateModal('room')}
+                  disabled={availableBlocks.length === 0}
+                  className="px-3.5 py-2 rounded-xl border border-[#1e3a8a] bg-[#1e3a8a] text-white hover:bg-blue-900 text-xs font-bold inline-flex items-center gap-1.5 transition-colors disabled:opacity-50 cursor-pointer"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  Yeni Oda
+                </button>
+                <button
+                  onClick={() => setIsExportModalOpen(true)}
+                  className="px-3.5 py-2 rounded-xl border border-emerald-300 bg-emerald-50 text-emerald-800 hover:bg-emerald-100 hover:border-emerald-400 text-xs font-bold inline-flex items-center gap-1.5 transition-colors cursor-pointer"
+                >
+                  <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-700" />
+                  <span>Rapor / Çıktı Al</span>
+                </button>
+              </>
+            )}
             <button
               onClick={() => fetchRooms(true)}
               disabled={refreshing}

@@ -15,6 +15,7 @@ import portalRoutes from './routes/portalRoutes';
 import stockRoutes from './routes/stockRoutes';
 import sharedAssetRoutes from './routes/sharedAssetRoutes';
 import userManagementRoutes from './routes/userManagementRoutes';
+import supportTicketRoutes from './routes/supportTicketRoutes';
 import { AppError, errorHandler } from './middleware/errorHandler';
 import { apiRateLimiter } from './middleware/rateLimiter';
 import { originGuard } from './middleware/originGuard';
@@ -60,6 +61,7 @@ app.use('/api/portal', portalRoutes);
 app.use('/api/stock', stockRoutes);
 app.use('/api/shared-assets', sharedAssetRoutes);
 app.use('/api/users', userManagementRoutes);
+app.use('/api/tickets', supportTicketRoutes);
 
 // Health check endpoint
 app.get('/api/health', async (_req, res) => {

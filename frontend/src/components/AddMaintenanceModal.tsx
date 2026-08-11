@@ -32,6 +32,8 @@ interface AddMaintenanceModalProps {
   initialRoomLabel?: string;
   canRetireInventory?: boolean;
   canManageServiceDetails?: boolean;
+  currentUserRole?: string;
+  currentUserFullName?: string;
 }
 
 const categories = [
@@ -71,6 +73,8 @@ export const AddMaintenanceModal: React.FC<AddMaintenanceModalProps> = ({
   initialRoomLabel,
   canRetireInventory = true,
   canManageServiceDetails = true,
+  currentUserRole,
+  currentUserFullName = 'Teknik Personel',
 }) => {
   const [faultType, setFaultType] = useState<MaintenanceType | null>(null);
   const [rooms, setRooms] = useState<Room[]>([]);
@@ -121,7 +125,7 @@ export const AddMaintenanceModal: React.FC<AddMaintenanceModalProps> = ({
       setStatus(maintenance.status || 'OPEN');
       setCategory(maintenance.category || categories[0]);
       setLocation(maintenance.location || '');
-      setAssignedTo(maintenance.assignedTo || '');
+      setAssignedTo(currentUserRole === 'TECHNICIAN' ? (maintenance.assignedTo || currentUserFullName) : (maintenance.assignedTo || ''));
       setResolutionNote(maintenance.resolutionNote || '');
       setServiceProvider(maintenance.serviceProvider || ''); setServiceReference(maintenance.serviceReference || '');
       setLaborCost(maintenance.laborCost || 0); setPartsCost(maintenance.partsCost || 0); setWarrantyCovered(Boolean(maintenance.warrantyCovered));
@@ -138,11 +142,11 @@ export const AddMaintenanceModal: React.FC<AddMaintenanceModalProps> = ({
       setStatus('OPEN');
       setCategory(categories[0]);
       setLocation('');
-      setAssignedTo('');
+      setAssignedTo(currentUserRole === 'TECHNICIAN' ? currentUserFullName : '');
       setResolutionNote('');
       setServiceProvider(''); setServiceReference(''); setLaborCost(0); setPartsCost(0); setWarrantyCovered(false); setSentToServiceAt(''); setReturnedFromServiceAt('');
     }
-  }, [isOpen, maintenance, initialRoomId, initialRoomLabel]);
+  }, [isOpen, maintenance, initialRoomId, initialRoomLabel, currentUserRole, currentUserFullName]);
 
   useEffect(() => {
     if (!isOpen || faultType !== 'ROOM_INVENTORY' || !roomId || maintenance) {

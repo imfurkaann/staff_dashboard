@@ -567,12 +567,16 @@ export const SharedAssetManagementView: React.FC = () => {
                 </tr>
               ) : (
                 loanRecords.map((row, idx) => (
-                  <tr key={row.id} className={`group transition hover:bg-blue-50/40 ${row.isCurrentlyLoaned ? 'bg-blue-50/20' : row.status === 'MAINTENANCE' ? 'bg-amber-50/20' : idx % 2 === 1 ? 'bg-slate-50/40' : ''}`}>
+                  <tr
+                    key={row.id}
+                    onClick={() => setModal({ type: 'detail', asset: row.asset })}
+                    className={`group transition cursor-pointer hover:bg-blue-100/40 ${row.isCurrentlyLoaned ? 'bg-blue-50/20' : row.status === 'MAINTENANCE' ? 'bg-amber-50/20' : idx % 2 === 1 ? 'bg-slate-50/40' : ''}`}
+                  >
                     <td className="px-2 py-2 border-r border-slate-200 text-center text-[10px] font-extrabold text-slate-400">{idx + 1}</td>
                     <td className="px-3 py-2 border-r border-slate-200">
-                      <button onClick={() => setModal({ type: 'detail', asset: row.asset })} className="font-black text-slate-900 hover:text-[#1e3a8a] text-left block">
+                      <span className="font-black text-slate-900 group-hover:text-[#1e3a8a] text-left block">
                         {row.asset.assetName}
-                      </button>
+                      </span>
                       {row.asset.brandModel && <span className="text-[9px] text-slate-500 font-semibold">{row.asset.brandModel}</span>}
                     </td>
                     <td className="px-2.5 py-2 border-r border-slate-200 text-[10px] font-extrabold text-slate-600 whitespace-nowrap">
@@ -610,23 +614,17 @@ export const SharedAssetManagementView: React.FC = () => {
                     <td className="px-2.5 py-2 border-r border-slate-200 text-[10px] font-semibold text-slate-600 truncate max-w-[120px] hidden md:table-cell" title={row.asset.locationNote || ''}>
                       {row.asset.locationNote || '-'}
                     </td>
-                    <td className="px-3 py-2 text-right whitespace-nowrap">
+                    <td className="px-3 py-2 text-right whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
                       <div className="inline-flex gap-1">
                         {row.isCurrentlyLoaned ? (
-                          <button onClick={() => openCheckIn(row.asset)} className="rounded-md border border-emerald-200 bg-emerald-50 px-2 py-1 text-[10px] font-extrabold text-emerald-700 transition hover:bg-emerald-100 flex items-center gap-1" title="Teslim Al / İade Et">
+                          <button onClick={(e) => { e.stopPropagation(); openCheckIn(row.asset); }} className="rounded-md border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-[10px] font-extrabold text-emerald-700 transition hover:bg-emerald-600 hover:text-white flex items-center gap-1 cursor-pointer" title="Teslim Al / İade Et">
                             <RotateCcw className="h-3 w-3" /> Teslim Al
                           </button>
                         ) : row.asset.status === 'AVAILABLE' ? (
-                          <button onClick={() => openCheckOut(row.asset)} className="rounded-md border border-blue-200 bg-blue-50 px-2 py-1 text-[10px] font-extrabold text-blue-700 transition hover:bg-blue-100 flex items-center gap-1" title="Ödünç Ver">
+                          <button onClick={(e) => { e.stopPropagation(); openCheckOut(row.asset); }} className="rounded-md border border-blue-200 bg-blue-50 px-2.5 py-1 text-[10px] font-extrabold text-blue-700 transition hover:bg-[#1e3a8a] hover:text-white flex items-center gap-1 cursor-pointer" title="Ödünç Ver">
                             <Send className="h-3 w-3" /> Ödünç Ver
                           </button>
                         ) : null}
-                        <button onClick={() => openMaintenanceLog(row.asset)} className="rounded-md border border-amber-200 bg-amber-50 p-1 text-amber-800 transition hover:bg-amber-100" title="Bakım / Arıza Kaydı Ekle">
-                          <Wrench className="h-3.5 w-3.5" />
-                        </button>
-                        <button onClick={() => setModal({ type: 'detail', asset: row.asset })} className="rounded-md border border-slate-200 bg-white p-1 text-slate-600 transition hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700" title="Detay & Geçmiş">
-                          <Eye className="h-3.5 w-3.5" />
-                        </button>
                       </div>
                     </td>
                   </tr>

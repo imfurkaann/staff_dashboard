@@ -207,13 +207,17 @@ export const MaintenanceManagementView: React.FC<MaintenanceManagementViewProps>
   }, [hasMore, isLoadingMore, isFetching, page, queryFilters]);
 
   const handleQuickStatusChange = async (log: MaintenanceLog, newStatus: MaintenanceStatus) => {
+    if (currentUser.role === 'TECHNICIAN' && (log.status === 'RESOLVED' || log.status === 'CLOSED')) {
+      setError('Teknik personeller geçmişte çözülmüş veya kapatılmış arıza kayıtlarını değiştiremez.');
+      return;
+    }
     setBusyId(log.id);
     setError(null);
     try {
-      const solverName = log.assignedTo || currentUser.fullName || 'Lojman Yönetimi';
+      const solverName = currentUser.role === 'TECHNICIAN' ? currentUser.fullName : (log.assignedTo || currentUser.fullName || 'Teknik Personel');
       await maintenanceApi.updateMaintenance(log.id, {
         status: newStatus,
-        assignedTo: newStatus === 'RESOLVED' || newStatus === 'CLOSED' ? solverName : null,
+        assignedTo: newStatus === 'RESOLVED' || newStatus === 'CLOSED' || newStatus === 'IN_PROGRESS' ? solverName : log.assignedTo,
       });
       await loadData(false);
     } catch (caught) {
@@ -353,23 +357,27 @@ export const MaintenanceManagementView: React.FC<MaintenanceManagementViewProps>
         </div>
 
         <div className="flex items-center gap-2 shrink-0 ml-auto">
-          <button
-            type="button"
-            disabled={isExporting}
-            onClick={() => setIsReportModalOpen(true)}
-            className="inline-flex items-center gap-1.5 h-9 px-3.5 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white font-extrabold text-xs transition-all cursor-pointer shadow-xs whitespace-nowrap disabled:opacity-50"
-          >
-            <FileSpreadsheet className="w-4 h-4" />
-            <span>Rapor / Çıktı Al</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => setEditingLog(null)}
-            className="inline-flex items-center gap-1.5 h-9 px-3.5 rounded-xl bg-[#1e3a8a] text-white hover:bg-[#172554] border border-[#1e3a8a] font-extrabold text-xs transition-all cursor-pointer shadow-xs whitespace-nowrap"
-          >
-            <Plus className="w-4 h-4" />
-            <span>Yeni Arıza Bildirimi</span>
-          </button>
+          {canExport && (
+            <button
+              type="button"
+              disabled={isExporting}
+              onClick={() => setIsReportModalOpen(true)}
+              className="inline-flex items-center gap-1.5 h-9 px-3.5 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white font-extrabold text-xs transition-all cursor-pointer shadow-xs whitespace-nowrap disabled:opacity-50"
+            >
+              <FileSpreadsheet className="w-4 h-4" />
+              <span>Rapor / Çıktı Al</span>
+            </button>
+          )}
+          {canCreate && (
+            <button
+              type="button"
+              onClick={() => setEditingLog(null)}
+              className="inline-flex items-center gap-1.5 h-9 px-3.5 rounded-xl bg-[#1e3a8a] text-white hover:bg-[#172554] border border-[#1e3a8a] font-extrabold text-xs transition-all cursor-pointer shadow-xs whitespace-nowrap"
+            >
+              <Plus className="w-4 h-4" />
+              <span>Yeni Arıza Bildirimi</span>
+            </button>
+          )}
         </div>
       </div>
 
@@ -624,26 +632,32 @@ export const MaintenanceManagementView: React.FC<MaintenanceManagementViewProps>
                       <td className="py-3.5 px-4 text-right whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
                         <div className="flex items-center justify-end gap-1">
                           {log.status === 'RESOLVED' || log.status === 'CLOSED' ? (
-                            <button
-                              type="button"
-                              disabled={!canManage || busyId === log.id}
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleQuickStatusChange(log, 'OPEN');
-                              }}
-                              className={`${buttonBase} bg-amber-50 text-amber-700 hover:bg-amber-600 hover:text-white border-amber-200/80 hover:border-amber-600`}
-                              title="Çözümü geri al (Tekrar açık yap)"
-                            >
-                              <RotateCcw className="w-3.5 h-3.5 shrink-0 group-hover:scale-110 transition-transform duration-300" />
-                              <span className={labelBase}>Geri Al</span>
-                            </button>
+                            currentUser.role !== 'TECHNICIAN' && canManage && (
+                              <button
+                                type="button"
+                                disabled={busyId === log.id}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleQuickStatusChange(log, 'OPEN');
+                                }}
+                                className={`${buttonBase} bg-amber-50 text-amber-700 hover:bg-amber-600 hover:text-white border-amber-200/80 hover:border-amber-600`}
+                                title="Çözümü geri al (Tekrar açık yap)"
+                              >
+                                <RotateCcw className="w-3.5 h-3.5 shrink-0 group-hover:scale-110 transition-transform duration-300" />
+                                <span className={labelBase}>Geri Al</span>
+                              </button>
+                            )
                           ) : (
                             <button
                               type="button"
                               disabled={!canManage || busyId === log.id}
                               onClick={(e) => {
                                 e.stopPropagation();
-                                setEditingLog({ ...log, status: 'RESOLVED' });
+                                setEditingLog({
+                                  ...log,
+                                  status: 'RESOLVED',
+                                  assignedTo: currentUser.role === 'TECHNICIAN' ? currentUser.fullName : (log.assignedTo || currentUser.fullName),
+                                });
                               }}
                               className={`${buttonBase} bg-emerald-50 text-emerald-700 hover:bg-emerald-600 hover:text-white border-emerald-200/80 hover:border-emerald-600`}
                               title="Çözüm bilgilerini gir"
@@ -653,20 +667,25 @@ export const MaintenanceManagementView: React.FC<MaintenanceManagementViewProps>
                             </button>
                           )}
 
-                          <button
-                            type="button"
-                            disabled={!canManage}
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setEditingLog(log);
-                            }}
-                            className={`${buttonBase} bg-blue-50 text-[#1e3a8a] hover:bg-[#1e3a8a] hover:text-white border-blue-200/80 hover:border-[#1e3a8a]`}
-                            title="Düzenle"
-                          >
-                            <FilePenLine className="w-3.5 h-3.5 shrink-0 group-hover:scale-110 transition-transform duration-300" />
-                            <span className={labelBase}>Düzenle</span>
-                          </button>
-
+                          {!(currentUser.role === 'TECHNICIAN' && (log.status === 'RESOLVED' || log.status === 'CLOSED')) && canManage && (
+                            <button
+                              type="button"
+                              disabled={busyId === log.id}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setEditingLog(
+                                  currentUser.role === 'TECHNICIAN' && !log.assignedTo
+                                    ? { ...log, assignedTo: currentUser.fullName }
+                                    : log
+                                );
+                              }}
+                              className={`${buttonBase} bg-blue-50 text-[#1e3a8a] hover:bg-[#1e3a8a] hover:text-white border-blue-200/80 hover:border-[#1e3a8a]`}
+                              title="Düzenle"
+                            >
+                              <FilePenLine className="w-3.5 h-3.5 shrink-0 group-hover:scale-110 transition-transform duration-300" />
+                              <span className={labelBase}>Düzenle</span>
+                            </button>
+                          )}
                         </div>
                       </td>
                     </tr>
@@ -777,12 +796,13 @@ export const MaintenanceManagementView: React.FC<MaintenanceManagementViewProps>
         isOpen={!!detailTarget}
         log={detailTarget}
         onClose={() => setDetailTarget(null)}
-        onEdit={canManage ? (logToEdit) => setEditingLog(logToEdit) : undefined}
+        onEdit={canManage && !(currentUser.role === 'TECHNICIAN' && (detailTarget?.status === 'RESOLVED' || detailTarget?.status === 'CLOSED')) ? (logToEdit) => setEditingLog(logToEdit) : undefined}
         onStatusChange={canManage ? ((log, nextStatus) => {
-          if (nextStatus === 'RESOLVED' || nextStatus === 'CLOSED') setEditingLog({ ...log, status: nextStatus });
+          if (nextStatus === 'RESOLVED' || nextStatus === 'CLOSED') setEditingLog({ ...log, status: nextStatus, assignedTo: currentUser.role === 'TECHNICIAN' ? currentUser.fullName : (log.assignedTo || currentUser.fullName) });
           else handleQuickStatusChange(log, nextStatus);
         }) : undefined}
         currentUserFullName={currentUser.fullName}
+        currentUserRole={currentUser.role}
       />
 
       {/* Add / Edit Modal */}
@@ -795,6 +815,8 @@ export const MaintenanceManagementView: React.FC<MaintenanceManagementViewProps>
         onSuccess={() => {
           loadData(false);
         }}
+        currentUserRole={currentUser.role}
+        currentUserFullName={currentUser.fullName}
       />
 
       {/* Report Modal */}

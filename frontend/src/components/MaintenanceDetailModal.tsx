@@ -25,6 +25,7 @@ interface MaintenanceDetailModalProps {
   onEdit?: (log: MaintenanceLog) => void;
   onStatusChange?: (log: MaintenanceLog, newStatus: MaintenanceStatus) => void;
   currentUserFullName?: string;
+  currentUserRole?: string;
 }
 
 export const MaintenanceDetailModal: React.FC<MaintenanceDetailModalProps> = ({
@@ -34,6 +35,7 @@ export const MaintenanceDetailModal: React.FC<MaintenanceDetailModalProps> = ({
   onEdit,
   onStatusChange,
   currentUserFullName = 'Lojman Yönetimi',
+  currentUserRole,
 }) => {
   if (!isOpen || !log) return null;
 
@@ -270,17 +272,19 @@ export const MaintenanceDetailModal: React.FC<MaintenanceDetailModalProps> = ({
           <div className="flex items-center gap-2">
             {onStatusChange &&
               (log.status === 'RESOLVED' || log.status === 'CLOSED' ? (
-                <button
-                  type="button"
-                  onClick={() => {
-                    onStatusChange(log, 'OPEN');
-                    onClose();
-                  }}
-                  className="px-4 py-2 rounded-xl bg-amber-50 text-amber-700 hover:bg-amber-600 hover:text-white border border-amber-300 text-xs font-extrabold flex items-center gap-1.5 transition-colors cursor-pointer"
-                >
-                  <RotateCcw className="w-4 h-4" />
-                  <span>Çözümü Geri Al (Açık Yap)</span>
-                </button>
+                currentUserRole !== 'TECHNICIAN' && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onStatusChange(log, 'OPEN');
+                      onClose();
+                    }}
+                    className="px-4 py-2 rounded-xl bg-amber-50 text-amber-700 hover:bg-amber-600 hover:text-white border border-amber-300 text-xs font-extrabold flex items-center gap-1.5 transition-colors cursor-pointer"
+                  >
+                    <RotateCcw className="w-4 h-4" />
+                    <span>Çözümü Geri Al (Açık Yap)</span>
+                  </button>
+                )
               ) : (
                 <button
                   type="button"
@@ -297,7 +301,7 @@ export const MaintenanceDetailModal: React.FC<MaintenanceDetailModalProps> = ({
           </div>
 
           <div className="flex items-center gap-2 ml-auto">
-            {onEdit && (
+            {onEdit && !(currentUserRole === 'TECHNICIAN' && (log.status === 'RESOLVED' || log.status === 'CLOSED')) && (
               <button
                 type="button"
                 onClick={() => {
