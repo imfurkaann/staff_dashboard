@@ -34,7 +34,7 @@ interface ExportMaintenanceLog {
   } | null;
 }
 
-function safeCell(value?: string | null): string {
+export function safeMaintenanceCell(value?: string | null): string {
   const text = value?.trim() || '-';
   return /^[=+\-@]/.test(text) ? `'${text}` : text;
 }
@@ -106,7 +106,7 @@ export async function createMaintenanceWorkbook(rows: ExportMaintenanceLog[], ge
       // 1. Group Banner Header Row
       sheet.mergeCells(`A${currentRowNum}:V${currentRowNum}`);
       const bannerCell = sheet.getCell(`A${currentRowNum}`);
-      bannerCell.value = `${group.blockName} - ${group.roomTitle}  (TOPLAM ARIZA / BAKIM: ${group.items.length} ADET)`;
+      bannerCell.value = safeMaintenanceCell(`${group.blockName} - ${group.roomTitle}  (TOPLAM ARIZA / BAKIM: ${group.items.length} ADET)`);
       bannerCell.font = { name: 'Arial', size: 10.5, bold: true, color: { argb: 'FFFFFFFF' } };
       bannerCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF334155' } }; // Corporate Dark Slate Banner
       bannerCell.alignment = { vertical: 'middle', horizontal: 'left', indent: 1 };
@@ -182,13 +182,13 @@ export async function createMaintenanceWorkbook(rows: ExportMaintenanceLog[], ge
         const inventoryLabel = isInventoryFault
           ? [m.inventoryAssetTagSnapshot ? `DEMİRBAŞ ${m.inventoryAssetTagSnapshot}` : null, m.inventoryItemNameSnapshot, m.inventoryBrandSnapshot, m.inventorySerialNoSnapshot ? `S/N ${m.inventorySerialNoSnapshot}` : null, m.inventoryQuantitySnapshot ? `${m.inventoryQuantitySnapshot} ADET` : null].filter(Boolean).join(' / ')
           : '-';
-        const inventoryStatus = isInventoryFault ? (inventoryStatusLabels[m.inventoryStatus || ''] || safeCell(m.inventoryStatus)) : '-';
+        const inventoryStatus = isInventoryFault ? (inventoryStatusLabels[m.inventoryStatus || ''] || safeMaintenanceCell(m.inventoryStatus)) : '-';
         const stockEffect = m.inventoryStatus === 'LOST'
           ? `TOPLAM STOKTAN ${m.inventoryQuantitySnapshot || 0} ADET DÜŞÜLDÜ`
           : (isInventoryFault ? 'MİKTAR DEĞİŞMEDİ / DURUM HAREKETİ' : '-');
-        const reportedBy = safeCell(m.reportedBy || 'Lojman Yönetimi');
-        const assignedTo = safeCell(m.assignedTo || (m.status === 'RESOLVED' || m.status === 'CLOSED' ? 'Lojman Yönetimi' : '-'));
-        const resolutionNote = safeCell(m.resolutionNote);
+        const reportedBy = safeMaintenanceCell(m.reportedBy || 'Lojman Yönetimi');
+        const assignedTo = safeMaintenanceCell(m.assignedTo || (m.status === 'RESOLVED' || m.status === 'CLOSED' ? 'Lojman Yönetimi' : '-'));
+        const resolutionNote = safeMaintenanceCell(m.resolutionNote);
 
         const createdAtDate = new Date(m.createdAt);
         const resolvedAtDate = m.resolvedAt ? new Date(m.resolvedAt) : null;
@@ -203,11 +203,11 @@ export async function createMaintenanceWorkbook(rows: ExportMaintenanceLog[], ge
           statusLabel,
           isInventoryFault ? 'DEMİRBAŞ ARIZASI' : 'GENEL ODA ARIZASI',
           priorityLabel,
-          category,
-          safeCell(inventoryLabel),
+          safeMaintenanceCell(category),
+          safeMaintenanceCell(inventoryLabel),
           inventoryStatus,
-          description,
-          location,
+          safeMaintenanceCell(description),
+          safeMaintenanceCell(location),
           reportedBy,
           assignedTo,
           createdAtDate,
@@ -215,9 +215,9 @@ export async function createMaintenanceWorkbook(rows: ExportMaintenanceLog[], ge
           resolvedAtDate || '',
           resolvedAtDate || '',
           resolutionNote,
-          stockEffect,
-          safeCell(m.serviceProvider),
-          safeCell(m.serviceReference),
+          safeMaintenanceCell(stockEffect),
+          safeMaintenanceCell(m.serviceProvider),
+          safeMaintenanceCell(m.serviceReference),
           m.warrantyCovered ? 'GARANTİ KAPSAMINDA' : 'GARANTİ DIŞI',
           m.laborCost || 0,
           m.partsCost || 0,

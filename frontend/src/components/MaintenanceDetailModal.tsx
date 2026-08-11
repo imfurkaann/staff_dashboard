@@ -112,11 +112,11 @@ export const MaintenanceDetailModal: React.FC<MaintenanceDetailModalProps> = ({
   const reportedByName =
     log.reportedBy && log.reportedBy !== 'Sistem Kullanıcısı'
       ? log.reportedBy
-      : currentUserFullName;
+      : 'Sistem / Eski Kayıt';
 
   const resolvedByName =
     log.assignedTo ||
-    (log.status === 'RESOLVED' || log.status === 'CLOSED' ? currentUserFullName : null);
+    (log.status === 'RESOLVED' || log.status === 'CLOSED' ? 'Sistem / Eski Kayıt' : null);
 
   return (
     <div
@@ -212,10 +212,10 @@ export const MaintenanceDetailModal: React.FC<MaintenanceDetailModalProps> = ({
             </div>
           )}
 
-          {log.type === 'ROOM_INVENTORY' && (log.serviceProvider || log.serviceReference || log.sentToServiceAt || log.returnedFromServiceAt || log.laborCost > 0 || log.partsCost > 0 || log.warrantyCovered) && (
+          {log.type === 'ROOM_INVENTORY' && (log.serviceProvider || log.serviceReference || log.sentToServiceAt || log.returnedFromServiceAt || (log.laborCost || 0) > 0 || (log.partsCost || 0) > 0 || log.warrantyCovered) && (
             <div className="space-y-3 rounded-2xl border border-blue-200 bg-blue-50/60 p-4">
               <h4 className="text-xs font-extrabold uppercase tracking-wider text-blue-900">Servis, Garanti ve Maliyet Özeti</h4>
-              <div className="grid grid-cols-2 gap-3 text-xs"><div><span className="block text-[10px] font-bold text-slate-500">Servis Firması</span><strong>{log.serviceProvider || '-'}</strong></div><div><span className="block text-[10px] font-bold text-slate-500">İş Emri / Servis No</span><strong>{log.serviceReference || '-'}</strong></div><div><span className="block text-[10px] font-bold text-slate-500">Servise Gönderilme</span><strong>{formatDateWithTime(log.sentToServiceAt)}</strong></div><div><span className="block text-[10px] font-bold text-slate-500">Servisten Dönüş</span><strong>{formatDateWithTime(log.returnedFromServiceAt)}</strong></div><div><span className="block text-[10px] font-bold text-slate-500">Garanti</span><strong>{log.warrantyCovered ? 'Garanti kapsamında' : 'Garanti dışı'}</strong></div><div><span className="block text-[10px] font-bold text-slate-500">Toplam Maliyet</span><strong>{(log.laborCost + log.partsCost).toLocaleString('tr-TR', { style: 'currency', currency: 'TRY' })}</strong></div></div>
+              <div className="grid grid-cols-2 gap-3 text-xs"><div><span className="block text-[10px] font-bold text-slate-500">Servis Firması</span><strong>{log.serviceProvider || '-'}</strong></div><div><span className="block text-[10px] font-bold text-slate-500">İş Emri / Servis No</span><strong>{log.serviceReference || '-'}</strong></div><div><span className="block text-[10px] font-bold text-slate-500">Servise Gönderilme</span><strong>{formatDateWithTime(log.sentToServiceAt)}</strong></div><div><span className="block text-[10px] font-bold text-slate-500">Servisten Dönüş</span><strong>{formatDateWithTime(log.returnedFromServiceAt)}</strong></div><div><span className="block text-[10px] font-bold text-slate-500">Garanti</span><strong>{log.warrantyCovered ? 'Garanti kapsamında' : 'Garanti dışı'}</strong></div>{(log.laborCost !== undefined || log.partsCost !== undefined) && <div><span className="block text-[10px] font-bold text-slate-500">Toplam Maliyet</span><strong>{((log.laborCost || 0) + (log.partsCost || 0)).toLocaleString('tr-TR', { style: 'currency', currency: 'TRY' })}</strong></div>}</div>
             </div>
           )}
 

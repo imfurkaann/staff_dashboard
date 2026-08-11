@@ -1,8 +1,9 @@
-import { NotificationPriority, NotificationTargetType } from '@prisma/client';
+import { NotificationPriority, NotificationTargetType, Prisma } from '@prisma/client';
 import prisma from '../db/prisma';
 import { AppError } from '../middleware/errorHandler';
-import { boundedText } from '../utils/normalization';
 import { PushService } from './pushService';
+import { validateNotificationQuery, validateNotificationSendInput } from '../security/notificationPolicy';
+import { buildActiveResidentStaffWhere } from '../security/notificationAudience';
 
 export interface SendNotificationDTO {
   title: string;
@@ -11,6 +12,7 @@ export interface SendNotificationDTO {
   targetType: NotificationTargetType;
   targetValue?: string; // Block ID/Name, Department Name, or JSON Array of User IDs
   createdById?: string;
+  requestKey: string;
 }
 
 export class NotificationService {
@@ -18,38 +20,34 @@ export class NotificationService {
    * Send notification to targeted audience (ALL, BLOCK, DEPARTMENT, SPECIFIC_USERS)
    */
   public static async sendNotification(data: SendNotificationDTO) {
-    const { title, message, priority = 'NORMAL', targetType, targetValue, createdById } = data;
+    const input = validateNotificationSendInput(data);
+    const { title, message, priority, targetType, targetValue, targetValues } = input;
+    const { createdById, requestKey } = data;
 
-    const normalizedTitle = boundedText(title, 'Bildirim başlığı', 120, { required: true, casing: 'upper' })!;
-    const normalizedMessage = boundedText(message, 'Bildirim mesajı', 2000, { required: true, casing: 'upper' })!;
-    if (!Object.values(NotificationPriority).includes(priority)) throw new AppError('Geçersiz bildirim önceliği.', 400);
-    if (!Object.values(NotificationTargetType).includes(targetType)) throw new AppError('Geçersiz hedef kitle türü.', 400);
+    const existing = await prisma.notification.findUnique({
+      where: { requestKey },
+      include: { _count: { select: { recipients: true } } },
+    });
+    if (existing) {
+      if (existing.createdById !== createdById) throw new AppError('Bu istek anahtarı daha önce kullanılmış.', 409);
+      return {
+        ...existing,
+        recipientCount: existing._count.recipients,
+        duplicate: true,
+        pushDelivery: { sent: 0, failed: 0, disabled: !PushService.isConfigured(), queued: false },
+      };
+    }
 
     // Resolve target User IDs
     let targetUserIds: string[] = [];
 
     if (targetType === 'ALL') {
       const users = await prisma.user.findMany({
-        where: { isActive: true, role: 'STAFF' },
+        where: buildActiveResidentStaffWhere(),
         select: { id: true },
       });
       targetUserIds = users.map((u) => u.id);
     } else if (targetType === 'BLOCK') {
-      if (!targetValue || !targetValue.trim()) {
-        throw new AppError('Lütfen en az bir lojman bloğu seçiniz.', 400);
-      }
-
-      let blocksToFilter: string[] = [];
-      try {
-        if (targetValue.trim().startsWith('[')) {
-          blocksToFilter = JSON.parse(targetValue);
-        } else {
-          blocksToFilter = targetValue.split(',').map(b => b.trim()).filter(Boolean);
-        }
-      } catch {
-        blocksToFilter = targetValue.split(',').map(b => b.trim()).filter(Boolean);
-      }
-
       // Find employees occupying beds in the specified blocks
       const beds = await prisma.bed.findMany({
         where: {
@@ -57,8 +55,8 @@ export class NotificationService {
           currentEmployeeId: { not: null },
           room: {
             OR: [
-              { blockId: { in: blocksToFilter } },
-              { block: { name: { in: blocksToFilter, mode: 'insensitive' } } },
+              { blockId: { in: targetValues } },
+              { block: { name: { in: targetValues, mode: 'insensitive' } } },
             ],
           },
         },
@@ -77,24 +75,9 @@ export class NotificationService {
       });
       targetUserIds = Array.from(userIdsSet);
     } else if (targetType === 'DEPARTMENT') {
-      if (!targetValue || !targetValue.trim()) {
-        throw new AppError('Lütfen en az bir departman seçiniz.', 400);
-      }
-
-      let deptsToFilter: string[] = [];
-      try {
-        if (targetValue.trim().startsWith('[')) {
-          deptsToFilter = JSON.parse(targetValue);
-        } else {
-          deptsToFilter = targetValue.split(',').map(d => d.trim()).filter(Boolean);
-        }
-      } catch {
-        deptsToFilter = targetValue.split(',').map(d => d.trim()).filter(Boolean);
-      }
-
       const employees = await prisma.employee.findMany({
         where: {
-          department: { in: deptsToFilter, mode: 'insensitive' },
+          department: { in: targetValues, mode: 'insensitive' },
           isDeleted: false,
           userId: { not: null },
         },
@@ -105,13 +88,9 @@ export class NotificationService {
         .map((e) => e.userId)
         .filter((id): id is string => Boolean(id));
     } else if (targetType === 'GENDER') {
-      if (!targetValue || !['Male', 'Female'].includes(targetValue.trim())) {
-        throw new AppError('Lütfen geçerli bir cinsiyet seçiniz.', 400);
-      }
-
       const employees = await prisma.employee.findMany({
         where: {
-          gender: { equals: targetValue.trim(), mode: 'insensitive' },
+          gender: { equals: targetValues[0], mode: 'insensitive' },
           isDeleted: false,
           userId: { not: null },
         },
@@ -122,103 +101,101 @@ export class NotificationService {
         .map((e) => e.userId)
         .filter((id): id is string => Boolean(id));
     } else if (targetType === 'SPECIFIC_USERS') {
-      if (!targetValue || !targetValue.trim()) {
-        throw new AppError('Lütfen en az bir personel/kullanıcı seçiniz.', 400);
-      }
-
-      try {
-        if (targetValue.startsWith('[')) {
-          targetUserIds = JSON.parse(targetValue);
-        } else {
-          targetUserIds = targetValue.split(',').map((id) => id.trim()).filter(Boolean);
-        }
-      } catch (_e) {
-        targetUserIds = targetValue.split(',').map((id) => id.trim()).filter(Boolean);
-      }
+      targetUserIds = targetValues;
     } else {
       throw new AppError('Geçersiz hedef kitle türü.', 400);
     }
 
     // Filter out duplicates and invalid IDs
     targetUserIds = Array.from(new Set(targetUserIds.filter((id): id is string => typeof id === 'string' && id.length > 0)));
-    if (targetUserIds.length > 1000) throw new AppError('Tek seferde en fazla 1000 özel kullanıcı seçilebilir.', 400);
+    if (targetUserIds.length > 10_000) throw new AppError('Tek bir duyuru en fazla 10.000 kullanıcıya gönderilebilir.', 400);
 
     const validUsers = await prisma.user.findMany({
-      where: { id: { in: targetUserIds }, isActive: true, role: 'STAFF' },
+      where: buildActiveResidentStaffWhere(targetUserIds),
       select: { id: true },
     });
     targetUserIds = validUsers.map((user) => user.id);
 
     if (targetUserIds.length === 0) {
-      throw new AppError('Seçilen filtre kriterine uyan kayıtlı personel kullanıcısı bulunamadı.', 400);
+      throw new AppError('Seçilen kriterlere uyan, odada aktif olarak konaklayan ve portal hesabı bulunan personel bulunamadı.', 400);
     }
 
-    const result = await prisma.$transaction(async (tx) => {
-      const notification = await tx.notification.create({
-        data: {
-          title: normalizedTitle,
-          message: normalizedMessage,
-          priority,
-          targetType,
-          targetValue: targetValue || null,
-          createdById: createdById || null,
-        },
+    let result;
+    try {
+      result = await prisma.$transaction(async (tx) => {
+        const notification = await tx.notification.create({
+          data: {
+            requestKey,
+            title,
+            message,
+            priority,
+            targetType,
+            targetValue,
+            createdById: createdById || null,
+          },
+        });
+
+        await tx.notificationRecipient.createMany({
+          data: targetUserIds.map((userId) => ({ notificationId: notification.id, userId })),
+          skipDuplicates: true,
+        });
+        return { ...notification, recipientCount: targetUserIds.length };
       });
+    } catch (error) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+        const duplicate = await prisma.notification.findUnique({
+          where: { requestKey },
+          include: { _count: { select: { recipients: true } } },
+        });
+        if (duplicate && duplicate.createdById === createdById) {
+          return {
+            ...duplicate,
+            recipientCount: duplicate._count.recipients,
+            duplicate: true,
+            pushDelivery: { sent: 0, failed: 0, disabled: !PushService.isConfigured(), queued: false },
+          };
+        }
+      }
+      throw error;
+    }
 
-      await tx.notificationRecipient.createMany({
-        data: targetUserIds.map((userId) => ({
-          notificationId: notification.id,
-          userId,
-        })),
-        skipDuplicates: true,
-      });
-
-      return {
-        ...notification,
-        recipientCount: targetUserIds.length,
-      };
-    });
-
-    const pushDelivery = await PushService.sendToUsers(targetUserIds, {
+    const pushDelivery = PushService.queueToUsers(targetUserIds, {
       title: result.title,
-      body: result.message,
+      body: result.message.slice(0, 500),
       priority: result.priority,
       notificationId: result.id,
       url: '/?tab=notifications',
     });
 
-    return { ...result, pushDelivery };
+    return { ...result, duplicate: false, pushDelivery };
   }
 
   /**
    * Get list of sent notifications with dynamic filtering and statistics for management view
    */
   public static async getSentNotifications(query: any = {}) {
-    const page = Number(query.page || 1);
-    const pageSize = Number(query.pageSize || 25);
-    const safePage = Number.isInteger(page) && page > 0 ? page : 1;
-    const safePageSize = Number.isInteger(pageSize) ? Math.min(Math.max(pageSize, 1), 100) : 25;
+    const filters = validateNotificationQuery(query);
+    const { page, pageSize, search, sender, priority, targetType, dateStart, dateEnd } = filters;
 
     const where: any = { isDeleted: false };
 
-    if (query.search && query.search.trim()) {
-      const searchPattern = query.search.trim();
+    if (search) {
       where.OR = [
-        { title: { contains: searchPattern, mode: 'insensitive' } },
-        { message: { contains: searchPattern, mode: 'insensitive' } },
+        { title: { contains: search, mode: 'insensitive' } },
+        { message: { contains: search, mode: 'insensitive' } },
       ];
     }
 
-    if (query.priority && query.priority !== 'ALL') {
-      where.priority = query.priority;
+    if (priority) {
+      where.priority = priority;
     }
 
-    if (query.targetType && query.targetType !== 'ALL') {
-      where.targetType = query.targetType;
+    if (targetType) {
+      where.targetType = targetType;
     }
 
-    if (query.sender && query.sender.trim()) {
-      const senderPattern = query.sender.trim();
+    if (sender) {
+      const senderPattern = sender;
       where.createdBy = {
         OR: [
           { fullName: { contains: senderPattern, mode: 'insensitive' } },
@@ -227,10 +204,10 @@ export class NotificationService {
       };
     }
 
-    if (query.dateStart || query.dateEnd) {
+    if (dateStart || dateEnd) {
       where.createdAt = {
-        ...(query.dateStart ? { gte: new Date(query.dateStart) } : {}),
-        ...(query.dateEnd ? { lte: new Date(query.dateEnd) } : {}),
+        ...(dateStart ? { gte: dateStart } : {}),
+        ...(dateEnd ? { lte: dateEnd } : {}),
       };
     }
 
@@ -238,17 +215,13 @@ export class NotificationService {
       prisma.notification.findMany({
         where,
         orderBy: { createdAt: 'desc' },
-        skip: (safePage - 1) * safePageSize,
-        take: safePageSize,
+        skip: (page - 1) * pageSize,
+        take: pageSize,
         include: {
           createdBy: {
             select: { id: true, fullName: true, username: true, role: true },
           },
-          recipients: {
-            include: {
-              user: { select: { id: true, fullName: true, username: true } },
-            },
-          },
+          _count: { select: { recipients: true } },
         },
       }),
       prisma.notification.count({ where }),
@@ -259,13 +232,6 @@ export class NotificationService {
     ]);
 
     const items = notifications.map((item) => {
-      const totalRecipients = item.recipients.length;
-      const recipientNames = item.recipients.map((r) => `${r.user.fullName} (@${r.user.username})`).join(', ');
-      const recipientsList = item.recipients.map((r) => ({
-        fullName: r.user.fullName,
-        username: r.user.username,
-      }));
-
       return {
         id: item.id,
         title: item.title,
@@ -275,9 +241,7 @@ export class NotificationService {
         targetValue: item.targetValue,
         createdAt: item.createdAt,
         senderName: item.createdBy ? `${item.createdBy.fullName} (@${item.createdBy.username})` : 'Sistem Yöneticisi',
-        totalRecipients,
-        recipientNames,
-        recipients: recipientsList,
+        totalRecipients: item._count.recipients,
       };
     });
     return { 
@@ -289,11 +253,37 @@ export class NotificationService {
         urgentCount,
       },
       pagination: { 
-        page: safePage, 
-        pageSize: safePageSize, 
-        total: totalFiltered, 
-        totalPages: Math.ceil(totalFiltered / safePageSize) 
+        page,
+        pageSize,
+        total: totalFiltered,
+        totalPages: Math.ceil(totalFiltered / pageSize)
       } 
+    };
+  }
+
+  public static async getNotificationDetail(notificationId: string) {
+    const item = await prisma.notification.findFirst({
+      where: { id: notificationId, isDeleted: false },
+      include: {
+        createdBy: { select: { fullName: true, username: true } },
+        recipients: {
+          orderBy: { user: { fullName: 'asc' } },
+          select: { user: { select: { fullName: true, username: true } } },
+        },
+      },
+    });
+    if (!item) throw new AppError('Duyuru bulunamadı.', 404);
+    return {
+      id: item.id,
+      title: item.title,
+      message: item.message,
+      priority: item.priority,
+      targetType: item.targetType,
+      targetValue: item.targetValue,
+      createdAt: item.createdAt,
+      senderName: item.createdBy ? `${item.createdBy.fullName} (@${item.createdBy.username})` : 'Sistem Yöneticisi',
+      totalRecipients: item.recipients.length,
+      recipients: item.recipients.map(({ user }) => user),
     };
   }
 

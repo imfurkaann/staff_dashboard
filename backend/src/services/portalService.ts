@@ -23,6 +23,7 @@ export class PortalService {
           },
         },
         inventories: {
+          where: { isDeleted: false },
           orderBy: { createdAt: 'desc' },
         },
         occupancies: {

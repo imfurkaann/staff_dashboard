@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { hasPermission, permissions } from '../security/permissions';
-import { scopeEmployeeData, scopeRoomData } from '../security/dataScope';
+import { scopeEmployeeData, scopeMaintenanceData, scopeRoomData } from '../security/dataScope';
 
 test('technical roles can process faults without receiving user administration access', () => {
   assert.equal(hasPermission('TECHNICAL_MANAGER', permissions.MAINTENANCE_FULL_UPDATE), true);
@@ -40,4 +40,13 @@ test('room scoping hides occupants from technical and housekeeping roles', () =>
   const housekeeping = scopeRoomData(room, 'HOUSEKEEPING');
   assert.deepEqual(housekeeping.maintenances, []);
   assert.deepEqual(housekeeping.inventories, []);
+});
+
+test('maintenance financial values require full-update permission', () => {
+  const record = { id: 'm1', laborCost: 1500, partsCost: 500, serviceProvider: 'SERVİS A' };
+  const technician = scopeMaintenanceData(record, 'TECHNICIAN') as Record<string, unknown>;
+  assert.equal('laborCost' in technician, false);
+  assert.equal('partsCost' in technician, false);
+  assert.equal(technician.serviceProvider, 'SERVİS A');
+  assert.equal((scopeMaintenanceData(record, 'TECHNICAL_MANAGER') as typeof record).laborCost, 1500);
 });

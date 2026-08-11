@@ -71,15 +71,28 @@ export const notificationApi = {
   },
 
   sendNotification: async (payload: SendNotificationPayload) => {
+    const requestKey = typeof crypto.randomUUID === 'function'
+      ? crypto.randomUUID()
+      : 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (char) => {
+          const random = crypto.getRandomValues(new Uint8Array(1))[0] & 15;
+          return (char === 'x' ? random : (random & 3) | 8).toString(16);
+        });
     const res = await fetch(`${API_BASE_URL}/notifications/send`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', 'Idempotency-Key': requestKey },
       credentials: 'include',
       body: JSON.stringify(payload),
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.message || 'Bildirim gönderilemedi.');
     return data;
+  },
+
+  getNotificationDetail: async (id: string): Promise<SentNotification> => {
+    const res = await fetch(`${API_BASE_URL}/notifications/${id}`, { credentials: 'include' });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.message || 'Duyuru ayrıntısı alınamadı.');
+    return data.data;
   },
 
   deleteNotification: async (id: string) => {

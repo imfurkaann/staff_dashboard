@@ -5,30 +5,55 @@ import { MaintenancePriority, MaintenanceStatus, MaintenanceType, RoomInventoryS
 import { AuthenticatedRequest } from '../middleware/authMiddleware';
 import { formatIstanbulDate } from '../utils/dateTime';
 import { createOccupancyWorkbook, createRoomInventoryWorkbook } from '../services/roomExportService';
-import { scopeRoomData } from '../security/dataScope';
+import { scopeMaintenanceData, scopeRoomData } from '../security/dataScope';
+import { AppError } from '../middleware/errorHandler';
+import { config } from '../config';
+import { hasPermission, permissions } from '../security/permissions';
 
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const isUuid = (value: unknown): value is string => typeof value === 'string' && uuidPattern.test(value);
-const cleanString = (value: unknown, maxLength: number) => typeof value === 'string' ? value.trim().slice(0, maxLength) : '';
+const requestBody = (value: unknown): Record<string, any> => {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new AppError('İstek gövdesi geçersiz.', 400);
+  return value as Record<string, any>;
+};
+const cleanString = (value: unknown, maxLength: number) => {
+  if (value === undefined || value === null) return '';
+  if (typeof value !== 'string') throw new AppError('Metin alanı geçersiz.', 400);
+  const clean = value.trim();
+  if (clean.length > maxLength) throw new AppError(`Metin alanı en fazla ${maxLength} karakter olabilir.`, 400);
+  return clean;
+};
+const singleQuery = (value: unknown, fieldName: string): string | undefined => {
+  if (value === undefined || value === '') return undefined;
+  if (typeof value !== 'string') throw new AppError(`${fieldName} tek bir metin değeri olmalıdır.`, 400);
+  return value;
+};
+const strictInteger = (value: unknown, fieldName: string): number => {
+  if (typeof value !== 'number' || !Number.isInteger(value)) throw new AppError(`${fieldName} tam sayı olmalıdır.`, 400);
+  return value;
+};
 
 export const roomController = {
   getRooms: async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const { blockId, floor, status, search } = req.query;
+      const blockId = singleQuery(req.query.blockId, 'Blok filtresi');
+      const floor = singleQuery(req.query.floor, 'Kat filtresi');
+      const status = singleQuery(req.query.status, 'Durum filtresi');
+      const search = singleQuery(req.query.search, 'Arama filtresi');
 
       const parsedFloor = floor !== undefined && floor !== '' ? Number(floor) : undefined;
       if (parsedFloor !== undefined && (!Number.isInteger(parsedFloor) || parsedFloor < -5 || parsedFloor > 200)) {
         return res.status(400).json({ success: false, message: 'Kat değeri geçersiz.' });
       }
-      if (status && !Object.values(RoomStatus).includes(String(status) as RoomStatus)) {
+      if (status && !Object.values(RoomStatus).includes(status as RoomStatus)) {
         return res.status(400).json({ success: false, message: 'Oda durumu filtresi geçersiz.' });
       }
       const cleanSearch = cleanString(search, 100);
-      if (blockId && !isUuid(String(blockId))) return res.status(400).json({ success: false, message: 'Blok filtresi geçersiz.' });
+      if (blockId && !isUuid(blockId)) return res.status(400).json({ success: false, message: 'Blok filtresi geçersiz.' });
       const filters = {
-        blockId: blockId ? String(blockId) : undefined,
+        blockId,
         floor: parsedFloor,
-        status: status ? (String(status) as RoomStatus) : undefined,
+        status: status ? (status as RoomStatus) : undefined,
         search: cleanSearch || undefined,
       };
 
@@ -104,9 +129,9 @@ export const roomController = {
         });
       }
 
-      const parsedFloor = Number(floor);
+      const parsedFloor = strictInteger(floor, 'Kat');
       const normalizedRoomType = roomType ? cleanString(roomType, 50).toLocaleUpperCase('tr-TR') : 'PERSONEL_ODASI';
-      const parsedCapacity = normalizedRoomType === 'PERSONEL_ODASI' ? (capacity === undefined ? 2 : Number(capacity)) : 0;
+      const parsedCapacity = normalizedRoomType === 'PERSONEL_ODASI' ? (capacity === undefined ? 2 : strictInteger(capacity, 'Kapasite')) : 0;
       const normalizedRoomNumber = cleanString(roomNumber, 50).toLocaleUpperCase('tr-TR');
       if (!isUuid(blockId)) return res.status(400).json({ success: false, message: 'Geçersiz blok kimliği.' });
       if (!Number.isInteger(parsedFloor) || parsedFloor < -5 || parsedFloor > 200) return res.status(400).json({ success: false, message: 'Kat değeri -5 ile 200 arasında olmalıdır.' });
@@ -153,9 +178,11 @@ export const roomController = {
   createMaintenance: async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
     try {
       const { id } = req.params;
-      const { type = 'GENERAL', roomInventoryId, inventoryStatus, title, description, priority = 'MEDIUM', category, location } = req.body;
+      const requestKey = req.get('X-Idempotency-Key');
+      const { type = 'GENERAL', roomInventoryId, inventoryStatus, title, description, priority = 'MEDIUM', category, location } = requestBody(req.body);
 
       if (!isUuid(id)) return res.status(400).json({ success: false, message: 'Geçersiz oda kimliği.' });
+      if (requestKey && !isUuid(requestKey)) return res.status(400).json({ success: false, message: 'Geçersiz tekrar-gönderim anahtarı.' });
       const cleanTitle = cleanString(title, 100);
       const cleanDescription = cleanString(description, 2000);
       const cleanCategory = cleanString(category, 100);
@@ -184,6 +211,7 @@ export const roomController = {
       }
 
       const maintenance = await maintenanceService.createMaintenance({
+        requestKey,
         roomId: id,
         type,
         roomInventoryId: roomInventoryId ? String(roomInventoryId) : undefined,
@@ -199,7 +227,7 @@ export const roomController = {
 
       res.status(201).json({
         success: true,
-        data: maintenance,
+        data: scopeMaintenanceData(maintenance, req.user?.role),
         message: 'Arıza kaydı başarıyla oluşturuldu ve teknik ekibe yönlendirildi.',
       });
     } catch (error) {
@@ -210,7 +238,7 @@ export const roomController = {
   updateMaintenance: async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
     try {
       const { maintenanceId } = req.params;
-      const { title, description, priority, status, assignedTo, category, location, resolutionNote } = req.body;
+      const { title, description, priority, status, assignedTo, category, location, resolutionNote } = requestBody(req.body);
       if (!isUuid(maintenanceId)) return res.status(400).json({ success: false, message: 'Geçersiz arıza kaydı kimliği.' });
 
       if (priority && !Object.values(MaintenancePriority).includes(priority)) {
@@ -239,11 +267,13 @@ export const roomController = {
         location: location === undefined ? undefined : cleanString(location, 100) || null,
         resolutionNote: resolutionNote === undefined ? undefined : cleanString(resolutionNote, 1000) || null,
         performedBy: (req as AuthenticatedRequest).user?.fullName || 'Lojman Yönetimi',
+        performedById: req.user?.id,
+        canFullUpdate: hasPermission(req.user?.role, permissions.MAINTENANCE_FULL_UPDATE),
       });
 
       res.status(200).json({
         success: true,
-        data: updated,
+        data: scopeMaintenanceData(updated, req.user?.role),
         message: 'Arıza kaydı güncellendi.',
       });
     } catch (error) {
@@ -292,21 +322,23 @@ export const roomController = {
     try {
       const { cleaningId } = req.params;
       if (!isUuid(cleaningId)) return res.status(400).json({ success: false, message: 'Geçersiz temizlik kaydı kimliği.' });
-      const updatedRoom = await roomService.deleteCleaningLog(cleaningId);
-      res.status(200).json({ success: true, data: updatedRoom, message: 'Temizlik kaydı silindi.' });
+      const updatedRoom = await roomService.deleteCleaningLog(cleaningId, (req as AuthenticatedRequest).user?.id);
+      res.status(200).json({ success: true, data: updatedRoom, message: 'Tamamlanmış temizlik kaydı arşivlendi.' });
     } catch (error) { next(error); }
   },
 
   exportOccupancyExcel: async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const filter = req.query.filter as string;
-      const startDate = req.query.startDate as string;
-      const endDate = req.query.endDate as string;
+      const filter = singleQuery(req.query.filter, 'Rapor filtresi');
+      const startDate = singleQuery(req.query.startDate, 'Başlangıç tarihi');
+      const endDate = singleQuery(req.query.endDate, 'Bitiş tarihi');
       const authReq = req as AuthenticatedRequest;
       const generatedBy = authReq.user?.fullName || 'Lojman Yönetimi';
 
-      const rows = await roomService.getExportOccupancies(filter, startDate, endDate);
-      const buffer = await createOccupancyWorkbook(rows, generatedBy);
+      const rows = await roomService.getExportOccupancies(filter, startDate, endDate, config.room.occupancyExportMaxRows);
+      const maySeeSensitive = hasPermission(authReq.user?.role, permissions.EMPLOYEE_SENSITIVE_VIEW);
+      const exportRows = maySeeSensitive ? rows : rows.map((row) => ({ ...row, employee: row.employee ? { ...row.employee, tcNo: null } : null }));
+      const buffer = await createOccupancyWorkbook(exportRows, generatedBy);
 
       res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
       res.setHeader('Content-Disposition', `attachment; filename=Konaklayanlar_Listesi_${formatIstanbulDate()}.xlsx`);
@@ -318,11 +350,11 @@ export const roomController = {
 
   exportRoomInventoryExcel: async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const filter = req.query.filter as string;
+      const filter = singleQuery(req.query.filter, 'Rapor filtresi');
       const authReq = req as AuthenticatedRequest;
       const generatedBy = authReq.user?.fullName || 'Lojman Yönetimi';
 
-      const rows = await roomService.getExportRoomInventories(filter);
+      const rows = await roomService.getExportRoomInventories(filter, config.room.inventoryExportMaxRows);
       const buffer = await createRoomInventoryWorkbook(rows, generatedBy);
 
       res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
@@ -338,13 +370,13 @@ export const roomController = {
       const { id } = req.params;
       const { roomNumber, floor, capacity, roomType, status } = req.body;
       if (!isUuid(id)) return res.status(400).json({ success: false, message: 'Geçersiz oda kimliği.' });
+      if (status !== undefined) throw new AppError('Oda durumu yalnızca oda durum işlemi üzerinden değiştirilebilir.', 400);
 
       const updatedRoom = await roomService.updateRoom(id, {
         roomNumber: roomNumber !== undefined ? cleanString(roomNumber, 50) : undefined,
-        floor: floor !== undefined ? Number(floor) : undefined,
-        capacity: capacity !== undefined ? Number(capacity) : undefined,
+        floor: floor !== undefined ? strictInteger(floor, 'Kat') : undefined,
+        capacity: capacity !== undefined ? strictInteger(capacity, 'Kapasite') : undefined,
         roomType: roomType !== undefined ? cleanString(roomType, 50) : undefined,
-        status: status ? (status as RoomStatus) : undefined,
       });
 
       res.status(200).json({ success: true, data: updatedRoom, message: 'Oda bilgileri güncellendi.' });
@@ -368,18 +400,21 @@ export const roomController = {
   createRoomInventory: async (req: Request, res: Response, next: NextFunction) => {
     try {
        const { id } = req.params;
-      const { itemName, stockItemId } = req.body;
+      const { itemName, stockItemId, brand, serialNo, quantity, status } = req.body;
       if (!isUuid(id)) return res.status(400).json({ success: false, message: 'Geçersiz oda kimliği.' });
 
-      if (!itemName || !cleanString(itemName, 100)) {
-        return res.status(400).json({ success: false, message: 'Demirbaş eşya adı zorunludur.' });
-      }
+      if (!isUuid(stockItemId)) return res.status(400).json({ success: false, message: 'Geçerli bir depo stok kartı seçilmelidir.' });
+      if (status !== undefined && !Object.values(RoomInventoryStatus).includes(status)) return res.status(400).json({ success: false, message: 'Geçersiz demirbaş durumu.' });
+      const parsedQuantity = quantity === undefined ? 1 : quantity;
+      if (typeof parsedQuantity !== 'number' || !Number.isInteger(parsedQuantity) || parsedQuantity < 1 || parsedQuantity > 10000) return res.status(400).json({ success: false, message: 'Zimmet miktarı 1 ile 10.000 arasında tam sayı olmalıdır.' });
 
       const newInventory = await roomService.createRoomInventory(id, {
-        itemName: cleanString(itemName, 100),
-        quantity: 1,
-        status: 'HEALTHY',
-        stockItemId: cleanString(stockItemId, 100),
+        itemName: cleanString(itemName, 100) || 'STOK KARTI',
+        brand: cleanString(brand, 100) || undefined,
+        serialNo: cleanString(serialNo, 120) || undefined,
+        quantity: parsedQuantity,
+        status: status || 'HEALTHY',
+        stockItemId,
         createdById: (req as AuthenticatedRequest).user?.id,
       });
 

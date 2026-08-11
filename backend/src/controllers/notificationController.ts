@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import { NotificationService } from '../services/notificationService';
 import { AuthenticatedRequest } from '../middleware/authMiddleware';
+import { validateIdempotencyKey, validateNotificationId } from '../security/notificationPolicy';
 
 export class NotificationController {
   /**
@@ -9,6 +10,7 @@ export class NotificationController {
   public static async send(req: AuthenticatedRequest, res: Response, next: NextFunction) {
     try {
       const createdById = req.user!.id;
+      const requestKey = validateIdempotencyKey(req.get('Idempotency-Key'));
       const { title, message, priority, targetType, targetValue } = req.body;
 
       const result = await NotificationService.sendNotification({
@@ -18,12 +20,17 @@ export class NotificationController {
         targetType,
         targetValue,
         createdById,
+        requestKey,
       });
 
-      res.status(201).json({
+      res.status(result.duplicate ? 200 : 201).json({
         success: true,
-        message: result.pushDelivery.disabled
+        message: result.duplicate
+          ? `Bu duyuru isteği daha önce işlendi; ${result.recipientCount} kullanıcıya ait mevcut kayıt döndürüldü.`
+          : result.pushDelivery.disabled
           ? `Bildirim ${result.recipientCount} kullanıcıya site içinde iletildi; telefon bildirim servisi sunucuda kapalı.`
+          : result.pushDelivery.queued
+          ? `Bildirim ${result.recipientCount} kullanıcıya site içinde iletildi; telefon bildirimleri arka planda işleme alındı.`
           : result.pushDelivery.sent > 0
           ? `Bildirim ${result.recipientCount} kullanıcıya site içinde iletildi; ${result.pushDelivery.sent} kayıtlı cihaza telefon bildirimi gönderildi${result.pushDelivery.failed > 0 ? `, ${result.pushDelivery.failed} cihazda başarısız oldu` : ''}.`
           : result.pushDelivery.failed > 0
@@ -31,6 +38,16 @@ export class NotificationController {
             : `Bildirim ${result.recipientCount} kullanıcıya site içinde iletildi; hedef kullanıcıların kayıtlı telefonu olmadığı için telefon bildirimi gönderilmedi.`,
         data: result,
       });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  public static async getDetail(req: AuthenticatedRequest, res: Response, next: NextFunction) {
+    try {
+      const id = validateNotificationId(req.params.id);
+      const result = await NotificationService.getNotificationDetail(id);
+      res.status(200).json({ success: true, data: result });
     } catch (error) {
       next(error);
     }
@@ -59,7 +76,7 @@ export class NotificationController {
    */
   public static async remove(req: AuthenticatedRequest, res: Response, next: NextFunction) {
     try {
-      const { id } = req.params;
+      const id = validateNotificationId(req.params.id);
       const result = await NotificationService.deleteNotification(id, req.user!.id);
 
       res.status(200).json(result);

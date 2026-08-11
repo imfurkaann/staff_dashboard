@@ -82,7 +82,8 @@ interface EmployeeManagementViewProps {
 }
 
 export const EmployeeManagementView: React.FC<EmployeeManagementViewProps> = ({ currentUser }) => {
-  const canManage = currentUser ? can(currentUser.role, 'EMPLOYEE_MANAGE') : true;
+  const canManage = Boolean(currentUser && can(currentUser.role, 'EMPLOYEE_MANAGE'));
+  const canExport = Boolean(currentUser && can(currentUser.role, 'EMPLOYEE_EXPORT'));
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -152,9 +153,12 @@ export const EmployeeManagementView: React.FC<EmployeeManagementViewProps> = ({ 
 
   const openEmployeeDetail = async (emp: Employee) => {
     localStorage.setItem('staff_app_active_emp_id', emp.id);
-    const detail = await employeeApi.getEmployeeById(emp.id);
-    if (detail) setActiveEmployeeDetail(detail);
-    else setLoadError('Personel detayı yüklenemedi. Lütfen yeniden deneyin.');
+    try {
+      setActiveEmployeeDetail(await employeeApi.getEmployeeById(emp.id));
+    } catch (err: any) {
+      localStorage.removeItem('staff_app_active_emp_id');
+      setLoadError(err?.message || 'Personel detayı yüklenemedi. Lütfen yeniden deneyin.');
+    }
   };
 
   const closeEmployeeDetail = () => {
@@ -291,14 +295,14 @@ export const EmployeeManagementView: React.FC<EmployeeManagementViewProps> = ({ 
           
           {/* Status Filter Tabs */}
           <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-2xl border border-slate-200 w-full lg:w-auto overflow-x-auto">
-            <button
+            {canExport && <button
               onClick={() => setStatusFilter('ALL')}
               className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap shrink-0 ${
                 statusFilter === 'ALL' ? 'bg-[#1e3a8a] text-white shadow-sm' : 'text-slate-700 hover:text-slate-900'
               }`}
             >
               Tüm Personeller ({filteredEmployees.length})
-            </button>
+            </button>}
             <button
               onClick={() => setStatusFilter('RESIDENT')}
               className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap shrink-0 ${
@@ -744,12 +748,12 @@ export const EmployeeManagementView: React.FC<EmployeeManagementViewProps> = ({ 
       )}
 
       {/* Employee Export Modal */}
-      <EmployeeExportModal
+      {canExport && <EmployeeExportModal
         isOpen={isExportModalOpen}
         onClose={() => setIsExportModalOpen(false)}
         onExport={handleExportExcel}
         isExporting={isExporting}
-      />
+      />}
 
       {/* Checkout Employee Confirmation Modal */}
       {checkoutConfirmModal && (

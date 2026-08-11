@@ -111,7 +111,7 @@ export const VisitorDetailModal: React.FC<VisitorDetailModalProps> = ({
               {renderStatusBadge()}
               {visitor.visitorCount > 1 && (
                 <span className="px-3 py-1 rounded-full text-xs font-extrabold bg-white/10 text-blue-100 border border-white/20 flex items-center gap-1">
-                  <Users className="w-3.5 h-3.5" /> +{visitor.visitorCount} Kişi
+                  <Users className="w-3.5 h-3.5" /> {visitor.visitorCount} Kişi
                 </span>
               )}
             </div>
@@ -181,7 +181,7 @@ export const VisitorDetailModal: React.FC<VisitorDetailModalProps> = ({
                 <UserCheck className="w-3.5 h-3.5 text-slate-500" /> Ziyaret Edilen Personel
               </span>
               <p className="text-sm font-extrabold text-slate-900">
-                {visitor.hostEmployeeName || 'Bilinmeyen Personel'}
+                {visitor.hostEmployeeName || 'Personel seçilmedi'}
               </p>
             </div>
 
@@ -191,7 +191,7 @@ export const VisitorDetailModal: React.FC<VisitorDetailModalProps> = ({
                 <MapPin className="w-3.5 h-3.5 text-slate-500" /> Lojman Konum / Oda Detayı
               </span>
               <p className="text-sm font-extrabold text-[#1e3a8a]">
-                {visitor.hostRoomLabel || 'Konum Bilgisi Yok'}
+                {visitor.hostRoomLabel || 'Bağımsız giriş / genel alan'}
               </p>
             </div>
 

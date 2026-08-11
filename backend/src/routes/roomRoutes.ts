@@ -2,12 +2,17 @@ import { Router } from 'express';
 import { roomController } from '../controllers/roomController';
 import { authenticateToken, authorizeAnyPermission, authorizePermissions } from '../middleware/authMiddleware';
 import { permissions } from '../security/permissions';
+import { roomMutationRateLimiter } from '../middleware/rateLimiter';
 
 const router = Router();
 
 // Require authentication and RBAC for all room management routes
 router.use(authenticateToken);
 router.use(authorizePermissions(permissions.ROOM_VIEW));
+router.use((_req, res, next) => {
+  res.setHeader('Cache-Control', 'private, no-store');
+  next();
+});
 
 // GET /api/rooms - List rooms with optional filters
 router.get('/', roomController.getRooms);
@@ -28,36 +33,36 @@ router.get('/blocks', roomController.getBlocks);
 router.get('/:id', roomController.getRoomById);
 
 // PATCH /api/rooms/:id/status - Update room status (READY, NEEDS_CLEANING, OUT_OF_ORDER)
-router.patch('/:id/status', authorizeAnyPermission(permissions.ROOM_MANAGE, permissions.CLEANING_MANAGE), roomController.updateStatus);
+router.patch('/:id/status', authorizeAnyPermission(permissions.ROOM_MANAGE, permissions.CLEANING_MANAGE), roomMutationRateLimiter, roomController.updateStatus);
 
 // POST /api/rooms - Create new room
-router.post('/', authorizePermissions(permissions.ROOM_MANAGE), roomController.createRoom);
+router.post('/', authorizePermissions(permissions.ROOM_MANAGE), roomMutationRateLimiter, roomController.createRoom);
 
 // POST /api/rooms/blocks - Create new block
-router.post('/blocks', authorizePermissions(permissions.ROOM_MANAGE), roomController.createBlock);
+router.post('/blocks', authorizePermissions(permissions.ROOM_MANAGE), roomMutationRateLimiter, roomController.createBlock);
 
 // POST /api/rooms/:id/maintenance - Create new maintenance/fault record
-router.post('/:id/maintenance', authorizePermissions(permissions.MAINTENANCE_CREATE), roomController.createMaintenance);
+router.post('/:id/maintenance', authorizePermissions(permissions.MAINTENANCE_CREATE), roomMutationRateLimiter, roomController.createMaintenance);
 
 // PATCH /api/rooms/maintenance/:maintenanceId - Update maintenance record
-router.patch('/maintenance/:maintenanceId', authorizePermissions(permissions.MAINTENANCE_UPDATE), roomController.updateMaintenance);
+router.patch('/maintenance/:maintenanceId', authorizePermissions(permissions.MAINTENANCE_UPDATE), roomMutationRateLimiter, roomController.updateMaintenance);
 
 // POST /api/rooms/:id/cleaning - Create new cleaning log
-router.post('/:id/cleaning', authorizePermissions(permissions.CLEANING_MANAGE), roomController.createCleaningLog);
+router.post('/:id/cleaning', authorizePermissions(permissions.CLEANING_MANAGE), roomMutationRateLimiter, roomController.createCleaningLog);
 
 // PATCH /api/rooms/cleaning/:cleaningId - Update cleaning log
-router.patch('/cleaning/:cleaningId', authorizePermissions(permissions.CLEANING_MANAGE), roomController.updateCleaningLog);
+router.patch('/cleaning/:cleaningId', authorizePermissions(permissions.CLEANING_MANAGE), roomMutationRateLimiter, roomController.updateCleaningLog);
 
 // DELETE /api/rooms/cleaning/:cleaningId - Delete cleaning log
-router.delete('/cleaning/:cleaningId', authorizePermissions(permissions.CLEANING_DELETE), roomController.deleteCleaningLog);
+router.delete('/cleaning/:cleaningId', authorizePermissions(permissions.CLEANING_DELETE), roomMutationRateLimiter, roomController.deleteCleaningLog);
 
-// PUT /api/rooms/:id - Update room details (number, floor, capacity, status)
-router.put('/:id', authorizePermissions(permissions.ROOM_MANAGE), roomController.updateRoom);
+// PUT /api/rooms/:id - Update room metadata (status uses the dedicated workflow above)
+router.put('/:id', authorizePermissions(permissions.ROOM_MANAGE), roomMutationRateLimiter, roomController.updateRoom);
 
 // DELETE /api/rooms/:id - Delete room safely
-router.delete('/:id', authorizePermissions(permissions.ROOM_MANAGE), roomController.deleteRoom);
+router.delete('/:id', authorizePermissions(permissions.ROOM_MANAGE), roomMutationRateLimiter, roomController.deleteRoom);
 
 // POST /api/rooms/:id/inventories - Create room fixture/inventory
-router.post('/:id/inventories', authorizePermissions(permissions.ROOM_INVENTORY_MANAGE), roomController.createRoomInventory);
+router.post('/:id/inventories', authorizePermissions(permissions.ROOM_INVENTORY_MANAGE), roomMutationRateLimiter, roomController.createRoomInventory);
 
 export default router;

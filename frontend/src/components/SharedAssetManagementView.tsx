@@ -14,6 +14,7 @@ type ModalState =
   | { type: 'checkIn'; asset: SharedAsset }
   | { type: 'detail'; asset: SharedAsset }
   | { type: 'maintenanceLog'; asset: SharedAsset }
+  | { type: 'retire'; asset: SharedAsset }
   | null;
 
 const ASSET_CATEGORIES = [
@@ -39,6 +40,13 @@ const statusLabels: Record<SharedAssetStatus, string> = {
   RETIRED: 'Hurda / Kullanım Dışı',
 };
 
+const logActionLabel = (action: string) => ({
+  CREATED: 'Kayıt Oluşturuldu', CHECK_OUT: 'Zimmet / Teslim', CHECK_IN: 'İade Alındı',
+  MAINTENANCE_START: 'Bakıma Alındı', MAINTENANCE_END: 'Bakım Tamamlandı',
+  FAULT_REPORTED: 'Arıza Bildirildi', REPAIR_COMPLETED: 'Onarım Tamamlandı',
+  STATUS_CHANGE: 'Durum / Bağlantı Değişti', SYNC_CORRECTION: 'Sistem Düzeltmesi',
+}[action] || action);
+
 const formatDateTime = (value?: string | null) => value ? new Intl.DateTimeFormat('tr-TR', {
   dateStyle: 'short', timeStyle: 'short', timeZone: 'Europe/Istanbul',
 }).format(new Date(value)) : '-';
@@ -47,8 +55,8 @@ const formatDateOnly = (value?: string | null) => value ? new Intl.DateTimeForma
   dateStyle: 'medium', timeZone: 'Europe/Istanbul',
 }).format(new Date(value)) : '-';
 
-const inputClass = 'w-full h-9 px-3 rounded-xl border border-slate-300 bg-slate-50 focus:bg-white focus:border-[#1e3a8a] focus:ring-2 focus:ring-blue-100 outline-none text-xs font-bold text-slate-900 transition placeholder:normal-case';
-const labelClass = 'block mb-1 text-[10px] font-extrabold uppercase tracking-wide text-slate-600';
+const inputClass = 'w-full min-h-11 px-3 rounded-xl border border-slate-300 bg-slate-50 focus:bg-white focus:border-[#1e3a8a] focus:ring-2 focus:ring-blue-100 outline-none text-sm font-bold text-slate-900 transition placeholder:normal-case';
+const labelClass = 'block mb-1.5 text-[11px] font-extrabold uppercase tracking-wide text-slate-600';
 const primaryButton = 'inline-flex h-8 items-center justify-center gap-1.5 rounded-xl border border-[#1e3a8a] bg-[#1e3a8a] px-3 text-[11px] font-extrabold text-white shadow-xs transition-all hover:bg-[#172554] disabled:cursor-not-allowed disabled:opacity-50';
 const secondaryButton = 'inline-flex h-8 items-center justify-center gap-1.5 rounded-xl border border-slate-300 bg-white px-3 text-[11px] font-extrabold text-slate-700 transition-all hover:border-blue-300 hover:bg-blue-50 hover:text-[#1e3a8a] disabled:opacity-50';
 
@@ -297,15 +305,15 @@ const WarrantyBadge = ({ dateStr }: { dateStr?: string | null }) => {
 
 const ModalShell: React.FC<{ title: string; subtitle: string; icon: React.ReactNode; onClose: () => void; wide?: boolean; children: React.ReactNode }> = ({ title, subtitle, icon, onClose, wide, children }) => (
   <div className="fixed inset-0 z-[200] flex items-center justify-center bg-slate-950/70 p-4 backdrop-blur-sm animate-fadeIn" onMouseDown={onClose}>
-    <div className={`max-h-[92vh] w-full overflow-hidden rounded-3xl border border-slate-300 bg-white shadow-2xl ${wide ? 'max-w-4xl' : 'max-w-xl'}`} onMouseDown={(event) => event.stopPropagation()}>
-      <div className="flex items-start justify-between border-b border-slate-200 bg-slate-50 px-5 py-4">
+    <div className={`max-h-[94vh] w-full overflow-hidden rounded-3xl border border-slate-300 bg-white shadow-2xl ${wide ? 'max-w-7xl' : 'max-w-4xl'}`} onMouseDown={(event) => event.stopPropagation()}>
+      <div className="flex items-start justify-between border-b border-slate-200 bg-slate-50 px-6 py-5">
         <div className="flex gap-3">
           <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-blue-200 bg-blue-50 text-[#1e3a8a]">{icon}</div>
-          <div><h3 className="text-sm font-black text-slate-900">{title}</h3><p className="mt-0.5 text-[10px] font-semibold text-slate-500">{subtitle}</p></div>
+          <div><h3 className="text-lg font-black text-slate-900">{title}</h3><p className="mt-1 text-xs font-semibold text-slate-500">{subtitle}</p></div>
         </div>
         <button type="button" onClick={onClose} className="rounded-lg bg-white p-1.5 text-slate-500 ring-1 ring-slate-200 transition hover:bg-slate-200 hover:text-slate-900"><X className="h-4 w-4" /></button>
       </div>
-      <div className="max-h-[calc(92vh-74px)] overflow-y-auto p-5">{children}</div>
+      <div className="max-h-[calc(94vh-86px)] overflow-y-auto p-6">{children}</div>
     </div>
   </div>
 );
@@ -319,11 +327,21 @@ export const SharedAssetManagementView: React.FC = () => {
   const [categoryFilter, setCategoryFilter] = useState('ALL');
   const [statusFilter, setStatusFilter] = useState('ALL');
   const [modal, setModal] = useState<ModalState>(null);
+  const operationKeyRef = useRef(crypto.randomUUID());
+  const [history, setHistory] = useState<{ items: SharedAssetLog[]; pagination: { page: number; pageSize: number; total: number; totalPages: number } } | null>(null);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyFilters, setHistoryFilters] = useState({ search: '', action: '', holderType: '', dateStart: '', dateEnd: '', page: 1 });
+  const [detailLogs, setDetailLogs] = useState<SharedAssetLog[]>([]);
+  const [retireNotes, setRetireNotes] = useState('');
 
   const [checkOutForm, setCheckOutForm] = useState({
     assetId: '',
+    holderType: 'EMPLOYEE' as 'EMPLOYEE' | 'ROOM' | 'OTHER',
     employeeId: '',
     customBorrowerName: '',
+    roomId: '',
+    expectedReturnDate: '',
+    notes: '',
   });
 
   const [checkInForm, setCheckInForm] = useState({
@@ -350,6 +368,27 @@ export const SharedAssetManagementView: React.FC = () => {
 
   useEffect(() => { loadOverview(); }, [loadOverview]);
 
+  useEffect(() => {
+    const timer = window.setTimeout(async () => {
+      try {
+        setHistoryLoading(true);
+        setHistory(await sharedAssetApi.getLogs({ ...historyFilters, pageSize: 50 }));
+      } catch (caught) {
+        setError(caught instanceof Error ? caught.message : 'Ortak eşya geçmişi yüklenemedi.');
+      } finally { setHistoryLoading(false); }
+    }, 250);
+    return () => window.clearTimeout(timer);
+  }, [historyFilters]);
+
+  useEffect(() => {
+    if (modal?.type !== 'detail') { setDetailLogs([]); return; }
+    let active = true;
+    sharedAssetApi.getLogs({ assetId: modal.asset.id, page: 1, pageSize: 50 })
+      .then((result) => { if (active) setDetailLogs(result.items); })
+      .catch((caught) => { if (active) setError(caught instanceof Error ? caught.message : 'Eşya geçmişi yüklenemedi.'); });
+    return () => { active = false; };
+  }, [modal]);
+
   const registeredLocations = useMemo(() => {
     return Array.from(
       new Set(
@@ -374,9 +413,9 @@ export const SharedAssetManagementView: React.FC = () => {
     const assets = overview?.assets || [];
 
     assets.forEach((asset) => {
-      // 1. Active loan row if item is currently LOANED
+      const logs = asset.logs || [];
       if (asset.status === 'LOANED') {
-        const lastCheckOut = asset.logs.find((l) => l.action === 'CHECK_OUT');
+        const lastCheckOut = logs.find((l) => l.action === 'CHECK_OUT');
         const borrower = asset.currentEmployee
           ? `${asset.currentEmployee.firstName} ${asset.currentEmployee.lastName}${asset.currentEmployee.department ? ` (${asset.currentEmployee.department})` : ''}`
           : asset.currentRoom
@@ -394,26 +433,7 @@ export const SharedAssetManagementView: React.FC = () => {
         });
       }
 
-      // 2. Past returned loan records from logs
-      const checkOutLogs = asset.logs.filter((l) => l.action === 'CHECK_OUT' && l.borrowerName);
-      checkOutLogs.forEach((log) => {
-        if (asset.status === 'LOANED' && asset.borrowedAt && Math.abs(new Date(log.createdAt).getTime() - new Date(asset.borrowedAt).getTime()) < 5000) {
-          return;
-        }
-
-        records.push({
-          id: `log-${log.id}`,
-          asset,
-          borrowerName: log.borrowerName || '-',
-          borrowedAt: log.borrowedAt || log.createdAt,
-          returnedAt: log.returnedAt || log.createdAt,
-          isCurrentlyLoaned: false,
-          status: 'AVAILABLE',
-        });
-      });
-
-      // 3. Master asset entry if available and no past check-out logs
-      if (asset.status !== 'LOANED' && checkOutLogs.length === 0) {
+      if (asset.status !== 'LOANED') {
         records.push({
           id: `master-${asset.id}`,
           asset,
@@ -430,6 +450,8 @@ export const SharedAssetManagementView: React.FC = () => {
       const q = search.trim().toLocaleLowerCase('tr-TR');
       const textMatches = !q || [
         row.asset.assetName,
+        row.asset.assetCode,
+        row.asset.serialNo,
         row.asset.category,
         row.asset.brandModel,
         row.asset.locationNote,
@@ -437,7 +459,7 @@ export const SharedAssetManagementView: React.FC = () => {
       ].some((val) => val?.toLocaleLowerCase('tr-TR').includes(q));
 
       const catMatches = categoryFilter === 'ALL' || row.asset.category === categoryFilter;
-      const statMatches = statusFilter === 'ALL' || (statusFilter === 'LOANED' ? row.isCurrentlyLoaned : statusFilter === 'AVAILABLE' ? !row.isCurrentlyLoaned : row.status === statusFilter);
+      const statMatches = statusFilter === 'ALL' || (statusFilter === 'LOANED' ? row.isCurrentlyLoaned : row.status === statusFilter);
 
       return textMatches && catMatches && statMatches;
     });
@@ -454,15 +476,21 @@ export const SharedAssetManagementView: React.FC = () => {
   };
 
   const openCheckOut = (asset?: SharedAsset) => {
+    operationKeyRef.current = crypto.randomUUID();
     setCheckOutForm({
       assetId: asset?.id || '',
+      holderType: 'EMPLOYEE',
       employeeId: '',
       customBorrowerName: '',
+      roomId: '',
+      expectedReturnDate: '',
+      notes: '',
     });
     setModal({ type: 'checkOut', asset });
   };
 
   const openCheckIn = (asset: SharedAsset) => {
+    operationKeyRef.current = crypto.randomUUID();
     setCheckInForm({
       locationNote: asset.locationNote || '',
       notes: '',
@@ -472,12 +500,19 @@ export const SharedAssetManagementView: React.FC = () => {
   };
 
   const openMaintenanceLog = (asset: SharedAsset) => {
+    operationKeyRef.current = crypto.randomUUID();
     setMaintForm({
       action: asset.status === 'MAINTENANCE' ? 'REPAIR_COMPLETED' : 'FAULT_REPORTED',
       notes: '',
       newStatus: asset.status === 'MAINTENANCE' ? 'AVAILABLE' : 'MAINTENANCE',
     });
     setModal({ type: 'maintenanceLog', asset });
+  };
+
+  const openRetire = (asset: SharedAsset) => {
+    operationKeyRef.current = crypto.randomUUID();
+    setRetireNotes('');
+    setModal({ type: 'retire', asset });
   };
 
   return (
@@ -532,6 +567,7 @@ export const SharedAssetManagementView: React.FC = () => {
               <option value="AVAILABLE">Teslim Alındı (Depoda)</option>
               <option value="LOANED">Zimmetli (Kullanımda)</option>
               <option value="MAINTENANCE">Bakımda / Arızalı</option>
+              <option value="RETIRED">Hurda / Kullanım Dışı</option>
             </select>
           </div>
         </div>
@@ -635,10 +671,60 @@ export const SharedAssetManagementView: React.FC = () => {
         </div>
       </div>
 
+      <section className="overflow-hidden rounded-3xl border border-slate-300 bg-white shadow-sm">
+        <div className="border-b border-slate-200 bg-slate-50 p-4">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <h3 className="flex items-center gap-2 text-sm font-black text-slate-900"><History className="h-4 w-4 text-blue-700" /> Tam İşlem Geçmişi</h3>
+              <p className="mt-1 text-[10px] font-semibold text-slate-500">Son kayıtlarla sınırlı değildir; filtreler doğrudan veritabanındaki tüm geçmişe uygulanır.</p>
+            </div>
+            <span className="rounded-lg border border-slate-200 bg-white px-3 py-1 text-[10px] font-extrabold text-slate-700">{history?.pagination.total || 0} kayıt</span>
+          </div>
+          <div className="mt-3 grid gap-2 md:grid-cols-5">
+            <input className={inputClass} value={historyFilters.search} onChange={(e) => setHistoryFilters({ ...historyFilters, search: e.target.value, page: 1 })} placeholder="Kod, eşya, kişi, oda veya not ara" />
+            <select className={inputClass} value={historyFilters.action} onChange={(e) => setHistoryFilters({ ...historyFilters, action: e.target.value, page: 1 })}>
+              <option value="">Tüm işlem türleri</option><option value="CHECK_OUT">Zimmet / Teslim</option><option value="CHECK_IN">İade</option>
+              <option value="FAULT_REPORTED">Arıza</option><option value="MAINTENANCE_START">Bakım başlangıcı</option>
+              <option value="REPAIR_COMPLETED">Onarım</option><option value="MAINTENANCE_END">Bakım bitişi</option><option value="STATUS_CHANGE">Durum değişikliği</option>
+            </select>
+            <select className={inputClass} value={historyFilters.holderType} onChange={(e) => setHistoryFilters({ ...historyFilters, holderType: e.target.value, page: 1 })}>
+              <option value="">Tüm zimmet hedefleri</option><option value="EMPLOYEE">Personel</option><option value="ROOM">Oda</option><option value="OTHER">Harici kişi/kurum</option>
+            </select>
+            <input type="date" className={inputClass} value={historyFilters.dateStart} onChange={(e) => setHistoryFilters({ ...historyFilters, dateStart: e.target.value, page: 1 })} />
+            <input type="date" className={inputClass} value={historyFilters.dateEnd} onChange={(e) => setHistoryFilters({ ...historyFilters, dateEnd: e.target.value, page: 1 })} />
+          </div>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-left text-xs">
+            <thead className="border-b border-slate-200 bg-slate-100 text-[9px] font-black uppercase tracking-wide text-slate-600"><tr><th className="px-4 py-3">Tarih</th><th className="px-4 py-3">Eşya</th><th className="px-4 py-3">İşlem</th><th className="px-4 py-3">Hedef</th><th className="px-4 py-3">Açıklama</th><th className="px-4 py-3">Yetkili</th></tr></thead>
+            <tbody className="divide-y divide-slate-100">
+              {historyLoading ? <tr><td colSpan={6} className="p-6 text-center font-bold text-slate-500">Geçmiş yükleniyor...</td></tr>
+                : !history?.items.length ? <tr><td colSpan={6} className="p-6 text-center font-bold text-slate-500">Filtrelere uygun hareket bulunamadı.</td></tr>
+                : history.items.map((log) => <tr key={log.id} className="hover:bg-blue-50/40">
+                  <td className="whitespace-nowrap px-4 py-3 font-semibold text-slate-600">{formatDateTime(log.createdAt)}</td>
+                  <td className="px-4 py-3"><p className="font-black text-slate-900">{log.assetNameSnapshot}</p><p className="text-[9px] font-mono text-slate-500">{log.assetCodeSnapshot}</p></td>
+                  <td className="px-4 py-3 font-extrabold text-blue-900">{logActionLabel(log.action)}</td>
+                  <td className="px-4 py-3 font-semibold text-slate-700">{log.borrowerName || '-'}</td>
+                  <td className="max-w-[320px] px-4 py-3 text-slate-600"><span className="line-clamp-2" title={log.notes || ''}>{log.notes || '-'}</span></td>
+                  <td className="whitespace-nowrap px-4 py-3 font-semibold text-slate-600">{log.createdBy?.fullName || 'Sistem'}</td>
+                </tr>)}
+            </tbody>
+          </table>
+        </div>
+        {history && history.pagination.totalPages > 1 && <div className="flex items-center justify-between border-t border-slate-200 p-3 text-xs font-bold text-slate-600">
+          <button className={secondaryButton} disabled={history.pagination.page <= 1 || historyLoading} onClick={() => setHistoryFilters({ ...historyFilters, page: historyFilters.page - 1 })}>Önceki</button>
+          <span>Sayfa {history.pagination.page} / {history.pagination.totalPages}</span>
+          <button className={secondaryButton} disabled={history.pagination.page >= history.pagination.totalPages || historyLoading} onClick={() => setHistoryFilters({ ...historyFilters, page: historyFilters.page + 1 })}>Sonraki</button>
+        </div>}
+      </section>
+
       {/* Modal: Check Out / Loan Asset */}
       {modal?.type === 'checkOut' && (
-        <ModalShell onClose={() => setModal(null)} icon={<Send className="h-4 w-4" />} title="Ortak Ekipmanı Ödünç Ver / Zimmetle" subtitle="Ekipmanı teslim alan personeli seçin veya isim yazın.">
-          <form onSubmit={(e) => { e.preventDefault(); if (!checkOutForm.assetId) return; runAction(() => sharedAssetApi.checkOutAsset(checkOutForm.assetId, checkOutForm), 'Ekipman ödünç verildi.'); }} className="space-y-4">
+        <ModalShell onClose={() => setModal(null)} icon={<Send className="h-4 w-4" />} title="Ortak Ekipmanı Ödünç Ver / Zimmetle" subtitle="Personel, oda veya harici kullanıcı hedefini seçin; stok ve zimmet geçmişi birlikte güncellenecektir.">
+          <form onSubmit={(e) => { e.preventDefault(); if (!checkOutForm.assetId) return; runAction(() => sharedAssetApi.checkOutAsset(checkOutForm.assetId, checkOutForm, operationKeyRef.current), 'Ekipman ödünç verildi.'); }} className="space-y-5">
+            <div className="rounded-2xl border border-blue-200 bg-blue-50 p-4 text-xs font-semibold leading-5 text-blue-950">
+              Bu işlem ortak eşyanın durumunu, depo stok bakiyesini ve oda/personel zimmetini tek işlemde günceller. Çift tıklama veya bağlantı tekrarı ikinci zimmet oluşturmaz.
+            </div>
             <div className="grid gap-3 sm:grid-cols-2">
               <label className="sm:col-span-2">
                 <span className={labelClass}>Zimmetlenecek Ortak Eşya *</span>
@@ -651,18 +737,47 @@ export const SharedAssetManagementView: React.FC = () => {
               </label>
 
               <label className="sm:col-span-2">
-                <span className={labelClass}>Personele Zimmet Veriliyor * (Kayıtlı personellerden arayın veya yeni kişi yazın)</span>
-                <CustomEmployeeSelector
-                  employees={overview?.employees || []}
-                  selectedEmployeeId={checkOutForm.employeeId}
-                  customName={checkOutForm.customBorrowerName}
-                  onChange={({ employeeId, customBorrowerName }) => setCheckOutForm({ ...checkOutForm, employeeId, customBorrowerName })}
-                />
+                <span className={labelClass}>Zimmet Hedefi *</span>
+                <select className={inputClass} value={checkOutForm.holderType} onChange={(e) => setCheckOutForm({ ...checkOutForm, holderType: e.target.value as 'EMPLOYEE' | 'ROOM' | 'OTHER', employeeId: '', roomId: '', customBorrowerName: '' })}>
+                  <option value="EMPLOYEE">Kayıtlı personele zimmet</option>
+                  <option value="ROOM">Odaya / ortak alana zimmet</option>
+                  <option value="OTHER">Harici kişi veya kuruma teslim</option>
+                </select>
+              </label>
+
+              {checkOutForm.holderType === 'EMPLOYEE' && (
+                <label className="sm:col-span-2">
+                  <span className={labelClass}>Aktif Personel *</span>
+                  <CustomEmployeeSelector employees={overview?.employees || []} selectedEmployeeId={checkOutForm.employeeId} customName="" onChange={({ employeeId }) => setCheckOutForm({ ...checkOutForm, employeeId, customBorrowerName: '' })} />
+                </label>
+              )}
+              {checkOutForm.holderType === 'ROOM' && (
+                <label className="sm:col-span-2">
+                  <span className={labelClass}>Oda / Ortak Alan *</span>
+                  <select className={inputClass} value={checkOutForm.roomId} onChange={(e) => setCheckOutForm({ ...checkOutForm, roomId: e.target.value })} required>
+                    <option value="">Oda seçin</option>
+                    {(overview?.rooms || []).map((room) => <option key={room.id} value={room.id}>{room.block.name} / Oda {room.roomNumber} · Kat {room.floor}</option>)}
+                  </select>
+                </label>
+              )}
+              {checkOutForm.holderType === 'OTHER' && (
+                <label className="sm:col-span-2">
+                  <span className={labelClass}>Teslim Alan Kişi / Kurum *</span>
+                  <input className={inputClass} maxLength={120} value={checkOutForm.customBorrowerName} onChange={(e) => setCheckOutForm({ ...checkOutForm, customBorrowerName: e.target.value })} placeholder="Örn: Yetkili servis, taşeron ekip veya kişi adı" required />
+                </label>
+              )}
+              <label>
+                <span className={labelClass}>Beklenen İade Tarihi</span>
+                <input type="date" className={inputClass} value={checkOutForm.expectedReturnDate} onChange={(e) => setCheckOutForm({ ...checkOutForm, expectedReturnDate: e.target.value })} min={new Date().toISOString().slice(0, 10)} />
+              </label>
+              <label className="sm:col-span-2">
+                <span className={labelClass}>Teslim / Kullanım Açıklaması</span>
+                <textarea rows={3} maxLength={1000} className={`${inputClass} h-auto py-3`} value={checkOutForm.notes} onChange={(e) => setCheckOutForm({ ...checkOutForm, notes: e.target.value })} placeholder="Kullanım amacı, teslimdeki fiziksel durum ve varsa aksesuarları yazın." />
               </label>
             </div>
             <div className="flex justify-end gap-2 border-t border-slate-200 pt-4">
               <button type="button" onClick={() => setModal(null)} className={secondaryButton}>Vazgeç</button>
-              <button disabled={busy || !checkOutForm.assetId || (!checkOutForm.employeeId && !checkOutForm.customBorrowerName.trim())} type="submit" className={primaryButton}>{busy ? 'İşleniyor...' : 'Zimmeti Onayla'}</button>
+              <button disabled={busy || !checkOutForm.assetId || (checkOutForm.holderType === 'EMPLOYEE' && !checkOutForm.employeeId) || (checkOutForm.holderType === 'ROOM' && !checkOutForm.roomId) || (checkOutForm.holderType === 'OTHER' && !checkOutForm.customBorrowerName.trim())} type="submit" className={primaryButton}>{busy ? 'İşleniyor...' : 'Zimmeti Onayla'}</button>
             </div>
           </form>
         </ModalShell>
@@ -671,7 +786,7 @@ export const SharedAssetManagementView: React.FC = () => {
       {/* Modal: Check In / Return Asset */}
       {modal?.type === 'checkIn' && (
         <ModalShell onClose={() => setModal(null)} icon={<RotateCcw className="h-4 w-4" />} title="Ortak Ekipmanı Teslim Al / Depoya İade Et" subtitle={modal.asset.assetName}>
-          <form onSubmit={(e) => { e.preventDefault(); runAction(() => sharedAssetApi.checkInAsset(modal.asset.id, checkInForm), 'Ekipman teslim alındı.'); }} className="space-y-4">
+          <form onSubmit={(e) => { e.preventDefault(); runAction(() => sharedAssetApi.checkInAsset(modal.asset.id, checkInForm, operationKeyRef.current), 'Ekipman teslim alındı.'); }} className="space-y-4">
             <div className="rounded-2xl border border-blue-200 bg-blue-50 p-3 text-[10px] font-bold text-blue-900">
               💡 Ekipmanın sağlam veya bozuk/arızalı teslim alınıp alınmadığını seçin.
             </div>
@@ -685,13 +800,13 @@ export const SharedAssetManagementView: React.FC = () => {
               </label>
 
               <label className="sm:col-span-2">
-                <span className={labelClass}>Teslim Açıklaması / Fiziksel Kontrol Notu</span>
-                <textarea rows={3} className={`${inputClass} h-auto py-2`} value={checkInForm.notes} onChange={(e) => setCheckInForm({ ...checkInForm, notes: e.target.value })} placeholder="Sağlam teslim alındı, çalışır durumda veya çizik/arızası var vb." />
+                <span className={labelClass}>Teslim Açıklaması / Fiziksel Kontrol Notu *</span>
+                <textarea required maxLength={1000} rows={4} className={`${inputClass} h-auto py-3`} value={checkInForm.notes} onChange={(e) => setCheckInForm({ ...checkInForm, notes: e.target.value })} placeholder="Teslimdeki fiziksel durum, eksik aksesuarlar ve yapılan kontrolü açıklayın." />
               </label>
             </div>
             <div className="flex justify-end gap-2 border-t border-slate-200 pt-4">
               <button type="button" onClick={() => setModal(null)} className={secondaryButton}>Vazgeç</button>
-              <button disabled={busy} type="submit" className={primaryButton}>{busy ? 'İşleniyor...' : 'Teslim Almayı Onayla'}</button>
+              <button disabled={busy || !checkInForm.notes.trim()} type="submit" className={primaryButton}>{busy ? 'İşleniyor...' : 'Teslim Almayı Onayla'}</button>
             </div>
           </form>
         </ModalShell>
@@ -700,7 +815,7 @@ export const SharedAssetManagementView: React.FC = () => {
       {/* Modal: Add Maintenance / Fault Record */}
       {modal?.type === 'maintenanceLog' && (
         <ModalShell onClose={() => setModal(null)} icon={<Wrench className="h-4 w-4" />} title="Bakım / Arıza Kaydı Oluştur" subtitle={modal.asset.assetName}>
-          <form onSubmit={(e) => { e.preventDefault(); runAction(() => sharedAssetApi.addMaintenanceLog(modal.asset.id, maintForm), 'Bakım kaydı eklendi.'); }} className="space-y-4">
+          <form onSubmit={(e) => { e.preventDefault(); runAction(() => sharedAssetApi.addMaintenanceLog(modal.asset.id, { action: maintForm.action, notes: maintForm.notes }, operationKeyRef.current), 'Bakım kaydı eklendi.'); }} className="space-y-4">
             <div className="grid gap-3 sm:grid-cols-2">
               <label className="sm:col-span-2">
                 <span className={labelClass}>İşlem Tipi *</span>
@@ -718,7 +833,7 @@ export const SharedAssetManagementView: React.FC = () => {
 
               <label className="sm:col-span-2">
                 <span className={labelClass}>Bakım / Arıza Notu & Servis Açıklaması *</span>
-                <textarea required rows={3} className={`${inputClass} h-auto py-2`} value={maintForm.notes} onChange={(e) => setMaintForm({ ...maintForm, notes: e.target.value })} placeholder="Değişen parça, servis açıklaması, arıza sebebi vb..." />
+                <textarea required minLength={5} maxLength={1000} rows={4} className={`${inputClass} h-auto py-3`} value={maintForm.notes} onChange={(e) => setMaintForm({ ...maintForm, notes: e.target.value })} placeholder="Arızanın belirtisi, yapılan kontrol, servis ve değişen parça bilgisini açıklayın." />
               </label>
             </div>
             <div className="flex justify-end gap-2 border-t border-slate-200 pt-4">
@@ -753,6 +868,7 @@ export const SharedAssetManagementView: React.FC = () => {
                   <button onClick={() => openCheckOut(modal.asset)} className={primaryButton}><Send className="h-3.5 w-3.5" /> Ödünç Ver</button>
                 )}
                 <button onClick={() => openMaintenanceLog(modal.asset)} className={secondaryButton}><Wrench className="h-3.5 w-3.5 text-amber-600" /> Bakım / Arıza</button>
+                {modal.asset.status === 'AVAILABLE' && <button onClick={() => openRetire(modal.asset)} className="inline-flex h-8 items-center gap-1.5 rounded-xl border border-rose-300 bg-rose-50 px-3 text-[11px] font-extrabold text-rose-800 hover:bg-rose-100"><Archive className="h-3.5 w-3.5" /> Hurdaya Ayır</button>}
               </div>
             </div>
 
@@ -768,12 +884,12 @@ export const SharedAssetManagementView: React.FC = () => {
             )}
 
             <div>
-              <h5 className="mb-2 flex items-center gap-2 text-[11px] font-black text-slate-800"><History className="h-4 w-4 text-blue-700" /> Ödünç & Bakım Geçmişi ({modal.asset.logs.length})</h5>
+              <h5 className="mb-2 flex items-center gap-2 text-[11px] font-black text-slate-800"><History className="h-4 w-4 text-blue-700" /> Ödünç & Bakım Geçmişi ({detailLogs.length})</h5>
               <div className="rounded-2xl border border-slate-200 overflow-hidden">
-                {modal.asset.logs.length === 0 ? (
+                {detailLogs.length === 0 ? (
                   <p className="p-5 text-center text-[10px] font-semibold text-slate-500">Henüz hareket kaydı yok.</p>
                 ) : (
-                  modal.asset.logs.map((log) => (
+                  detailLogs.map((log) => (
                     <div key={log.id} className="flex items-center justify-between gap-3 border-b border-slate-200 px-4 py-3 last:border-0 hover:bg-slate-50">
                       <div>
                         <p className="text-[11px] font-extrabold text-slate-900">
@@ -789,6 +905,18 @@ export const SharedAssetManagementView: React.FC = () => {
               </div>
             </div>
           </div>
+        </ModalShell>
+      )}
+
+      {modal?.type === 'retire' && (
+        <ModalShell onClose={() => setModal(null)} icon={<Archive className="h-4 w-4" />} title="Ortak Eşyayı Hurdaya Ayır" subtitle={modal.asset.assetName}>
+          <form onSubmit={(e) => { e.preventDefault(); runAction(() => sharedAssetApi.updateStatus(modal.asset.id, { status: 'RETIRED', notes: retireNotes }, operationKeyRef.current), 'Ortak eşya hurdaya ayrıldı.'); }} className="space-y-5">
+            <div className="rounded-2xl border border-rose-200 bg-rose-50 p-4 text-sm font-semibold leading-6 text-rose-950">
+              Bu işlem geri alınamaz. Eşya kullanım dışına çıkarılır, bağlı stok toplamı 1 adet azaltılır ve kalıcı hurda hareketi oluşturulur. Zimmetli eşya önce teslim alınmalıdır.
+            </div>
+            <label><span className={labelClass}>Hurda / Kullanım Dışı Gerekçesi *</span><textarea required minLength={5} maxLength={1000} rows={5} className={`${inputClass} h-auto py-3`} value={retireNotes} onChange={(e) => setRetireNotes(e.target.value)} placeholder="Arıza, ekonomik ömür, kayıp parça ve onarım değerlendirmesini açıklayın." /></label>
+            <div className="flex justify-end gap-2 border-t border-slate-200 pt-4"><button type="button" onClick={() => setModal(null)} className={secondaryButton}>Vazgeç</button><button disabled={busy || retireNotes.trim().length < 5} type="submit" className="inline-flex h-9 items-center rounded-xl bg-rose-700 px-4 text-xs font-extrabold text-white disabled:opacity-50">{busy ? 'İşleniyor...' : 'Hurdaya Ayırmayı Onayla'}</button></div>
+          </form>
         </ModalShell>
       )}
     </div>

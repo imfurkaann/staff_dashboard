@@ -5,6 +5,7 @@ import { Visitor, VisitorQuery, visitorApi } from '../api/visitorApi';
 import { AddVisitorModal } from './AddVisitorModal';
 import { VisitorHistoryView } from './VisitorHistoryView';
 import { VisitorRecordsTable } from './VisitorRecordsTable';
+import { can } from '../security/accessControl';
 
 interface Props { currentUser: User }
 const today = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Istanbul' }).format(new Date());
@@ -17,10 +18,11 @@ export const VisitorManagementView: React.FC<Props> = ({ currentUser }) => {
   const [notice, setNotice] = useState<string | null>(null);
   const [search, setSearch] = useState('');
   const [status, setStatus] = useState<'ALL' | 'INSIDE' | 'EXITED' | 'DELETED'>('ALL');
-  const [summary, setSummary] = useState<{ inside: number; exited: number; deleted?: number }>({ inside: 0, exited: 0, deleted: 0 });
+  const [summary, setSummary] = useState<{ inside: number; overdueInside?: number; exited: number; deleted?: number }>({ inside: 0, overdueInside: 0, exited: 0, deleted: 0 });
   const [editing, setEditing] = useState<Visitor | null | undefined>(undefined);
   const [deleteTarget, setDeleteTarget] = useState<Visitor | null>(null);
-  const canManageArchive = currentUser.role === 'ADMIN' || currentUser.role === 'HOUSING_MANAGER';
+  const canManage = can(currentUser.role, 'VISITOR_MANAGE');
+  const canManageArchive = can(currentUser.role, 'VISITOR_ARCHIVE');
 
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(false);
@@ -107,16 +109,16 @@ export const VisitorManagementView: React.FC<Props> = ({ currentUser }) => {
       <div className="flex flex-wrap items-center justify-between gap-3">
         {/* Compact Status Tabs */}
         <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-2xl border border-slate-200 overflow-x-auto max-w-full">
-          <button
+          {canManageArchive && <button
             type="button"
             onClick={() => setStatus('ALL')}
             className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap shrink-0 ${
               status === 'ALL' ? 'bg-[#1e3a8a] text-white shadow-xs' : 'text-slate-700 hover:text-slate-900 hover:bg-slate-200/60'
             }`}
           >
-            Tüm Kayıtlar
-          </button>
-          <button
+            Bugünkü Kayıtlar
+          </button>}
+          {canManage && <button
             type="button"
             onClick={() => setStatus('INSIDE')}
             className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap shrink-0 ${
@@ -124,7 +126,7 @@ export const VisitorManagementView: React.FC<Props> = ({ currentUser }) => {
             }`}
           >
             Şu An İçeride ({summary.inside})
-          </button>
+          </button>}
           <button
             type="button"
             onClick={() => setStatus('EXITED')}
@@ -167,6 +169,7 @@ export const VisitorManagementView: React.FC<Props> = ({ currentUser }) => {
 
     {notice && <div className="flex justify-between rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-xs font-bold text-emerald-800"><span>{notice}</span><button onClick={() => setNotice(null)}><X className="w-4 h-4" /></button></div>}
     {error && <div className="flex justify-between rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-xs font-bold text-rose-800"><span>{error}</span><button onClick={() => setError(null)}><X className="w-4 h-4" /></button></div>}
+    {(summary.overdueInside || 0) > 0 && <div className="rounded-2xl border border-amber-300 bg-amber-50 px-4 py-3 text-xs font-extrabold text-amber-900">Dikkat: {summary.overdueInside} ziyaretçi 24 saati aşkın süredir içeride görünüyor. Çıkış kayıtlarını kontrol edin.</div>}
 
     {/* Search Input Bar */}
     <div className="rounded-2xl border border-slate-300 bg-white p-3 shadow-xs">
@@ -181,12 +184,13 @@ export const VisitorManagementView: React.FC<Props> = ({ currentUser }) => {
       loading={isInitialLoading}
       busyId={busyId}
       canManageArchive={canManageArchive}
+      readOnly={!canManage && !canManageArchive}
       hasMore={hasMore}
       loadingMore={isLoadingMore}
       onLoadMore={loadMore}
-      onCheckOut={(visitor) => run(visitor, () => visitorApi.checkOutVisitor(visitor.id), 'Ziyaretçi çıkışı kaydedildi.')}
-      onUndoCheckOut={(visitor) => run(visitor, () => visitorApi.undoCheckOutVisitor(visitor.id), 'Çıkış işlemi geri alındı.')}
-      onEdit={(visitor) => setEditing(visitor)}
+      onCheckOut={canManage ? (visitor) => run(visitor, () => visitorApi.checkOutVisitor(visitor.id), 'Ziyaretçi çıkışı kaydedildi.') : undefined}
+      onUndoCheckOut={canManage ? (visitor) => run(visitor, () => visitorApi.undoCheckOutVisitor(visitor.id), 'Çıkış işlemi geri alındı.') : undefined}
+      onEdit={canManage ? (visitor) => setEditing(visitor) : undefined}
       onDelete={setDeleteTarget}
       onRestore={(visitor) => run(visitor, () => visitorApi.restoreVisitor(visitor.id), 'Kayıt geri yüklendi.')}
     />

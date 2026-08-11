@@ -6,6 +6,7 @@ import { AddVisitorModal } from './AddVisitorModal';
 import { DateRangePicker } from './DateRangePicker';
 import { VisitorRecordsTable } from './VisitorRecordsTable';
 import { VisitorExportModal, VisitorExportFilter } from './VisitorExportModal';
+import { can } from '../security/accessControl';
 
 interface Props { currentUser: User; onBack: () => void }
 
@@ -22,7 +23,8 @@ export const VisitorHistoryView: React.FC<Props> = ({ currentUser, onBack }) => 
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
 
-  const canManageArchive = currentUser.role === 'ADMIN' || currentUser.role === 'HOUSING_MANAGER';
+  const canManageArchive = can(currentUser.role, 'VISITOR_ARCHIVE');
+  const canExport = can(currentUser.role, 'VISITOR_EXPORT');
   const query = useMemo<VisitorQuery>(() => ({
     ...filters,
     page,
@@ -58,14 +60,14 @@ export const VisitorHistoryView: React.FC<Props> = ({ currentUser, onBack }) => 
         </div>
 
         {/* Top Export Trigger Button */}
-        <button
+        {canExport && <button
           type="button"
           onClick={() => setIsExportModalOpen(true)}
           className="inline-flex items-center justify-center gap-1.5 h-10 px-4 rounded-xl bg-emerald-50 text-emerald-700 hover:bg-emerald-600 hover:text-white border border-emerald-200 hover:border-emerald-600 text-xs font-extrabold transition-all shadow-xs cursor-pointer"
         >
           <FileSpreadsheet className="w-4 h-4" />
           <span>Rapor / Çıktı Al</span>
-        </button>
+        </button>}
       </div>
 
       {/* Upper Row: Ziyaretçi Adı, Firma, Ziyaret Edilen, Telefon */}
@@ -161,8 +163,8 @@ export const VisitorHistoryView: React.FC<Props> = ({ currentUser, onBack }) => 
             <option value="ALL">Tüm Aktif Kayıtlar</option>
             <option value="INSIDE">İçeride</option>
             <option value="EXITED">Çıkış Yaptı</option>
-            <option value="DELETED">Silinen Kayıtlar (Arşiv)</option>
-            <option value="WITH_DELETED">Tüm Kayıtlar (Silinenler Dahil)</option>
+            {canManageArchive && <option value="DELETED">Silinen Kayıtlar (Arşiv)</option>}
+            {canManageArchive && <option value="WITH_DELETED">Tüm Kayıtlar (Silinenler Dahil)</option>}
           </select>
         </div>
 
@@ -182,14 +184,14 @@ export const VisitorHistoryView: React.FC<Props> = ({ currentUser, onBack }) => 
 
       {/* Control Action Bar */}
       <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-200">
-        <button
+        {canExport && <button
           type="button"
           onClick={() => setIsExportModalOpen(true)}
           className="inline-flex items-center justify-center gap-1.5 h-10 px-4 rounded-xl bg-emerald-50 text-emerald-700 hover:bg-emerald-600 hover:text-white border border-emerald-200 hover:border-emerald-600 text-xs font-extrabold transition-all shadow-xs cursor-pointer"
         >
           <FileSpreadsheet className="w-4 h-4" />
           <span>Rapor / Çıktı Al</span>
-        </button>
+        </button>}
 
         <button
           type="button"
@@ -208,7 +210,7 @@ export const VisitorHistoryView: React.FC<Props> = ({ currentUser, onBack }) => 
     <AddVisitorModal isOpen={Boolean(editing)} visitor={editing} onClose={() => setEditing(null)} onSuccess={load} />
 
     {/* Visitor Export Modal */}
-    <VisitorExportModal
+    {canExport && <VisitorExportModal
       isOpen={isExportModalOpen}
       onClose={() => setIsExportModalOpen(false)}
       isExporting={isExporting}
@@ -228,6 +230,6 @@ export const VisitorHistoryView: React.FC<Props> = ({ currentUser, onBack }) => 
           setIsExporting(false);
         }
       }}
-    />
+    />}
   </div>;
 };

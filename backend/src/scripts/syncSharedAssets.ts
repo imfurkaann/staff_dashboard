@@ -2,7 +2,7 @@ import prisma from '../db/prisma';
 
 async function main() {
   const stockItems = await prisma.stockItem.findMany({
-    where: { itemType: 'ORTAK_EKİPMAN' },
+    where: { itemType: { in: ['ORTAK_EKİPMAN', 'ORTAK_KULLANIM'] } },
   });
 
   console.log(`Found ${stockItems.length} ORTAK_EKİPMAN stock items.`);
@@ -15,15 +15,14 @@ async function main() {
     ];
     if (item.itemCode) orConditions.push({ assetCode: item.itemCode });
 
-    const sharedAssets = await prisma.sharedAsset.findMany({
-      where: { OR: orConditions },
-    });
+    const sharedAssets = await prisma.sharedAsset.findMany({ where: { OR: [{ stockItemId: item.id }, ...orConditions] } });
 
     for (const sharedAsset of sharedAssets) {
       console.log(`Updating SharedAsset ID=${sharedAsset.id} with specs="${item.specifications || ''}"`);
       await prisma.sharedAsset.update({
         where: { id: sharedAsset.id },
         data: {
+          stockItemId: item.id,
           assetName: item.itemName,
           category: item.category,
           brandModel: item.specifications || null,

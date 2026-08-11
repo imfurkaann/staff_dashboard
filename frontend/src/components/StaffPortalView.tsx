@@ -1054,6 +1054,7 @@ export const StaffPortalView: React.FC<StaffPortalViewProps> = ({ currentUser: _
                 <label className="block mb-1 text-[10px] font-extrabold uppercase text-slate-600">Konu *</label>
                 <input
                   required
+                  maxLength={200}
                   value={ticketForm.subject}
                   onChange={(e) => setTicketForm({ ...ticketForm, subject: e.target.value })}
                   placeholder="Örn: Koridorda gürültü / Wi-Fi yavaş"
@@ -1065,6 +1066,7 @@ export const StaffPortalView: React.FC<StaffPortalViewProps> = ({ currentUser: _
                 <label className="block mb-1 text-[10px] font-extrabold uppercase text-slate-600">Açıklama & Detay *</label>
                 <textarea
                   required
+                  maxLength={5000}
                   rows={4}
                   value={ticketForm.description}
                   onChange={(e) => setTicketForm({ ...ticketForm, description: e.target.value })}

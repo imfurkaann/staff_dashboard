@@ -1,11 +1,13 @@
 import { Prisma, VisitorStatus } from '@prisma/client';
 import prisma from '../db/prisma';
 import { AppError } from '../middleware/errorHandler';
+import { normalizeIdentifier, normalizePhone as normalizePhoneValue } from '../utils/normalization';
 
 const MAX_PAGE_SIZE = 100;
 const MAX_VISITOR_COUNT = 20;
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const VISITOR_INPUT_FIELDS = new Set(['fullName', 'visitorCount', 'phone', 'company', 'hostEmployeeId', 'purpose', 'vehiclePlate', 'notes']);
 
 export interface VisitorFilters {
   search?: string;
@@ -83,23 +85,38 @@ function requireText(value: unknown, maxLength: number, fieldName: string): stri
 function normalizePhone(value: unknown): string | null {
   if (value === undefined || value === null || value === '') return null;
   if (typeof value !== 'string') throw new AppError('Telefon numarası metin olmalıdır.', 400);
-  const phone = value.trim().replace(/[\s()-]/g, '');
-  if (!/^\+?\d{10,15}$/.test(phone)) throw new AppError('Telefon numarası 10-15 rakam olmalıdır.', 400);
-  return phone;
+  return normalizePhoneValue(value);
+}
+
+function normalizeVehiclePlate(value: unknown): string | null {
+  const plate = normalizeUpper(value, 20, 'Araç plakası');
+  return normalizeIdentifier(plate);
 }
 
 function normalizeCount(value: unknown): number {
-  const count = value === undefined ? 1 : Number(value);
-  if (!Number.isInteger(count) || count < 1 || count > MAX_VISITOR_COUNT) {
+  if (value === undefined) return 1;
+  if (typeof value !== 'number' || !Number.isInteger(value) || value < 1 || value > MAX_VISITOR_COUNT) {
     throw new AppError(`Kişi sayısı 1-${MAX_VISITOR_COUNT} arasında tam sayı olmalıdır.`, 400);
   }
-  return count;
+  return value;
 }
 
-function validateUuid(value: string | undefined, fieldName: string): string | undefined {
-  if (!value) return undefined;
-  if (!UUID_PATTERN.test(value)) throw new AppError(`${fieldName} geçersiz.`, 400);
-  return value;
+function validateUuid(value: unknown, fieldName: string): string | undefined {
+  if (value === undefined || value === null || value === '') return undefined;
+  if (typeof value !== 'string' || !UUID_PATTERN.test(value.trim())) throw new AppError(`${fieldName} geçersiz.`, 400);
+  return value.trim();
+}
+
+function assertVisitorPayload(input: unknown): asserts input is CreateVisitorInput {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) throw new AppError('Ziyaretçi bilgileri geçerli bir nesne olmalıdır.', 400);
+  const unknownFields = Object.keys(input).filter((field) => !VISITOR_INPUT_FIELDS.has(field));
+  if (unknownFields.length) throw new AppError(`Ziyaretçi kaydında desteklenmeyen alan: ${unknownFields[0]}.`, 400);
+}
+
+function validateRequestKey(value: unknown): string {
+  const key = validateUuid(value, 'İstek anahtarı');
+  if (!key) throw new AppError('Tekrarlı kayıtları önlemek için geçerli bir istek anahtarı gereklidir.', 400);
+  return key;
 }
 
 function parseDateBoundary(value: string | undefined, endOfDay: boolean): Date | undefined {
@@ -115,19 +132,19 @@ function parseDateBoundary(value: string | undefined, endOfDay: boolean): Date |
 
 function serializeVisitor(visitor: VisitorRow) { return visitor; }
 
-async function resolveHost(hostEmployeeId: string | undefined) {
+async function resolveHost(hostEmployeeId: unknown) {
   const id = validateUuid(hostEmployeeId, 'Ziyaret edilen personel');
-  if (!id) throw new AppError('Ziyaret edilen personel seçilmelidir.', 400);
+  if (!id) return null;
   const employee = await prisma.employee.findFirst({
-    where: { id, isDeleted: false },
+    where: { id, isDeleted: false, beds: { some: { isOccupied: true } } },
     select: {
       id: true,
       firstName: true,
       lastName: true,
-      beds: { take: 1, select: { bedLabel: true, room: { select: { roomNumber: true, block: { select: { name: true } } } } } },
+      beds: { where: { isOccupied: true }, take: 1, select: { bedLabel: true, room: { select: { roomNumber: true, block: { select: { name: true } } } } } },
     },
   });
-  if (!employee) throw new AppError('Ziyaret edilen aktif personel bulunamadı.', 404);
+  if (!employee) throw new AppError('Ziyaret edilen personel şu anda lojmanda konaklamıyor.', 400);
   const bed = employee.beds[0];
   return {
     id: employee.id,
@@ -184,18 +201,25 @@ export class VisitorService {
     const page = Number.isInteger(filters.page) && Number(filters.page) > 0 ? Number(filters.page) : 1;
     const requestedPageSize = Number.isInteger(filters.pageSize) ? Number(filters.pageSize) : 25;
     const pageSize = Math.min(Math.max(requestedPageSize, 1), MAX_PAGE_SIZE);
-    const sortBy = ['entryTime', 'exitTime', 'fullName', 'company'].includes(filters.sortBy || '') ? filters.sortBy! : 'entryTime';
+    if (filters.sortBy && !['entryTime', 'exitTime', 'fullName', 'company'].includes(filters.sortBy)) throw new AppError('Geçersiz sıralama alanı.', 400);
+    if (filters.sortOrder && !['asc', 'desc'].includes(filters.sortOrder)) throw new AppError('Geçersiz sıralama yönü.', 400);
+    const sortBy = filters.sortBy || 'entryTime';
     const sortOrder: Prisma.SortOrder = filters.sortOrder === 'asc' ? 'asc' : 'desc';
 
     const todayStr = new Date().toLocaleDateString('en-CA', { timeZone: 'Europe/Istanbul' });
     const todayStart = parseDateBoundary(todayStr, false);
     const todayEnd = parseDateBoundary(todayStr, true);
 
-    const [rows, total, insideSum, todayExitedSum, todayDeletedCount] = await prisma.$transaction([
+    const overdueThreshold = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    const [rows, total, insideSum, overdueInsideSum, todayExitedSum, todayDeletedCount] = await prisma.$transaction([
       prisma.visitor.findMany({ where, select: visitorSelect, orderBy: { [sortBy]: sortOrder }, skip: (page - 1) * pageSize, take: pageSize }),
       prisma.visitor.count({ where }),
       prisma.visitor.aggregate({
         where: { status: VisitorStatus.INSIDE, isDeleted: false },
+        _sum: { visitorCount: true },
+      }),
+      prisma.visitor.aggregate({
+        where: { status: VisitorStatus.INSIDE, isDeleted: false, entryTime: { lt: overdueThreshold } },
         _sum: { visitorCount: true },
       }),
       prisma.visitor.aggregate({
@@ -216,6 +240,7 @@ export class VisitorService {
 
     const summary = {
       inside: insideSum._sum?.visitorCount || 0,
+      overdueInside: overdueInsideSum._sum?.visitorCount || 0,
       exited: todayExitedSum._sum?.visitorCount || 0,
       deleted: todayDeletedCount,
     };
@@ -229,45 +254,106 @@ export class VisitorService {
     return serializeVisitor(visitor);
   }
 
-  public static async createVisitor(input: CreateVisitorInput, userId: string) {
-    if (Object.prototype.hasOwnProperty.call(input, 'identityNo') || Object.prototype.hasOwnProperty.call(input, 'identityNoHash')) {
-      throw new AppError('Ziyaretçilerden kimlik veya pasaport bilgisi alınmaz.', 400);
-    }
-    const host = await resolveHost(input.hostEmployeeId);
-    const visitor = await prisma.visitor.create({
-      data: {
-        fullName: requireText(input.fullName, 120, 'Ziyaretçi adı soyadı'),
-        visitorCount: normalizeCount(input.visitorCount),
-        phone: normalizePhone(input.phone),
-        company: normalizeUpper(input.company, 120, 'Firma / kurum'),
-        hostEmployeeId: host.id,
-        hostEmployeeName: host.name,
-        hostRoomLabel: host.roomLabel,
-        purpose: requireText(input.purpose, 200, 'Ziyaret amacı'),
-        vehiclePlate: normalizeUpper(input.vehiclePlate, 20, 'Araç plakası'),
-        notes: normalizeUpper(input.notes, 1000, 'Notlar'),
-        createdById: userId,
-        updatedById: userId,
+  public static async getHostCandidates() {
+    const employees = await prisma.employee.findMany({
+      where: { isDeleted: false, beds: { some: { isOccupied: true } } },
+      orderBy: [{ firstName: 'asc' }, { lastName: 'asc' }],
+      select: {
+        id: true, firstName: true, lastName: true, department: true,
+        beds: { where: { isOccupied: true }, take: 1, select: { bedLabel: true, room: { select: { roomNumber: true, block: { select: { name: true } } } } } },
       },
-      select: visitorSelect,
     });
-    return serializeVisitor(visitor);
+    return employees.map((employee) => {
+      const bed = employee.beds[0];
+      return {
+        id: employee.id,
+        fullName: `${employee.firstName} ${employee.lastName}`,
+        department: employee.department,
+        roomLabel: bed ? `${bed.room.block.name} / ODA ${bed.room.roomNumber} / ${bed.bedLabel}` : null,
+      };
+    });
+  }
+
+  public static async createVisitor(input: CreateVisitorInput, userId: string, rawRequestKey: unknown): Promise<VisitorRow> {
+    assertVisitorPayload(input);
+    const requestKey = validateRequestKey(rawRequestKey);
+    const normalized = {
+      fullName: requireText(input.fullName, 120, 'Ziyaretçi adı soyadı'),
+      visitorCount: normalizeCount(input.visitorCount),
+      phone: normalizePhone(input.phone),
+      company: normalizeUpper(input.company, 120, 'Firma / kurum'),
+      hostEmployeeId: validateUuid(input.hostEmployeeId, 'Ziyaret edilen personel') || null,
+      purpose: requireText(input.purpose, 200, 'Ziyaret amacı'),
+      vehiclePlate: normalizeVehiclePlate(input.vehiclePlate),
+      notes: normalizeUpper(input.notes, 1000, 'Notlar'),
+    };
+
+    const existing = await prisma.visitor.findUnique({ where: { requestKey }, select: visitorSelect });
+    if (existing) {
+      const sameRequest = existing.createdBy?.id === userId &&
+        existing.fullName === normalized.fullName && existing.visitorCount === normalized.visitorCount &&
+        existing.phone === normalized.phone && existing.company === normalized.company &&
+        existing.hostEmployeeId === normalized.hostEmployeeId && existing.purpose === normalized.purpose &&
+        existing.vehiclePlate === normalized.vehiclePlate && existing.notes === normalized.notes;
+      if (!sameRequest) throw new AppError('Bu istek anahtarı farklı bir ziyaretçi kaydı için daha önce kullanılmış.', 409);
+      return serializeVisitor(existing);
+    }
+
+    const host = await resolveHost(normalized.hostEmployeeId);
+    const duplicateSignals: Prisma.VisitorWhereInput[] = [];
+    if (normalized.phone) duplicateSignals.push({ fullName: normalized.fullName, phone: normalized.phone });
+    if (normalized.vehiclePlate) duplicateSignals.push({ fullName: normalized.fullName, vehiclePlate: normalized.vehiclePlate });
+    if (duplicateSignals.length) {
+      const activeDuplicate = await prisma.visitor.findFirst({
+        where: { status: VisitorStatus.INSIDE, isDeleted: false, OR: duplicateSignals },
+        select: { id: true },
+      });
+      if (activeDuplicate) throw new AppError('Bu ziyaretçi için açık bir giriş kaydı zaten bulunuyor. Önce mevcut kaydın çıkışını yapın.', 409);
+    }
+    try {
+      const visitor = await prisma.visitor.create({
+        data: {
+          requestKey,
+          ...normalized,
+          hostEmployeeId: host?.id || null,
+          hostEmployeeName: host?.name || null,
+          hostRoomLabel: host?.roomLabel || null,
+          createdById: userId,
+          updatedById: userId,
+        },
+        select: visitorSelect,
+      });
+      return serializeVisitor(visitor);
+    } catch (error) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+        return this.createVisitor(input, userId, requestKey);
+      }
+      throw error;
+    }
   }
 
   public static async updateVisitor(id: string, input: UpdateVisitorInput, userId: string) {
-    if (Object.prototype.hasOwnProperty.call(input, 'identityNo') || Object.prototype.hasOwnProperty.call(input, 'identityNoHash')) {
-      throw new AppError('Ziyaretçilerden kimlik veya pasaport bilgisi alınmaz.', 400);
-    }
+    assertVisitorPayload(input);
     await this.getVisitorById(id);
-    const host = input.hostEmployeeId !== undefined ? await resolveHost(input.hostEmployeeId) : null;
     const data: Prisma.VisitorUpdateInput = { updatedBy: { connect: { id: userId } } };
     if (input.fullName !== undefined) data.fullName = requireText(input.fullName, 120, 'Ziyaretçi adı soyadı');
     if (input.visitorCount !== undefined) data.visitorCount = normalizeCount(input.visitorCount);
     if (input.phone !== undefined) data.phone = normalizePhone(input.phone);
     if (input.company !== undefined) data.company = normalizeUpper(input.company, 120, 'Firma / kurum');
-    if (host) { data.hostEmployee = { connect: { id: host.id } }; data.hostEmployeeName = host.name; data.hostRoomLabel = host.roomLabel; }
+    if (Object.prototype.hasOwnProperty.call(input, 'hostEmployeeId')) {
+      const host = await resolveHost(input.hostEmployeeId);
+      if (host) {
+        data.hostEmployee = { connect: { id: host.id } };
+        data.hostEmployeeName = host.name;
+        data.hostRoomLabel = host.roomLabel;
+      } else {
+        data.hostEmployee = { disconnect: true };
+        data.hostEmployeeName = null;
+        data.hostRoomLabel = null;
+      }
+    }
     if (input.purpose !== undefined) data.purpose = requireText(input.purpose, 200, 'Ziyaret amacı');
-    if (input.vehiclePlate !== undefined) data.vehiclePlate = normalizeUpper(input.vehiclePlate, 20, 'Araç plakası');
+    if (input.vehiclePlate !== undefined) data.vehiclePlate = normalizeVehiclePlate(input.vehiclePlate);
     if (input.notes !== undefined) data.notes = normalizeUpper(input.notes, 1000, 'Notlar');
     const visitor = await prisma.visitor.update({ where: { id }, data, select: visitorSelect });
     return serializeVisitor(visitor);
@@ -285,11 +371,12 @@ export class VisitorService {
 
   public static async undoCheckOutVisitor(id: string, userId: string) {
     validateUuid(id, 'Ziyaretçi kaydı');
+    const undoThreshold = new Date(Date.now() - 30 * 60 * 1000);
     const result = await prisma.visitor.updateMany({
-      where: { id, isDeleted: false, status: VisitorStatus.EXITED },
+      where: { id, isDeleted: false, status: VisitorStatus.EXITED, exitTime: { gte: undoThreshold } },
       data: { status: VisitorStatus.INSIDE, exitTime: null, updatedById: userId },
     });
-    if (result.count === 0) throw new AppError('Kayıt bulunamadı veya ziyaretçi zaten içeride.', 409);
+    if (result.count === 0) throw new AppError('Kayıt bulunamadı, ziyaretçi zaten içeride veya 30 dakikalık geri alma süresi doldu. Yeni giriş kaydı oluşturun.', 409);
     return this.getVisitorById(id);
   }
 

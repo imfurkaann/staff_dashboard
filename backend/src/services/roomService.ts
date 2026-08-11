@@ -3,6 +3,11 @@ import { AppError } from '../middleware/errorHandler';
 import { Prisma, RoomInventoryStatus, RoomStatus } from '@prisma/client';
 import { assertDateRange, parseIstanbulDateBoundary } from '../utils/dateTime';
 import { reserveRoomStock } from '../utils/stockBalance';
+import { normalizeIdentifier, normalizeUpper } from '../utils/normalization';
+import {
+  normalizeRoomType, validateCleaningStatus, validateInventoryExportFilter,
+  validateOccupancyExportFilter, validateRoomCapacity, validateRoomFloor,
+} from '../security/roomPolicy';
 
 const roomEmployeeSelect = {
   id: true,
@@ -21,6 +26,7 @@ const roomEmployeeSelect = {
   shiftType: true,
   createdAt: true,
   inventories: {
+    where: { isDeleted: false },
     orderBy: { createdAt: 'desc' },
   },
 } satisfies Prisma.EmployeeSelect;
@@ -228,7 +234,7 @@ export const roomService = {
           where: { returnedAt: null, status: { notIn: ['LOST', 'RETIRED'] } },
           orderBy: [{ itemName: 'asc' }, { serialNo: 'asc' }],
         },
-        cleaningLogs: { orderBy: { requestedAt: 'desc' } },
+        cleaningLogs: { where: { isDeleted: false }, orderBy: { requestedAt: 'desc' } },
       },
     });
     if (!room) throw new AppError('Oda bulunamadı.', 404);
@@ -282,7 +288,7 @@ export const roomService = {
       prisma.room.count({ where: { status: 'NEEDS_CLEANING' } }),
       prisma.room.count({ where: { status: 'OUT_OF_ORDER' } }),
       prisma.bed.count(),
-      prisma.bed.count({ where: { isOccupied: true } }),
+      prisma.bed.count({ where: { isOccupied: true, currentEmployeeId: { not: null } } }),
     ]);
     const vacantBeds = totalBeds - occupiedBeds;
     const occupancyRate = totalBeds > 0 ? Math.round((occupiedBeds / totalBeds) * 100) : 0;
@@ -304,93 +310,97 @@ export const roomService = {
    */
   async updateRoomStatus(roomId: string, status: RoomStatus, userFullName: string = 'Lojman Yönetimi') {
     if (!Object.values(RoomStatus).includes(status)) throw new AppError('Geçersiz oda durumu.', 400);
-    const room = await prisma.room.findUnique({ where: { id: roomId } });
-    if (!room) {
-      throw new AppError('Oda bulunamadı.', 404);
-    }
+    try {
+      await prisma.$transaction(async (tx) => {
+        const room = await tx.room.findUnique({ where: { id: roomId } });
+        if (!room) throw new AppError('Oda bulunamadı.', 404);
+        if (room.status === status) return;
 
-    if (room.status !== status) {
-      if (status === 'NEEDS_CLEANING') {
-        // Open a new cleaning log when status becomes NEEDS_CLEANING
-        await prisma.roomCleaningLog.create({
-          data: {
-            roomId,
-            status: 'NEEDS_CLEANING',
-            requestedBy: userFullName.toLocaleUpperCase('tr-TR'),
-            notes: 'ODA DURUMU TEMİZLİK BEKLİYOR OLARAK GÜNCELLENDİ.',
-            requestedAt: new Date(),
-          },
-        });
-      } else if (status === 'READY') {
-        // Close active cleaning logs when status becomes READY
-        const activeLogs = await prisma.roomCleaningLog.findMany({
-          where: { roomId, status: { not: 'CLEANED' } },
-        });
+        if (status === 'READY') {
+          const criticalFault = await tx.maintenanceLog.findFirst({
+            where: { roomId, status: { in: ['OPEN', 'IN_PROGRESS'] }, priority: { in: ['HIGH', 'URGENT'] } },
+            select: { id: true },
+          });
+          if (criticalFault) throw new AppError('Yüksek veya acil öncelikli arıza açıkken oda hazır durumuna alınamaz. Önce arızayı sonuçlandırın.', 409);
 
-        if (activeLogs.length > 0) {
-          await prisma.roomCleaningLog.updateMany({
-            where: { roomId, status: { not: 'CLEANED' } },
-            data: {
-              status: 'CLEANED',
-              cleanedAt: new Date(),
-              cleanedBy: userFullName.toLocaleUpperCase('tr-TR'),
-            },
+          const now = new Date();
+          const closed = await tx.roomCleaningLog.updateMany({
+            where: { roomId, isDeleted: false, status: { not: 'CLEANED' } },
+            data: { status: 'CLEANED', cleanedAt: now, cleanedBy: userFullName.toLocaleUpperCase('tr-TR') },
           });
-        } else {
-          // If no active cleaning log, log a completed record
-          await prisma.roomCleaningLog.create({
-            data: {
-              roomId,
-              status: 'CLEANED',
-              requestedBy: userFullName.toLocaleUpperCase('tr-TR'),
-              cleanedBy: userFullName.toLocaleUpperCase('tr-TR'),
-              notes: 'ODA DURUMU HAZIR OLARAK GÜNCELLENDİ.',
-              requestedAt: new Date(),
-              cleanedAt: new Date(),
-            },
+          if (closed.count === 0 && room.status === 'NEEDS_CLEANING') {
+            await tx.roomCleaningLog.create({
+              data: {
+                roomId, status: 'CLEANED', requestedBy: userFullName.toLocaleUpperCase('tr-TR'),
+                cleanedBy: userFullName.toLocaleUpperCase('tr-TR'), notes: 'ODA DURUMU HAZIR OLARAK GÜNCELLENDİ.',
+                requestedAt: now, cleanedAt: now,
+              },
+            });
+          }
+        } else if (status === 'NEEDS_CLEANING') {
+          const activeLog = await tx.roomCleaningLog.findFirst({
+            where: { roomId, isDeleted: false, status: { not: 'CLEANED' } }, select: { id: true },
           });
+          if (!activeLog) {
+            await tx.roomCleaningLog.create({
+              data: {
+                roomId, status: 'NEEDS_CLEANING', requestedBy: userFullName.toLocaleUpperCase('tr-TR'),
+                notes: 'ODA DURUMU TEMİZLİK BEKLİYOR OLARAK GÜNCELLENDİ.', requestedAt: new Date(),
+              },
+            });
+          }
         }
-      }
-    }
 
-    await prisma.room.update({
-      where: { id: roomId },
-      data: { status },
-    });
+        const changed = await tx.room.updateMany({ where: { id: roomId, updatedAt: room.updatedAt }, data: { status } });
+        if (changed.count !== 1) throw new AppError('Oda başka bir kullanıcı tarafından güncellendi. Sayfayı yenileyip tekrar deneyin.', 409);
+      }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+    } catch (error) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2034') {
+        throw new AppError('Oda durumu eşzamanlı başka bir işlemde değişti. Sayfayı yenileyip tekrar deneyin.', 409);
+      }
+      throw error;
+    }
     return this.getRoomById(roomId);
   },
 
   /** Create a new room cleaning log */
   async createCleaningLog(roomId: string, data: { requestedBy?: string; cleanedBy?: string; notes?: string; status?: string }) {
-    const room = await prisma.room.findUnique({ where: { id: roomId } });
-    if (!room) throw new AppError('Oda bulunamadı.', 404);
-
-    const logStatus = data.status || 'NEEDS_CLEANING';
-    if (!['NEEDS_CLEANING', 'IN_PROGRESS', 'CLEANED'].includes(logStatus)) {
-      throw new AppError('Geçersiz temizlik durumu.', 400);
-    }
+    const logStatus = validateCleaningStatus(data.status);
     const isCleaned = logStatus === 'CLEANED';
-    if (!isCleaned) {
-      const activeLog = await prisma.roomCleaningLog.findFirst({ where: { roomId, status: { not: 'CLEANED' } }, select: { id: true } });
-      if (activeLog) throw new AppError('Bu oda için zaten açık bir temizlik kaydı bulunuyor.', 409);
-    }
+    try {
+      await prisma.$transaction(async (tx) => {
+        const room = await tx.room.findUnique({ where: { id: roomId } });
+        if (!room) throw new AppError('Oda bulunamadı.', 404);
+        if (!isCleaned) {
+          const activeLog = await tx.roomCleaningLog.findFirst({ where: { roomId, isDeleted: false, status: { not: 'CLEANED' } }, select: { id: true } });
+          if (activeLog) throw new AppError('Bu oda için zaten açık bir temizlik kaydı bulunuyor.', 409);
+        }
 
-    await prisma.roomCleaningLog.create({
-      data: {
-        roomId,
-        status: logStatus,
-        requestedBy: (data.requestedBy || 'Lojman Yönetimi').toLocaleUpperCase('tr-TR'),
-        cleanedBy: (data.cleanedBy || (isCleaned ? 'Lojman Yönetimi' : null))?.toLocaleUpperCase('tr-TR') || null,
-        notes: data.notes?.trim().toLocaleUpperCase('tr-TR') || null,
-        requestedAt: new Date(),
-        cleanedAt: isCleaned ? new Date() : null,
-      },
-    });
+        const now = new Date();
+        await tx.roomCleaningLog.create({
+          data: {
+            roomId, status: logStatus,
+            requestedBy: (data.requestedBy || 'Lojman Yönetimi').toLocaleUpperCase('tr-TR'),
+            cleanedBy: (data.cleanedBy || (isCleaned ? 'Lojman Yönetimi' : null))?.toLocaleUpperCase('tr-TR') || null,
+            notes: data.notes?.trim().toLocaleUpperCase('tr-TR') || null,
+            requestedAt: now, cleanedAt: isCleaned ? now : null,
+          },
+        });
 
-    if (logStatus === 'NEEDS_CLEANING' && room.status !== 'NEEDS_CLEANING') {
-      await prisma.room.update({ where: { id: roomId }, data: { status: 'NEEDS_CLEANING' } });
-    } else if (isCleaned && room.status === 'NEEDS_CLEANING') {
-      await prisma.room.update({ where: { id: roomId }, data: { status: 'READY' } });
+        if (!isCleaned && room.status !== 'OUT_OF_ORDER') {
+          await tx.room.update({ where: { id: roomId }, data: { status: 'NEEDS_CLEANING' } });
+        } else if (isCleaned && room.status === 'NEEDS_CLEANING') {
+          const criticalFault = await tx.maintenanceLog.findFirst({
+            where: { roomId, status: { in: ['OPEN', 'IN_PROGRESS'] }, priority: { in: ['HIGH', 'URGENT'] } }, select: { id: true },
+          });
+          await tx.room.update({ where: { id: roomId }, data: { status: criticalFault ? 'OUT_OF_ORDER' : 'READY' } });
+        }
+      }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+    } catch (error) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && ['P2002', 'P2034'].includes(error.code)) {
+        throw new AppError('Bu oda için temizlik kaydı eşzamanlı başka bir işlemde değişti. Sayfayı yenileyin.', 409);
+      }
+      throw error;
     }
 
     return this.getRoomById(roomId);
@@ -398,46 +408,60 @@ export const roomService = {
 
   /** Update an existing room cleaning log */
   async updateCleaningLog(logId: string, data: { status?: string; cleanedBy?: string | null; notes?: string; requestedBy?: string }) {
-    const existing = await prisma.roomCleaningLog.findUnique({ where: { id: logId } });
+    const existing = await prisma.roomCleaningLog.findFirst({ where: { id: logId, isDeleted: false } });
     if (!existing) throw new AppError('Temizlik kaydı bulunamadı.', 404);
-    if (data.status !== undefined && !['NEEDS_CLEANING', 'IN_PROGRESS', 'CLEANED'].includes(data.status)) {
-      throw new AppError('Geçersiz temizlik durumu.', 400);
-    }
-
-    const isCleaned = data.status === 'CLEANED';
-    const cleanedAt = isCleaned && !existing.cleanedAt ? new Date() : (data.status && !isCleaned ? null : existing.cleanedAt);
-
-    await prisma.roomCleaningLog.update({
-      where: { id: logId },
-      data: {
-        status: data.status !== undefined ? data.status : existing.status,
-        requestedBy: data.requestedBy !== undefined ? data.requestedBy.toLocaleUpperCase('tr-TR') : existing.requestedBy,
-        cleanedBy: data.cleanedBy !== undefined ? data.cleanedBy?.toLocaleUpperCase('tr-TR') || null : (data.status && !isCleaned ? null : existing.cleanedBy),
-        notes: data.notes !== undefined ? data.notes.toLocaleUpperCase('tr-TR') : existing.notes,
-        cleanedAt,
-      },
-    });
-
-    if (isCleaned) {
-      const openCount = await prisma.roomCleaningLog.count({
-        where: { roomId: existing.roomId, status: { not: 'CLEANED' } },
-      });
-      if (openCount === 0) {
-        await prisma.room.update({ where: { id: existing.roomId }, data: { status: 'READY' } });
+    const targetStatus = data.status === undefined ? existing.status : validateCleaningStatus(data.status);
+    const isCleaned = targetStatus === 'CLEANED';
+    try {
+      await prisma.$transaction(async (tx) => {
+        if (!isCleaned) {
+        const otherActive = await tx.roomCleaningLog.findFirst({
+          where: { roomId: existing.roomId, id: { not: logId }, isDeleted: false, status: { not: 'CLEANED' } }, select: { id: true },
+        });
+        if (otherActive) throw new AppError('Bu oda için başka bir açık temizlik kaydı bulunuyor.', 409);
       }
-    } else if (data.status === 'NEEDS_CLEANING') {
-      await prisma.room.update({ where: { id: existing.roomId }, data: { status: 'NEEDS_CLEANING' } });
+      const changed = await tx.roomCleaningLog.updateMany({
+        where: { id: logId, isDeleted: false, updatedAt: existing.updatedAt },
+        data: {
+          status: targetStatus,
+          requestedBy: data.requestedBy !== undefined ? data.requestedBy.toLocaleUpperCase('tr-TR') : existing.requestedBy,
+          cleanedBy: data.cleanedBy !== undefined ? data.cleanedBy?.toLocaleUpperCase('tr-TR') || null : (isCleaned ? existing.cleanedBy || 'LOJMAN YÖNETİMİ' : null),
+          notes: data.notes !== undefined ? data.notes.toLocaleUpperCase('tr-TR') : existing.notes,
+          cleanedAt: isCleaned ? existing.cleanedAt || new Date() : null,
+        },
+      });
+      if (changed.count !== 1) throw new AppError('Temizlik kaydı başka bir kullanıcı tarafından güncellendi. Sayfayı yenileyin.', 409);
+
+      const room = await tx.room.findUniqueOrThrow({ where: { id: existing.roomId } });
+      if (!isCleaned && room.status !== 'OUT_OF_ORDER') {
+        await tx.room.update({ where: { id: room.id }, data: { status: 'NEEDS_CLEANING' } });
+      } else if (isCleaned && room.status === 'NEEDS_CLEANING') {
+        const remainingOpen = await tx.roomCleaningLog.count({ where: { roomId: room.id, isDeleted: false, status: { not: 'CLEANED' } } });
+        if (remainingOpen === 0) {
+          const criticalFault = await tx.maintenanceLog.findFirst({ where: { roomId: room.id, status: { in: ['OPEN', 'IN_PROGRESS'] }, priority: { in: ['HIGH', 'URGENT'] } }, select: { id: true } });
+          await tx.room.update({ where: { id: room.id }, data: { status: criticalFault ? 'OUT_OF_ORDER' : 'READY' } });
+        }
+        }
+      }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+    } catch (error: any) {
+      if (error instanceof AppError) throw error;
+      if (error?.code === 'P2002' || error?.code === 'P2034') throw new AppError('Temizlik kaydı eşzamanlı başka bir işlemde değişti. Sayfayı yenileyin.', 409);
+      throw error;
     }
 
     return this.getRoomById(existing.roomId);
   },
 
   /** Delete a room cleaning log */
-  async deleteCleaningLog(logId: string) {
-    const existing = await prisma.roomCleaningLog.findUnique({ where: { id: logId } });
+  async deleteCleaningLog(logId: string, deletedById?: string) {
+    const existing = await prisma.roomCleaningLog.findFirst({ where: { id: logId, isDeleted: false } });
     if (!existing) throw new AppError('Temizlik kaydı bulunamadı.', 404);
-
-    await prisma.roomCleaningLog.delete({ where: { id: logId } });
+    if (existing.status !== 'CLEANED') throw new AppError('Açık temizlik kaydı arşivlenemez. Önce temizlik sürecini tamamlayın.', 409);
+    const archived = await prisma.roomCleaningLog.updateMany({
+      where: { id: logId, isDeleted: false, status: 'CLEANED', updatedAt: existing.updatedAt },
+      data: { isDeleted: true, deletedAt: new Date(), deletedById: deletedById || null },
+    });
+    if (archived.count !== 1) throw new AppError('Temizlik kaydı başka bir kullanıcı tarafından güncellendi. Sayfayı yenileyin.', 409);
     return this.getRoomById(existing.roomId);
   },
 
@@ -447,13 +471,10 @@ export const roomService = {
   async createRoom(data: CreateRoomInput) {
     const { blockId, floor, roomNumber, capacity = 2, roomType = 'PERSONEL_ODASI' } = data;
     const normalizedRoomNumber = typeof roomNumber === 'string' ? roomNumber.trim().toLocaleUpperCase('tr-TR') : '';
-    const parsedFloor = Number(floor);
-    const normalizedRoomType = typeof roomType === 'string' && roomType.trim() ? roomType.trim().toLocaleUpperCase('tr-TR') : 'PERSONEL_ODASI';
-    const parsedCapacity = normalizedRoomType === 'PERSONEL_ODASI' ? Number(capacity) : 0;
+    const parsedFloor = validateRoomFloor(floor);
+    const normalizedRoomType = normalizeRoomType(roomType);
+    const parsedCapacity = validateRoomCapacity(capacity, normalizedRoomType);
     if (!normalizedRoomNumber || normalizedRoomNumber.length > 50) throw new AppError('Oda numarası veya oda adı zorunludur ve en fazla 50 karakter olabilir.', 400);
-    if (!Number.isInteger(parsedFloor) || parsedFloor < -5 || parsedFloor > 200) throw new AppError('Kat değeri -5 ile 200 arasında tam sayı olmalıdır.', 400);
-    if (!Number.isInteger(parsedCapacity) || parsedCapacity < 0 || parsedCapacity > 26) throw new AppError('Oda kapasitesi 0 ile 26 arasında olmalıdır.', 400);
-    if (normalizedRoomType === 'PERSONEL_ODASI' && parsedCapacity < 1) throw new AppError('Konaklama odaları için en az 1 yatak kapasitesi girilmelidir.', 400);
 
     const block = await prisma.block.findUnique({ where: { id: blockId } });
     if (!block) {
@@ -470,28 +491,28 @@ export const roomService = {
     // Alphabetical labels: Yatak-A, Yatak-B, Yatak-C, Yatak-D ...
     const bedLabels = Array.from({ length: parsedCapacity }, (_, i) => `YATAK-${String.fromCharCode(65 + i)}`);
 
-    const newRoom = await prisma.room.create({
-      data: {
-        blockId,
-        floor: parsedFloor,
-        roomNumber: normalizedRoomNumber,
-        capacity: parsedCapacity,
-        roomType: normalizedRoomType,
-        status: 'READY',
-        beds: {
-          create: bedLabels.map((label) => ({
-            bedLabel: label,
-            isOccupied: false,
-          })),
+    try {
+      const newRoom = await prisma.room.create({
+        data: {
+          blockId,
+          floor: parsedFloor,
+          roomNumber: normalizedRoomNumber,
+          capacity: parsedCapacity,
+          roomType: normalizedRoomType,
+          status: 'READY',
+          beds: {
+            create: bedLabels.map((label) => ({ bedLabel: label, isOccupied: false })),
+          },
         },
-      },
-      include: {
-        block: true,
-        beds: true,
-      },
-    });
-
-    return newRoom;
+        include: { block: true, beds: true },
+      });
+      return newRoom;
+    } catch (error) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+        throw new AppError(`${block.name} bloğunda '${normalizedRoomNumber}' numaralı oda zaten mevcut.`, 409);
+      }
+      throw error;
+    }
   },
 
   /**
@@ -529,7 +550,8 @@ export const roomService = {
     const updateData: any = {};
 
     if (data.roomType !== undefined) {
-      updateData.roomType = data.roomType || 'PERSONEL_ODASI';
+      const requestedRoomType = normalizeRoomType(data.roomType);
+      if (requestedRoomType !== room.roomType) throw new AppError('Oda türü oluşturulduktan sonra değiştirilemez. Denetim ve yatak geçmişi için yeni oda kaydı oluşturun.', 409);
     }
 
     if (data.roomNumber !== undefined) {
@@ -553,59 +575,56 @@ export const roomService = {
     }
 
     if (data.status !== undefined) {
-      if (!Object.values(RoomStatus).includes(data.status)) throw new AppError('Geçersiz oda durumu.', 400);
-      updateData.status = data.status;
+      throw new AppError('Oda durumu, temizlik ve arıza kontrollerini uygulayan ayrı durum işlemiyle değiştirilmelidir.', 400);
     }
 
+    let metadataAppliedWithCapacity = false;
     if (data.capacity !== undefined && Number(data.capacity) !== room.capacity) {
-      const newCapacity = Number(data.capacity);
-      if (!Number.isInteger(newCapacity) || newCapacity < 0 || newCapacity > 26) {
-        throw new AppError('Oda kapasitesi 0 ile 26 arasında olmalıdır.', 400);
-      }
+      const newCapacity = validateRoomCapacity(data.capacity, room.roomType);
+      try {
+        await prisma.$transaction(async (tx) => {
+          const liveRoom = await tx.room.findUnique({
+            where: { id: roomId },
+            include: { beds: { orderBy: { bedLabel: 'asc' }, include: { _count: { select: { occupancies: true } } } } },
+          });
+          if (!liveRoom) throw new AppError('Oda bulunamadı.', 404);
+          if (liveRoom.updatedAt.getTime() !== room.updatedAt.getTime()) {
+            throw new AppError('Oda başka bir kullanıcı tarafından güncellendi. Güncel veriyi yenileyip tekrar deneyin.', 409);
+          }
 
-      const currentBeds = room.beds;
-      if (newCapacity > room.capacity) {
-        const newBedCount = newCapacity - room.capacity;
-        const newBedLabels = Array.from({ length: newBedCount }, (_, i) => `YATAK-${String.fromCharCode(65 + room.capacity + i)}`);
+          if (newCapacity > liveRoom.capacity) {
+            const newBedLabels = Array.from({ length: newCapacity - liveRoom.capacity }, (_, i) => `YATAK-${String.fromCharCode(65 + liveRoom.capacity + i)}`);
+            await tx.bed.createMany({ data: newBedLabels.map((bedLabel) => ({ roomId, bedLabel, isOccupied: false })) });
+          } else {
+            const bedsToRemove = liveRoom.beds.slice(newCapacity);
+            const occupiedBedsToRemove = bedsToRemove.filter((bed) => bed.isOccupied);
+            if (occupiedBedsToRemove.length > 0) {
+              throw new AppError(`Kapasite düşürülemez. Kaldırılacak yataklarda (${occupiedBedsToRemove.map((bed) => bed.bedLabel).join(', ')}) halen ikamet eden personel bulunmaktadır. Önce personelleri başka yatağa transfer edin.`, 400);
+            }
+            const historicalBeds = bedsToRemove.filter((bed) => bed._count.occupancies > 0);
+            if (historicalBeds.length > 0) {
+              throw new AppError(`Kapasite düşürülemez. ${historicalBeds.map((bed) => bed.bedLabel).join(', ')} yataklarında geçmiş konaklama kaydı bulunmaktadır. Denetim geçmişini korumak için odayı arşivleyin.`, 409);
+            }
+            await tx.bed.deleteMany({ where: { id: { in: bedsToRemove.map((bed) => bed.id) } } });
+          }
 
-        await prisma.$transaction([
-          prisma.bed.createMany({
-            data: newBedLabels.map((label) => ({
-              roomId,
-              bedLabel: label,
-              isOccupied: false,
-            })),
-          }),
-          prisma.room.update({ where: { id: roomId }, data: { capacity: newCapacity } }),
-        ]);
-      } else if (newCapacity < room.capacity) {
-        const bedsToRemove = currentBeds.slice(newCapacity);
-        const occupiedBedsToRemove = bedsToRemove.filter((b) => b.isOccupied);
-        if (occupiedBedsToRemove.length > 0) {
-          throw new AppError(
-            `Kapasite düşürülemez. Kaldırılacak yataklarda (${occupiedBedsToRemove.map((b) => b.bedLabel).join(', ')}) halen ikamet eden personel bulunmaktadır. Önce personelleri başka yatağa transfer edin.`,
-            400
-          );
-        }
-        const historicalBeds = bedsToRemove.filter((b) => b._count.occupancies > 0);
-        if (historicalBeds.length > 0) {
-          throw new AppError(`Kapasite düşürülemez. ${historicalBeds.map((b) => b.bedLabel).join(', ')} yataklarında geçmiş konaklama kaydı bulunmaktadır. Denetim geçmişini korumak için odayı arşivleyin.`, 409);
-        }
-
-        const bedIdsToRemove = bedsToRemove.map((b) => b.id);
-
-        await prisma.$transaction([
-          prisma.bed.deleteMany({ where: { id: { in: bedIdsToRemove } } }),
-          prisma.room.update({ where: { id: roomId }, data: { capacity: newCapacity } }),
-        ]);
+          const changed = await tx.room.updateMany({
+            where: { id: roomId, updatedAt: liveRoom.updatedAt },
+            data: { ...updateData, capacity: newCapacity },
+          });
+          if (changed.count !== 1) throw new AppError('Oda başka bir kullanıcı tarafından güncellendi. Güncel veriyi yenileyip tekrar deneyin.', 409);
+        }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+        metadataAppliedWithCapacity = true;
+      } catch (error: any) {
+        if (error instanceof AppError) throw error;
+        if (error?.code === 'P2002' || error?.code === 'P2034') throw new AppError('Oda kapasitesi aynı anda değiştirildi. Güncel veriyi yenileyip tekrar deneyin.', 409);
+        throw error;
       }
     }
 
-    if (Object.keys(updateData).length > 0) {
-      await prisma.room.update({
-        where: { id: roomId },
-        data: updateData,
-      });
+    if (!metadataAppliedWithCapacity && Object.keys(updateData).length > 0) {
+      const changed = await prisma.room.updateMany({ where: { id: roomId, updatedAt: room.updatedAt }, data: updateData });
+      if (changed.count !== 1) throw new AppError('Oda başka bir kullanıcı tarafından güncellendi. Güncel veriyi yenileyip tekrar deneyin.', 409);
     }
 
     return this.getRoomById(roomId);
@@ -652,20 +671,30 @@ export const roomService = {
     const room = await prisma.room.findUnique({ where: { id: roomId }, include: { block: true } });
     if (!room) throw new AppError('Oda bulunamadı.', 404);
 
-    const cleanBrand = data.brand?.trim() ? data.brand.trim().toLocaleUpperCase('tr-TR') : null;
-    const cleanSerialNo = data.serialNo?.trim() ? data.serialNo.trim().toLocaleUpperCase('tr-TR') : null;
-    const quantity = Number(data.quantity || 1);
-    if (!Number.isInteger(quantity) || quantity <= 0) throw new AppError('Zimmet miktarı sıfırdan büyük tam sayı olmalıdır.', 400);
+    const cleanBrand = normalizeUpper(data.brand);
+    const cleanSerialNo = normalizeIdentifier(data.serialNo);
+    const quantity = data.quantity === undefined ? 1 : data.quantity;
+    if (typeof quantity !== 'number' || !Number.isInteger(quantity) || quantity < 1 || quantity > 10_000) {
+      throw new AppError('Zimmet miktarı 1 ile 10.000 arasında tam sayı olmalıdır.', 400);
+    }
+    if (data.status !== undefined && !Object.values(RoomInventoryStatus).includes(data.status)) {
+      throw new AppError('Geçersiz oda demirbaşı durumu.', 400);
+    }
 
-    return prisma.$transaction(async (tx) => {
+    try {
+      return await prisma.$transaction(async (tx) => {
       if (!data.stockItemId) throw new AppError('Oda zimmeti için depo stok kartı seçilmelidir.', 400);
       const stockItem = await tx.stockItem.findUnique({ where: { id: data.stockItemId } });
       if (!stockItem || !stockItem.isActive) throw new AppError('Seçilen aktif stok kartı depoda bulunamadı.', 404);
       if (stockItem.itemType !== 'SARF_MALZEME' && quantity > 1) throw new AppError('Demirbaşlar fiziksel cihaz takibi için tek tek ve 1 adet olarak zimmetlenmelidir.', 400);
       if (stockItem.itemType !== 'SARF_MALZEME' && !cleanSerialNo) throw new AppError('Demirbaş zimmeti için cihazın üretici seri numarası zorunludur.', 400);
       if (cleanSerialNo) {
-        const duplicateSerial = await tx.roomInventory.findFirst({ where: { serialNo: cleanSerialNo, returnedAt: null } });
-        if (duplicateSerial) throw new AppError('Bu seri numarası halen başka bir aktif demirbaşta kullanılıyor.', 409);
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`INVENTORY_SERIAL:${cleanSerialNo}`}))`;
+        const [roomDuplicate, personnelDuplicate] = await Promise.all([
+          tx.roomInventory.findFirst({ where: { serialNo: cleanSerialNo, returnedAt: null }, select: { id: true } }),
+          tx.inventoryItem.findFirst({ where: { serialNo: cleanSerialNo, returnedDate: null, isDeleted: false }, select: { id: true } }),
+        ]);
+        if (roomDuplicate || personnelDuplicate) throw new AppError('Bu seri numarası halen başka bir aktif demirbaşta kullanılıyor.', 409);
       }
       const cleanItemName = stockItem.itemName;
       const available = stockItem.totalStock - (stockItem.usedStock + stockItem.usedInRooms);
@@ -705,17 +734,24 @@ export const roomService = {
       created = await tx.roomInventory.update({ where: { id: created.id }, data: { assetTag: `${stockItem.itemCode || 'ENV'}-${created.id.replace(/-/g, '').slice(0, 10).toUpperCase()}` } });
       await tx.stockMovement.create({ data: { stockItemId: stockItem.id, roomId, roomInventoryId: created.id, type: 'ROOM_ASSIGNMENT', quantity: -quantity, itemNameSnapshot: stockItem.itemName, roomLabelSnapshot: `${room.block.name} / ODA ${room.roomNumber}`, brand: created.brand, serialNo: created.serialNo, reason: 'ODA DETAYINDAN ZİMMET', createdById: data.createdById } });
       return created;
-    });
+      }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+    } catch (error: any) {
+      if (error instanceof AppError) throw error;
+      if (error?.code === 'P2002') throw new AppError('Bu seri numarası halen başka bir aktif demirbaşta kullanılıyor.', 409);
+      if (error?.code === 'P2034') throw new AppError('Envanter aynı anda değiştirildi. Lütfen işlemi yeniden deneyin.', 409);
+      throw error;
+    }
   },
 
   /**
    * Fetch room occupancies for Excel export
    */
-  async getExportOccupancies(filter?: string, startDate?: string, endDate?: string) {
+  async getExportOccupancies(filter?: string, startDate?: string, endDate?: string, maxRows = 10_000) {
+    const validatedFilter = validateOccupancyExportFilter(filter);
     const where: any = {};
-    if (filter === 'ACTIVE') {
+    if (validatedFilter === 'ACTIVE') {
       where.checkOutDate = null;
-    } else if (filter === 'CHECKED_OUT') {
+    } else if (validatedFilter === 'CHECKED_OUT') {
       where.checkOutDate = { not: null };
     }
 
@@ -749,7 +785,7 @@ export const roomService = {
       }
     }
 
-    return prisma.occupancyLog.findMany({
+    const rows = await prisma.occupancyLog.findMany({
       where,
       include: {
         employee: {
@@ -786,28 +822,34 @@ export const roomService = {
         },
       },
       orderBy: { checkInDate: 'desc' },
+      take: maxRows + 1,
     });
+    if (rows.length > maxRows) {
+      throw new AppError(`Rapor ${maxRows.toLocaleString('tr-TR')} satır sınırını aşıyor. Tarih aralığını daraltın.`, 413);
+    }
+    return rows;
   },
 
   /**
    * Fetch room inventories / fixtures for Excel export
    */
-  async getExportRoomInventories(statusFilter?: string) {
+  async getExportRoomInventories(statusFilter?: string, maxRows = 10_000) {
+    const validatedFilter = validateInventoryExportFilter(statusFilter);
     const where: any = {};
 
-    if (statusFilter && statusFilter !== 'ALL') {
-      if (statusFilter === 'PROBLEMATIC_ALL') {
+    if (validatedFilter !== 'ALL') {
+      if (validatedFilter === 'PROBLEMATIC_ALL') {
         where.status = { not: 'HEALTHY' };
-      } else if (statusFilter === 'NEEDS_ATTENTION') {
+      } else if (validatedFilter === 'NEEDS_ATTENTION') {
         where.status = { in: ['MAINTENANCE_REQUIRED', 'REPLACEMENT_REQUIRED', 'IN_SERVICE'] };
-      } else if (statusFilter === 'DAMAGED_LOST') {
+      } else if (validatedFilter === 'DAMAGED_LOST') {
         where.status = { in: ['DAMAGED', 'LOST', 'RETIRED'] };
       } else {
-        where.status = statusFilter;
+        where.status = validatedFilter;
       }
     }
 
-    return prisma.roomInventory.findMany({
+    const rows = await prisma.roomInventory.findMany({
       where,
       include: {
         room: {
@@ -821,6 +863,11 @@ export const roomService = {
         { room: { roomNumber: 'asc' } },
         { itemName: 'asc' },
       ],
+      take: maxRows + 1,
     });
+    if (rows.length > maxRows) {
+      throw new AppError(`Rapor ${maxRows.toLocaleString('tr-TR')} satır sınırını aşıyor. Filtreyi daraltın.`, 413);
+    }
+    return rows;
   },
 };

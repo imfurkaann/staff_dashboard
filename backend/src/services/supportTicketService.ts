@@ -5,52 +5,45 @@ import { broadcastTicketEvent } from '../websocket/ticketSocket';
 
 export class SupportTicketService {
   private static async generateNextTicketNo(): Promise<string> {
-    const latestTicket = await prisma.supportTicket.findFirst({
-      orderBy: { createdAt: 'desc' },
-      select: { ticketNo: true },
-    });
-
-    let maxIndex = 0;
-    if (latestTicket?.ticketNo) {
-      const match = latestTicket.ticketNo.match(/^TLP-(\d+)$/);
-      if (match) {
-        maxIndex = parseInt(match[1], 10);
-      }
-    }
-
-    const nextNumber = (maxIndex + 1).toString().padStart(3, '0');
+    const result = await prisma.$queryRaw<Array<{ value: bigint }>>`
+      SELECT nextval('"SupportTicketNumber_seq"') AS value
+    `;
+    const nextNumber = result[0].value.toString().padStart(3, '0');
     return `TLP-${nextNumber}`;
   }
 
   public static async createTicket(data: {
-    employeeId?: string;
     creatorName: string;
-    roomNumber?: string;
-    blockName?: string;
     category: string;
     subject: string;
     description: string;
     createdById?: string;
   }) {
-    if (!data.subject || !data.subject.trim()) {
-      throw new AppError('Talep / Şikayet konusu gereklidir.', 400);
-    }
-    if (!data.description || !data.description.trim()) {
-      throw new AppError('Talep / Şikayet detaylı açıklaması gereklidir.', 400);
-    }
-
     const ticketNo = await this.generateNextTicketNo();
+    const employee = data.createdById ? await prisma.employee.findFirst({
+      where: { userId: data.createdById, isDeleted: false },
+      select: {
+        id: true,
+        firstName: true,
+        lastName: true,
+        beds: {
+          take: 1,
+          select: { room: { select: { roomNumber: true, block: { select: { name: true } } } } },
+        },
+      },
+    }) : null;
+    const currentRoom = employee?.beds[0]?.room;
 
     const newTicket = await prisma.supportTicket.create({
       data: {
         ticketNo,
-        employeeId: data.employeeId || null,
-        creatorName: data.creatorName || 'Anonim Lojman Sakini',
-        roomNumber: data.roomNumber || null,
-        blockName: data.blockName || null,
-        category: data.category || 'GENEL TALEPLER',
-        subject: data.subject.trim(),
-        description: data.description.trim(),
+        employeeId: employee?.id || null,
+        creatorName: employee ? `${employee.firstName} ${employee.lastName}`.trim() : data.creatorName,
+        roomNumber: currentRoom?.roomNumber || null,
+        blockName: currentRoom?.block.name || null,
+        category: data.category,
+        subject: data.subject,
+        description: data.description,
         status: SupportTicketStatus.OPEN,
         createdById: data.createdById || null,
       },
@@ -67,16 +60,16 @@ export class SupportTicketService {
   }
 
   public static async getTickets(filters?: {
-    status?: string;
+    status?: SupportTicketStatus;
     category?: string;
     search?: string;
   }) {
     const where: any = {};
 
-    if (filters?.status && filters.status !== 'ALL') {
-      where.status = filters.status as SupportTicketStatus;
+    if (filters?.status) {
+      where.status = filters.status;
     }
-    if (filters?.category && filters.category !== 'ALL') {
+    if (filters?.category) {
       where.category = filters.category;
     }
 
@@ -113,7 +106,15 @@ export class SupportTicketService {
 
   public static async getMyTickets(params: { employeeId?: string; createdById?: string }) {
     const OR: any[] = [];
-    if (params.employeeId) OR.push({ employeeId: params.employeeId });
+    let employeeId = params.employeeId;
+    if (!employeeId && params.createdById) {
+      const employee = await prisma.employee.findUnique({
+        where: { userId: params.createdById },
+        select: { id: true },
+      });
+      employeeId = employee?.id;
+    }
+    if (employeeId) OR.push({ employeeId });
     if (params.createdById) OR.push({ createdById: params.createdById });
 
     if (OR.length === 0) return [];
@@ -141,7 +142,7 @@ export class SupportTicketService {
       data: {
         status,
         adminNote: adminNote !== undefined ? adminNote : ticket.adminNote,
-        resolvedAt: isResolvedOrRejected ? new Date() : (status === SupportTicketStatus.OPEN ? null : ticket.resolvedAt),
+        resolvedAt: isResolvedOrRejected ? (ticket.resolvedAt || new Date()) : null,
       },
       include: {
         employee: {

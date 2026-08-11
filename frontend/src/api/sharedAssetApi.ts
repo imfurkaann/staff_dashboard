@@ -7,6 +7,11 @@ export interface SharedAssetLog {
   assetId: string;
   asset?: SharedAsset;
   action: string;
+  assetCodeSnapshot: string;
+  assetNameSnapshot: string;
+  holderType?: 'EMPLOYEE' | 'ROOM' | 'OTHER' | null;
+  statusFrom?: SharedAssetStatus | null;
+  statusTo?: SharedAssetStatus | null;
   borrowerName?: string | null;
   employeeId?: string | null;
   roomId?: string | null;
@@ -36,6 +41,9 @@ export interface SharedAsset {
     department?: string | null;
   } | null;
   currentRoomId?: string | null;
+  currentPersonnelInventoryId?: string | null;
+  currentRoomInventoryId?: string | null;
+  stockItemId?: string | null;
   currentRoom?: {
     id: string;
     roomNumber: string;
@@ -47,9 +55,14 @@ export interface SharedAsset {
   warrantyEndDate?: string | null;
   locationNote?: string | null;
   notes?: string | null;
-  logs: SharedAssetLog[];
+  logs?: SharedAssetLog[];
   createdAt: string;
   updatedAt: string;
+}
+
+export interface SharedAssetLogList {
+  items: SharedAssetLog[];
+  pagination: { page: number; pageSize: number; total: number; totalPages: number };
 }
 
 export interface SharedAssetOverview {
@@ -90,13 +103,18 @@ const request = async <T>(path: string, init?: RequestInit): Promise<T> => {
 
 export const sharedAssetApi = {
   getOverview: () => request<SharedAssetOverview>(''),
-  createAsset: (payload: Partial<SharedAsset> & { assetName: string }) => request<SharedAsset>('', { method: 'POST', body: JSON.stringify(payload) }),
-  checkOutAsset: (id: string, payload: { holderType?: 'EMPLOYEE' | 'ROOM'; employeeId?: string; customBorrowerName?: string; roomId?: string; expectedReturnDate?: string; notes?: string }) =>
-    request<SharedAsset>(`/${id}/check-out`, { method: 'POST', body: JSON.stringify(payload) }),
-  checkInAsset: (id: string, payload: { locationNote?: string; notes?: string; newStatus?: SharedAssetStatus }) =>
-    request<SharedAsset>(`/${id}/check-in`, { method: 'POST', body: JSON.stringify(payload) }),
-  updateStatus: (id: string, payload: { status: SharedAssetStatus; locationNote?: string; notes?: string }) =>
-    request<SharedAsset>(`/${id}/status`, { method: 'PATCH', body: JSON.stringify(payload) }),
-  addMaintenanceLog: (id: string, payload: { action: 'MAINTENANCE_START' | 'MAINTENANCE_END' | 'FAULT_REPORTED' | 'REPAIR_COMPLETED'; notes: string; newStatus?: SharedAssetStatus }) =>
-    request<SharedAsset>(`/${id}/maintenance`, { method: 'POST', body: JSON.stringify(payload) }),
+  getLogs: (params: { search?: string; assetId?: string; action?: string; holderType?: string; dateStart?: string; dateEnd?: string; page?: number; pageSize?: number }) => {
+    const query = new URLSearchParams();
+    Object.entries(params).forEach(([key, value]) => { if (value !== undefined && value !== '') query.set(key, String(value)); });
+    return request<SharedAssetLogList>(`/logs?${query.toString()}`);
+  },
+  createAsset: (payload: Partial<SharedAsset> & { stockItemId: string }, key?: string) => request<SharedAsset>('', { method: 'POST', body: JSON.stringify(payload), headers: key ? { 'X-Idempotency-Key': key } : undefined }),
+  checkOutAsset: (id: string, payload: { holderType: 'EMPLOYEE' | 'ROOM' | 'OTHER'; employeeId?: string; customBorrowerName?: string; roomId?: string; expectedReturnDate?: string; notes?: string }, key?: string) =>
+    request<SharedAsset>(`/${id}/check-out`, { method: 'POST', body: JSON.stringify(payload), headers: key ? { 'X-Idempotency-Key': key } : undefined }),
+  checkInAsset: (id: string, payload: { locationNote?: string; notes: string; newStatus?: SharedAssetStatus }, key?: string) =>
+    request<SharedAsset>(`/${id}/check-in`, { method: 'POST', body: JSON.stringify(payload), headers: key ? { 'X-Idempotency-Key': key } : undefined }),
+  updateStatus: (id: string, payload: { status: SharedAssetStatus; locationNote?: string; notes?: string }, key?: string) =>
+    request<SharedAsset>(`/${id}/status`, { method: 'PATCH', body: JSON.stringify(payload), headers: key ? { 'X-Idempotency-Key': key } : undefined }),
+  addMaintenanceLog: (id: string, payload: { action: 'MAINTENANCE_START' | 'MAINTENANCE_END' | 'FAULT_REPORTED' | 'REPAIR_COMPLETED'; notes: string }, key?: string) =>
+    request<SharedAsset>(`/${id}/maintenance`, { method: 'POST', body: JSON.stringify(payload), headers: key ? { 'X-Idempotency-Key': key } : undefined }),
 };

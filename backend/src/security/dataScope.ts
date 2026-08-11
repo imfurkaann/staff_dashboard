@@ -5,13 +5,14 @@ const sensitiveEmployeeFields = new Set([
   'emergencyContactName', 'emergencyRelation', 'emergencyContactPhone', 'photoUrl', 'isSmoker',
   'hasSnoring', 'disciplinaryNotes', 'user', 'userId',
 ]);
+const sensitiveEmployeeRelations = new Set(['inventories', 'occupancies']);
 
 function stripSensitiveFields(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(stripSensitiveFields);
   if (!value || typeof value !== 'object' || value instanceof Date) return value;
   return Object.fromEntries(
     Object.entries(value as Record<string, unknown>)
-      .filter(([key]) => !sensitiveEmployeeFields.has(key))
+      .filter(([key]) => !sensitiveEmployeeFields.has(key) && !sensitiveEmployeeRelations.has(key))
       .map(([key, nested]) => [key, stripSensitiveFields(nested)]),
   );
 }
@@ -19,6 +20,22 @@ function stripSensitiveFields(value: unknown): unknown {
 export function scopeEmployeeData<T>(value: T, role?: string): T {
   if (hasPermission(role, permissions.EMPLOYEE_SENSITIVE_VIEW)) return value;
   return stripSensitiveFields(value) as T;
+}
+
+const sensitiveMaintenanceFinancialFields = new Set(['laborCost', 'partsCost']);
+
+export function scopeMaintenanceData<T>(value: T, role?: string): T {
+  if (hasPermission(role, permissions.MAINTENANCE_FULL_UPDATE)) return value;
+  const visit = (current: unknown): unknown => {
+    if (Array.isArray(current)) return current.map(visit);
+    if (!current || typeof current !== 'object' || current instanceof Date) return current;
+    return Object.fromEntries(
+      Object.entries(current as Record<string, unknown>)
+        .filter(([key]) => !sensitiveMaintenanceFinancialFields.has(key))
+        .map(([key, nested]) => [key, visit(nested)]),
+    );
+  };
+  return visit(value) as T;
 }
 
 function minimalBed(bed: Record<string, unknown>) {
@@ -51,6 +68,7 @@ export function scopeRoomData<T>(value: T, role?: string): T {
       }
       if ((childKey === 'roomInventories' || childKey === 'inventories') && isHousekeeping) { result[childKey] = []; continue; }
       if (childKey === 'maintenances' && (isHousekeeping || isWarehouse)) { result[childKey] = []; continue; }
+      if (sensitiveMaintenanceFinancialFields.has(childKey) && !hasPermission(role, permissions.MAINTENANCE_FULL_UPDATE)) continue;
       if (childKey === 'cleaningLogs' && (isTechnical || isWarehouse || role === 'SECURITY')) { result[childKey] = []; continue; }
       result[childKey] = visit(childValue, childKey);
     }

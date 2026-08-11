@@ -30,10 +30,17 @@ export interface CreateVisitorPayload {
   visitorCount?: number;
   phone?: string;
   company?: string;
-  hostEmployeeId: string;
+  hostEmployeeId?: string;
   purpose: string;
   vehiclePlate?: string;
   notes?: string;
+}
+
+export interface VisitorHostCandidate {
+  id: string;
+  fullName: string;
+  department: string;
+  roomLabel?: string | null;
 }
 
 export type UpdateVisitorPayload = Partial<CreateVisitorPayload>;
@@ -60,7 +67,7 @@ export interface VisitorQuery {
 export interface VisitorListResult {
   items: Visitor[];
   pagination: { page: number; pageSize: number; total: number; totalPages: number };
-  summary: { inside: number; exited: number; deleted?: number };
+  summary: { inside: number; overdueInside?: number; exited: number; deleted?: number };
 }
 
 const api = axios.create({ baseURL: `${appConfig.apiBaseUrl}/visitors`, withCredentials: true });
@@ -91,8 +98,11 @@ export const visitorApi = {
     return { items: response.data.data, pagination: response.data.pagination, summary: response.data.summary };
   },
   getVisitorById: async (id: string): Promise<Visitor> => (await api.get<{ data: Visitor }>(`/${id}`)).data.data,
-  createVisitor: async (payload: CreateVisitorPayload): Promise<Visitor> => {
-    try { return (await api.post<{ data: Visitor }>('/', payload)).data.data; }
+  getHostCandidates: async (): Promise<VisitorHostCandidate[]> => {
+    return (await api.get<{ data: VisitorHostCandidate[] }>('/host-candidates')).data.data;
+  },
+  createVisitor: async (payload: CreateVisitorPayload, requestKey: string): Promise<Visitor> => {
+    try { return (await api.post<{ data: Visitor }>('/', payload, { headers: { 'X-Idempotency-Key': requestKey } })).data.data; }
     catch (error) { throw new Error(messageFrom(error, 'Ziyaretçi kaydı eklenemedi.')); }
   },
   updateVisitor: async (id: string, payload: UpdateVisitorPayload): Promise<Visitor> => {

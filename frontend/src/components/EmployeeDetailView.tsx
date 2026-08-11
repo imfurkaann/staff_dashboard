@@ -86,7 +86,10 @@ export const EmployeeDetailView: React.FC<EmployeeDetailViewProps> = ({
   onBack,
   currentUser,
 }) => {
-  const canManage = currentUser ? can(currentUser.role, 'EMPLOYEE_MANAGE') : true;
+  const canManage = Boolean(currentUser && can(currentUser.role, 'EMPLOYEE_MANAGE'));
+  const canViewSensitive = Boolean(currentUser && can(currentUser.role, 'EMPLOYEE_SENSITIVE_VIEW'));
+  const canViewVisitors = Boolean(currentUser && can(currentUser.role, 'VISITOR_VIEW'));
+  const canManageVisitors = Boolean(currentUser && can(currentUser.role, 'VISITOR_MANAGE'));
   // currentEmp tracks local state for immediate UI updates after edit
   const [currentEmp, setCurrentEmp] = useState<Employee>(employee || {} as Employee);
   const [operationError, setOperationError] = useState<string | null>(null);
@@ -121,7 +124,7 @@ export const EmployeeDetailView: React.FC<EmployeeDetailViewProps> = ({
 
   const [activeTab, setActiveTab] = useState<TabType>(() => {
     const saved = localStorage.getItem('staff_app_emp_detail_tab');
-    if (saved && ['general', 'inventory', 'complaints', 'visitors'].includes(saved)) {
+    if (saved && ['general', 'inventory', 'complaints', 'transfers', 'visitors', 'occupancyHistory'].includes(saved)) {
       return saved as TabType;
     }
     return 'general';
@@ -131,6 +134,13 @@ export const EmployeeDetailView: React.FC<EmployeeDetailViewProps> = ({
     setActiveTab(tab);
     localStorage.setItem('staff_app_emp_detail_tab', tab);
   };
+  useEffect(() => {
+    const sensitiveTabs: TabType[] = ['inventory', 'complaints', 'transfers', 'occupancyHistory'];
+    if ((sensitiveTabs.includes(activeTab) && !canViewSensitive) || (activeTab === 'visitors' && !canViewVisitors)) {
+      setActiveTab('general');
+      localStorage.setItem('staff_app_emp_detail_tab', 'general');
+    }
+  }, [activeTab, canViewSensitive, canViewVisitors]);
   const [isPhotoLightboxOpen, setIsPhotoLightboxOpen] = useState(false);
   const [itemPhotoLightboxUrl, setItemPhotoLightboxUrl] = useState<string | null>(null);
 
@@ -196,6 +206,7 @@ export const EmployeeDetailView: React.FC<EmployeeDetailViewProps> = ({
   };
 
   const [newLojmanName, setNewLojmanName] = useState('');
+  const [newLojmanSerial, setNewLojmanSerial] = useState('');
   const [stockItems, setStockItems] = useState<StockItem[]>([]);
   const [selectedStockItemId, setSelectedStockItemId] = useState<string>('');
 
@@ -307,17 +318,21 @@ export const EmployeeDetailView: React.FC<EmployeeDetailViewProps> = ({
   }, [employee?.id]);
 
   // Room Transfer History
-  const [transfers, setTransfers] = useState([
-    {
-      id: 'tr-1',
-      date: formatDateTime(currentEmp.checkInDate || currentEmp.createdAt),
-      action: 'Giriş Kaydı',
-      fromRoom: '-',
-      toRoom: `${currentEmp.beds?.[0]?.room.block.name || 'A Blok'} • Oda ${currentEmp.beds?.[0]?.room.roomNumber || '101'}`,
-      toBed: currentEmp.beds?.[0]?.bedLabel || 'Yatak-1',
-      reason: 'Sisteme İlk Kayıt ve Odaya Giriş'
-    },
-  ]);
+  const transfers = (currentEmp.occupancies || []).map((stay: any, index: number, all: any[]) => {
+    const previous = all[index + 1];
+    const location = (record: any) => record?.bed?.room
+      ? `${record.bed.room.block?.name || '-'} • Oda ${record.bed.room.roomNumber}`
+      : '-';
+    return {
+      id: stay.id,
+      date: formatDateTime(stay.checkInDate),
+      action: previous ? 'Oda Değişikliği' : 'Giriş Kaydı',
+      fromRoom: location(previous),
+      toRoom: location(stay),
+      toBed: stay.bed?.bedLabel || '-',
+      reason: stay.transferReason || (previous ? 'Oda / yatak ataması değiştirildi' : 'İlk konaklama kaydı'),
+    };
+  });
 
   const currentBed = currentEmp.beds && currentEmp.beds.length > 0 ? currentEmp.beds[0] : null;
 
@@ -330,13 +345,9 @@ export const EmployeeDetailView: React.FC<EmployeeDetailViewProps> = ({
   // Refresh current employee profile after room assignment
   const refreshEmployeeData = async () => {
     try {
-      const emps = await employeeApi.getEmployees();
-      const updated = emps.find((e) => e.id === currentEmp.id);
-      if (updated) {
-        setCurrentEmp(updated);
-      }
-    } catch (err) {
-      console.warn('Failed to refresh employee details:', err);
+      setCurrentEmp(await employeeApi.getEmployeeById(currentEmp.id));
+    } catch (err: any) {
+      setOperationError(err?.message || 'Personel detayları yenilenemedi.');
     }
   };
 
@@ -355,7 +366,7 @@ export const EmployeeDetailView: React.FC<EmployeeDetailViewProps> = ({
 
     try {
       if (employee.id && !employee.id.startsWith('emp-')) {
-        await employeeApi.addInventoryItem(employee.id, {
+        await employeeApi.addInventoryItem(currentEmp.id, {
           itemName: newPersonalName.trim(),
           itemCode: newPersonalSerial.trim() || undefined,
           category: 'ŞAHSİ_EŞYA',
@@ -369,18 +380,7 @@ export const EmployeeDetailView: React.FC<EmployeeDetailViewProps> = ({
       return;
     }
 
-    const newItem = {
-      id: `pr-${Date.now()}`,
-      itemName: newPersonalName.trim(),
-      serialNo: newPersonalSerial.trim() || 'Belirtilmedi',
-      declaredDate: formatDateTime(new Date().toISOString()),
-      exitDate: null,
-      approvalStatus: 'Güvenlik Onaylı - Çıkış İzinli',
-      photoUrl: newPersonalPhotoUrl || undefined,
-      notes: newPersonalNotes.trim() || 'Personel lojmana girerken kendi yanında getirdi.',
-    };
-
-    setPersonalBelongings([newItem, ...personalBelongings]);
+    await refreshEmployeeData();
     setNewPersonalName('');
     setNewPersonalSerial('');
     setNewPersonalNotes('');
@@ -394,10 +394,11 @@ export const EmployeeDetailView: React.FC<EmployeeDetailViewProps> = ({
 
     try {
       if (employee.id && !employee.id.startsWith('emp-')) {
-        await employeeApi.addInventoryItem(employee.id, {
+        await employeeApi.addInventoryItem(currentEmp.id, {
           itemName: newLojmanName.trim(),
           category: 'LOJMAN_ZİMMETİ',
           stockItemId: selectedStockItemId || undefined,
+          serialNo: newLojmanSerial.trim() || undefined,
         });
       }
     } catch (err: any) {
@@ -405,16 +406,9 @@ export const EmployeeDetailView: React.FC<EmployeeDetailViewProps> = ({
       return;
     }
 
-    const newItem = {
-      id: `inv-${Date.now()}`,
-      itemName: newLojmanName.trim(),
-      assignedDate: formatDateTime(new Date().toISOString()),
-      returnedDate: null,
-      status: 'Teslim Edildi',
-    };
-
-    setDeliveredInventories([newItem, ...deliveredInventories]);
+    await refreshEmployeeData();
     setNewLojmanName('');
+    setNewLojmanSerial('');
     setSelectedStockItemId('');
     setIsAddLojmanModalOpen(false);
   };
@@ -449,7 +443,9 @@ export const EmployeeDetailView: React.FC<EmployeeDetailViewProps> = ({
     }
   };
 
-  useEffect(() => { loadVisitorRecords(); }, [employee.id]);
+  useEffect(() => {
+    if (canViewVisitors) void loadVisitorRecords();
+  }, [employee.id, canViewVisitors]);
 
   // Edit Item State for Excel Tables, Complaints & Visitors
   const [editingItem, setEditingItem] = useState<{ id: string; type: 'delivered' | 'personal' | 'returned' | 'complaint' | 'visitor'; itemName: string; serialNo?: string; content?: string; relation?: string } | null>(null);
@@ -644,7 +640,7 @@ export const EmployeeDetailView: React.FC<EmployeeDetailViewProps> = ({
 
     try {
       if (employee.id && !employee.id.startsWith('emp-')) {
-        await employeeApi.addDisciplinaryNote(employee.id, {
+        await employeeApi.addDisciplinaryNote(currentEmp.id, {
           title: newComplaintTitle.trim(),
           content: newComplaintContent.trim() || 'Açıklama girilmedi.',
           reportedBy: 'Lojman Amirliği',
@@ -655,16 +651,7 @@ export const EmployeeDetailView: React.FC<EmployeeDetailViewProps> = ({
       return;
     }
 
-    const newItem = {
-      id: `cmp-${Date.now()}`,
-      date: formatDateTime(new Date().toISOString()),
-      title: newComplaintTitle.trim(),
-      content: newComplaintContent.trim() || 'Açıklama girilmedi.',
-      status: 'Görüşüldü',
-      reportedBy: 'Lojman Amirliği',
-    };
-
-    setComplaints([newItem, ...complaints]);
+    await refreshEmployeeData();
     setNewComplaintTitle('Madde 1: Oda İçi Gürültü / Huzursuzluk Çıkarma');
     setNewComplaintContent('');
     setIsAddComplaintModalOpen(false);
@@ -1336,6 +1323,21 @@ export const EmployeeDetailView: React.FC<EmployeeDetailViewProps> = ({
                 </select>
               </div>
 
+              {selectedStockItemId && stockItems.find((item) => item.id === selectedStockItemId)?.itemType !== 'SARF_MALZEME' && (
+                <div>
+                  <label className="block font-bold text-slate-800 mb-1">Üretici Seri Numarası *</label>
+                  <input
+                    required
+                    value={newLojmanSerial}
+                    onChange={(e) => setNewLojmanSerial(e.target.value)}
+                    maxLength={120}
+                    placeholder="Cihaz üzerindeki benzersiz seri numarası"
+                    className="w-full px-3 py-2.5 bg-slate-50 border border-slate-300 rounded-xl font-semibold text-slate-900 outline-none"
+                  />
+                  <p className="mt-1 text-[10px] font-semibold text-slate-500">Aynı seri numarası oda veya başka bir personel zimmetinde kullanılamaz.</p>
+                </div>
+              )}
+
               <div className="pt-2 flex justify-end gap-2">
                 <button
                   type="button"
@@ -1759,14 +1761,14 @@ export const EmployeeDetailView: React.FC<EmployeeDetailViewProps> = ({
                 <span>Yazdır / PDF Kaydet</span>
               </button>
 
-              <button
+              {canManage && <button
                 type="button"
                 onClick={() => setIsDeleteConfirmOpen(true)}
                 className="py-2.5 px-4 bg-rose-700 hover:bg-rose-800 text-white font-bold text-xs rounded-2xl border border-rose-800 flex items-center justify-center gap-1.5 transition-all cursor-pointer shadow-md w-full sm:w-auto"
               >
                 <Trash2 className="w-4 h-4 text-white" />
                 <span>Personeli Sil</span>
-              </button>
+              </button>}
             </div>
           </div>
 
@@ -1785,7 +1787,7 @@ export const EmployeeDetailView: React.FC<EmployeeDetailViewProps> = ({
             <span>Personel Genel Bilgileri</span>
           </button>
 
-          <button
+          {canViewSensitive && <button
             onClick={() => handleTabSwitch('inventory')}
             className={`px-4 py-2.5 rounded-2xl text-xs font-extrabold flex items-center gap-2 transition-all cursor-pointer ${activeTab === 'inventory'
               ? 'bg-[#1e3a8a] text-white shadow-md'
@@ -1794,9 +1796,9 @@ export const EmployeeDetailView: React.FC<EmployeeDetailViewProps> = ({
           >
             <PackageCheck className="w-4 h-4" />
             <span>Zimmet & Şahsi Eşya Beyanı ({deliveredInventories.length + personalBelongings.length})</span>
-          </button>
+          </button>}
 
-          <button
+          {canViewSensitive && <button
             onClick={() => handleTabSwitch('complaints')}
             className={`px-4 py-2.5 rounded-2xl text-xs font-extrabold flex items-center gap-2 transition-all cursor-pointer ${activeTab === 'complaints'
               ? 'bg-[#1e3a8a] text-white shadow-md'
@@ -1805,9 +1807,20 @@ export const EmployeeDetailView: React.FC<EmployeeDetailViewProps> = ({
           >
             <MessageSquareWarning className="w-4 h-4" />
             <span>Şikayet & Disiplin Notları ({complaints.length})</span>
-          </button>
+          </button>}
 
-          <button
+          {canViewSensitive && <button
+            onClick={() => handleTabSwitch('transfers')}
+            className={`px-4 py-2.5 rounded-2xl text-xs font-extrabold flex items-center gap-2 transition-all cursor-pointer ${activeTab === 'transfers'
+              ? 'bg-[#1e3a8a] text-white shadow-md'
+              : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+              }`}
+          >
+            <ArrowRightLeft className="w-4 h-4" />
+            <span>Oda Değişimleri ({transfers.length})</span>
+          </button>}
+
+          {canViewVisitors && <button
             onClick={() => handleTabSwitch('visitors')}
             className={`px-4 py-2.5 rounded-2xl text-xs font-extrabold flex items-center gap-2 transition-all cursor-pointer ${activeTab === 'visitors'
               ? 'bg-[#1e3a8a] text-white shadow-md'
@@ -1816,9 +1829,9 @@ export const EmployeeDetailView: React.FC<EmployeeDetailViewProps> = ({
           >
             <Users className="w-4 h-4" />
             <span>Ziyaretçi Kayıtları ({visitorRecords.length})</span>
-          </button>
+          </button>}
 
-          <button
+          {canViewSensitive && <button
             onClick={() => handleTabSwitch('occupancyHistory')}
             className={`px-4 py-2.5 rounded-2xl text-xs font-extrabold flex items-center gap-2 transition-all cursor-pointer ${activeTab === 'occupancyHistory'
               ? 'bg-[#1e3a8a] text-white shadow-md'
@@ -1827,7 +1840,7 @@ export const EmployeeDetailView: React.FC<EmployeeDetailViewProps> = ({
           >
             <History className="w-4 h-4" />
             <span>Konaklama Geçmişi ({currentEmp.occupancies?.length || 0})</span>
-          </button>
+          </button>}
 
         </div>
 
@@ -2040,7 +2053,7 @@ export const EmployeeDetailView: React.FC<EmployeeDetailViewProps> = ({
           )}
 
           {/* TAB 2: ZİMMET & ŞAHSİ EŞYA BEYANI (EXCEL TABLO DÜZENİ) */}
-          {activeTab === 'inventory' && (
+          {canViewSensitive && activeTab === 'inventory' && (
             <div className="space-y-6 animate-fadeIn">
 
               {/* SECTION A: GİRİŞTE LOJMANDAN TESLİM EDİLENLER */}
@@ -2053,13 +2066,13 @@ export const EmployeeDetailView: React.FC<EmployeeDetailViewProps> = ({
                     </h3>
                     <p className="text-xs text-slate-500 font-semibold mt-0.5">Lojman idaresi tarafından personele teslim edilen nevresim, anahtar ve oda eşyaları.</p>
                   </div>
-                  <button
+                  {canManage && <button
                     type="button"
                     onClick={() => setIsAddLojmanModalOpen(true)}
                     className="py-2 px-3 bg-[#1e3a8a] hover:bg-slate-900 text-white rounded-xl text-xs font-bold shadow-sm inline-flex items-center gap-1 cursor-pointer transition-colors"
                   >
                     <Plus className="w-3.5 h-3.5" /> Yeni Lojman Zimmeti Ver
-                  </button>
+                  </button>}
                 </div>
 
                 {/* Excel Tipi Tablo Görünümü */}
@@ -2106,7 +2119,7 @@ export const EmployeeDetailView: React.FC<EmployeeDetailViewProps> = ({
                             </span>
                           </td>
                           <td className="py-1.5 px-3 text-center">
-                            <div className="flex items-center justify-center gap-1 min-h-[28px]">
+                            {canManage && <div className="flex items-center justify-center gap-1 min-h-[28px]">
                               {inv.status !== 'Tam İade Alındı' && inv.status !== 'Teslim Alınamadı' && (
                                 <>
                                   <button
@@ -2162,7 +2175,7 @@ export const EmployeeDetailView: React.FC<EmployeeDetailViewProps> = ({
                                   Sil
                                 </span>
                               </button>
-                            </div>
+                            </div>}
                           </td>
                         </tr>
                       ))}
@@ -2181,13 +2194,13 @@ export const EmployeeDetailView: React.FC<EmployeeDetailViewProps> = ({
                     </h3>
                     <p className="text-xs text-slate-500 font-semibold mt-0.5">Personelin lojmana getirip ayrılırken yanında çıkarabileceği şahsi mülk eşyaları.</p>
                   </div>
-                  <button
+                  {canManage && <button
                     type="button"
                     onClick={() => setIsAddPersonalModalOpen(true)}
                     className="py-1.5 px-3 bg-purple-900 hover:bg-purple-950 text-white rounded-xl text-xs font-bold shadow-sm inline-flex items-center gap-1 cursor-pointer transition-colors"
                   >
                     <Plus className="w-3.5 h-3.5" /> Şahsi Eşya / Cihaz Beyanı Ekle
-                  </button>
+                  </button>}
                 </div>
 
                 {/* Excel Tipi Tablo Görünümü */}
@@ -2237,7 +2250,7 @@ export const EmployeeDetailView: React.FC<EmployeeDetailViewProps> = ({
                             {(pb as any).exitDate ? `Çıkış: ${(pb as any).exitDate}` : 'Odada / Kullanımda'}
                           </td>
                           <td className="py-1.5 px-3 text-center">
-                            <div className="flex items-center justify-center gap-1 min-h-[28px]">
+                            {canManage && <div className="flex items-center justify-center gap-1 min-h-[28px]">
                               {!(pb as any).exitDate && (
                                 <button
                                   type="button"
@@ -2273,7 +2286,7 @@ export const EmployeeDetailView: React.FC<EmployeeDetailViewProps> = ({
                                   Sil
                                 </span>
                               </button>
-                            </div>
+                            </div>}
                           </td>
                         </tr>
                       ))}
@@ -2286,19 +2299,19 @@ export const EmployeeDetailView: React.FC<EmployeeDetailViewProps> = ({
           )}
 
           {/* TAB 3: PERSONEL HAKKINDAKİ ŞİKAYETLER */}
-          {activeTab === 'complaints' && (
+          {canViewSensitive && activeTab === 'complaints' && (
             <div className="space-y-4 animate-fadeIn">
               <div className="flex items-center justify-between">
                 <div>
                   <h3 className="text-sm font-extrabold text-slate-900">Şikayet & Disiplin Notları</h3>
                 </div>
-                <button
+                {canManage && <button
                   type="button"
                   onClick={() => setIsAddComplaintModalOpen(true)}
                   className="py-1.5 px-3 bg-[#1e3a8a] hover:bg-slate-900 text-white rounded-xl text-xs font-bold shadow-sm inline-flex items-center gap-1 cursor-pointer transition-colors"
                 >
                   <Plus className="w-3.5 h-3.5" /> Şikayet / Not Ekle
-                </button>
+                </button>}
               </div>
 
               {complaints.length > 0 ? (
@@ -2328,7 +2341,7 @@ export const EmployeeDetailView: React.FC<EmployeeDetailViewProps> = ({
                             {cmp.date}
                           </td>
                           <td className="py-2 px-3 text-center align-top">
-                            <div className="flex items-center justify-center gap-1 min-h-[28px]">
+                            {canManage && <div className="flex items-center justify-center gap-1 min-h-[28px]">
                               <button
                                 type="button"
                                 onClick={() => setEditingItem({ id: cmp.id, type: 'complaint', itemName: cmp.title, content: cmp.content })}
@@ -2352,7 +2365,7 @@ export const EmployeeDetailView: React.FC<EmployeeDetailViewProps> = ({
                                   Sil
                                 </span>
                               </button>
-                            </div>
+                            </div>}
                           </td>
                         </tr>
                       ))}
@@ -2368,7 +2381,7 @@ export const EmployeeDetailView: React.FC<EmployeeDetailViewProps> = ({
           )}
 
           {/* TAB 4: ODA DEĞİŞTİRME VE HAREKET GEÇMİŞİ */}
-          {activeTab === 'transfers' && (
+          {canViewSensitive && activeTab === 'transfers' && (
             <div className="space-y-4 animate-fadeIn">
               <div className="flex items-center justify-between">
                 <div>
@@ -2423,11 +2436,11 @@ export const EmployeeDetailView: React.FC<EmployeeDetailViewProps> = ({
           )}
 
           {/* TAB 5: ZİYARETÇİ KAYITLARI */}
-          {activeTab === 'visitors' && (
+          {canViewVisitors && activeTab === 'visitors' && (
             <div className="space-y-4 animate-fadeIn">
               <div className="flex items-center justify-between gap-3">
                 <div><h3 className="text-sm font-extrabold text-slate-900">Ziyaretçi Kayıtları</h3><p className="text-xs text-slate-500 font-semibold mt-0.5">Personeli ziyaret eden kişilerin gerçek giriş ve çıkış kayıtları.</p></div>
-                <button type="button" onClick={() => setIsVisitorModalOpen(true)} className="group flex items-center gap-2 px-3 py-2 rounded-xl bg-[#1e3a8a] hover:bg-[#172554] text-white text-xs font-extrabold"><Plus className="w-4 h-4" /><span>Yeni Ziyaretçi</span></button>
+                {canManageVisitors && <button type="button" onClick={() => setIsVisitorModalOpen(true)} className="group flex items-center gap-2 px-3 py-2 rounded-xl bg-[#1e3a8a] hover:bg-[#172554] text-white text-xs font-extrabold"><Plus className="w-4 h-4" /><span>Yeni Ziyaretçi</span></button>}
               </div>
               {visitorRecordsError && <div className="rounded-xl border border-rose-200 bg-rose-50 p-3 text-xs font-bold text-rose-800">{visitorRecordsError}</div>}
               <VisitorRecordsTable
@@ -2435,12 +2448,12 @@ export const EmployeeDetailView: React.FC<EmployeeDetailViewProps> = ({
                 loading={visitorRecordsLoading}
                 readOnly={true}
               />
-              <AddVisitorModal isOpen={isVisitorModalOpen} fixedHostEmployeeId={employee.id} onClose={() => setIsVisitorModalOpen(false)} onSuccess={loadVisitorRecords} />
+              {canManageVisitors && <AddVisitorModal isOpen={isVisitorModalOpen} fixedHostEmployeeId={employee.id} onClose={() => setIsVisitorModalOpen(false)} onSuccess={loadVisitorRecords} />}
             </div>
           )}
 
           {/* TAB 6: KONAKLAMA GEÇMİŞİ */}
-          {activeTab === 'occupancyHistory' && (
+          {canViewSensitive && activeTab === 'occupancyHistory' && (
             <div className="space-y-4 animate-fadeIn">
               <div>
                 <h3 className="text-sm font-extrabold text-slate-900">Konaklama Geçmişi</h3>

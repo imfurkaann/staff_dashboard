@@ -1,30 +1,23 @@
 import { Request, Response, NextFunction } from 'express';
 import { SupportTicketService } from '../services/supportTicketService';
 import { SupportTicketStatus } from '@prisma/client';
+import {
+  validateTicketCreateInput,
+  validateTicketFilters,
+  validateTicketId,
+  validateTicketStatusInput,
+} from '../security/ticketPolicy';
 
 export class SupportTicketController {
   public static async createTicket(req: Request, res: Response, next: NextFunction) {
     try {
       const user = (req as any).user;
-      const {
-        employeeId,
-        creatorName,
-        roomNumber,
-        blockName,
-        category,
-        subject,
-        description,
-      } = req.body;
+      const input = validateTicketCreateInput(req.body);
 
       const ticket = await SupportTicketService.createTicket({
-        employeeId,
-        creatorName: creatorName || user?.fullName,
-        roomNumber,
-        blockName,
-        category,
-        subject,
-        description,
-        createdById: user?.userId || user?.id,
+        ...input,
+        createdById: user.id,
+        creatorName: user.fullName,
       });
 
       res.status(201).json({
@@ -39,13 +32,8 @@ export class SupportTicketController {
 
   public static async getTickets(req: Request, res: Response, next: NextFunction) {
     try {
-      const { status, category, search } = req.query;
-
-      const result = await SupportTicketService.getTickets({
-        status: status as string,
-        category: category as string,
-        search: search as string,
-      });
+      const filters = validateTicketFilters(req.query);
+      const result = await SupportTicketService.getTickets(filters);
 
       res.json({
         success: true,
@@ -61,8 +49,7 @@ export class SupportTicketController {
       const user = (req as any).user;
 
       const tickets = await SupportTicketService.getMyTickets({
-        employeeId: user?.employeeId,
-        createdById: user?.userId || user?.id,
+        createdById: user.id,
       });
 
       res.json({
@@ -76,8 +63,8 @@ export class SupportTicketController {
 
   public static async updateTicketStatus(req: Request, res: Response, next: NextFunction) {
     try {
-      const { id } = req.params;
-      const { status, adminNote } = req.body;
+      const id = validateTicketId(req.params.id);
+      const { status, adminNote } = validateTicketStatusInput(req.body);
 
       const updated = await SupportTicketService.updateTicketStatus(
         id,

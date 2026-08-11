@@ -63,6 +63,7 @@ export const MaintenanceManagementView: React.FC<MaintenanceManagementViewProps>
     openCount: 0,
     inProgressCount: 0,
     resolvedCount: 0,
+    closedCount: 0,
     urgentCount: 0,
   });
 
@@ -310,7 +311,7 @@ export const MaintenanceManagementView: React.FC<MaintenanceManagementViewProps>
       <div className="flex flex-wrap items-center justify-between gap-3">
         {/* Status Tabs */}
         <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-2xl border border-slate-200 overflow-x-auto max-w-full">
-          {canExport && <button
+          <button
             type="button"
             onClick={() => setSelectedStatus('ALL')}
             className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap shrink-0 ${
@@ -320,8 +321,8 @@ export const MaintenanceManagementView: React.FC<MaintenanceManagementViewProps>
             }`}
           >
             Tüm Bildirimler ({summary.totalCount})
-          </button>}
-          {canCreate && <button
+          </button>
+          <button
             type="button"
             onClick={() => setSelectedStatus('OPEN')}
             className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap shrink-0 ${
@@ -331,7 +332,7 @@ export const MaintenanceManagementView: React.FC<MaintenanceManagementViewProps>
             }`}
           >
             Açık Bildirimler ({summary.openCount})
-          </button>}
+          </button>
           <button
             type="button"
             onClick={() => setSelectedStatus('IN_PROGRESS')}
@@ -353,6 +354,17 @@ export const MaintenanceManagementView: React.FC<MaintenanceManagementViewProps>
             }`}
           >
             Çözülenler ({summary.resolvedCount})
+          </button>
+          <button
+            type="button"
+            onClick={() => setSelectedStatus('CLOSED')}
+            className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap shrink-0 ${
+              selectedStatus === 'CLOSED'
+                ? 'bg-slate-700 text-white shadow-xs'
+                : 'text-slate-700 hover:text-slate-900 hover:bg-slate-200/60'
+            }`}
+          >
+            Kapatılanlar ({summary.closedCount})
           </button>
         </div>
 
@@ -602,8 +614,8 @@ export const MaintenanceManagementView: React.FC<MaintenanceManagementViewProps>
 
                       {/* Bildiren Kişi */}
                       <td className="py-3.5 px-4 whitespace-nowrap max-w-[140px]">
-                        <span className="font-extrabold text-slate-800 block truncate max-w-[130px]" title={log.reportedBy && log.reportedBy !== 'Sistem Kullanıcısı' ? log.reportedBy : currentUser.fullName}>
-                          {log.reportedBy && log.reportedBy !== 'Sistem Kullanıcısı' ? log.reportedBy : currentUser.fullName}
+                        <span className="font-extrabold text-slate-800 block truncate max-w-[130px]" title={log.reportedBy && log.reportedBy !== 'Sistem Kullanıcısı' ? log.reportedBy : 'Sistem / Eski Kayıt'}>
+                          {log.reportedBy && log.reportedBy !== 'Sistem Kullanıcısı' ? log.reportedBy : 'Sistem / Eski Kayıt'}
                         </span>
                       </td>
 
@@ -612,7 +624,7 @@ export const MaintenanceManagementView: React.FC<MaintenanceManagementViewProps>
                         {log.assignedTo ? (
                           <span className="font-extrabold text-slate-800 block truncate max-w-[140px]" title={log.assignedTo}>{log.assignedTo}</span>
                         ) : log.status === 'RESOLVED' || log.status === 'CLOSED' ? (
-                          <span className="font-extrabold text-slate-800 block truncate max-w-[140px]" title={currentUser.fullName}>{currentUser.fullName}</span>
+                          <span className="font-extrabold text-slate-800 block truncate max-w-[140px]">Sistem / Eski Kayıt</span>
                         ) : (
                           <span className="text-xs font-semibold text-slate-400 italic">Henüz Çözülmedi</span>
                         )}
@@ -728,8 +740,8 @@ export const MaintenanceManagementView: React.FC<MaintenanceManagementViewProps>
                   </div>
 
                   <div className="text-[11px] space-y-1 pt-2 border-t border-slate-100 text-slate-700">
-                    <p><strong>Bildiren Kişi:</strong> {log.reportedBy && log.reportedBy !== 'Sistem Kullanıcısı' ? log.reportedBy : currentUser.fullName}</p>
-                    <p><strong>Çözümleyen Personel:</strong> {log.assignedTo || (log.status === 'RESOLVED' || log.status === 'CLOSED' ? currentUser.fullName : 'Henüz Çözülmedi')}</p>
+                    <p><strong>Bildiren Kişi:</strong> {log.reportedBy && log.reportedBy !== 'Sistem Kullanıcısı' ? log.reportedBy : 'Sistem / Eski Kayıt'}</p>
+                    <p><strong>Çözümleyen Personel:</strong> {log.assignedTo || (log.status === 'RESOLVED' || log.status === 'CLOSED' ? 'Sistem / Eski Kayıt' : 'Henüz Çözülmedi')}</p>
                     <p><strong>Açılış Tarihi:</strong> {formatDate(log.createdAt)}</p>
                     {log.resolvedAt && <p><strong>Kapanış Tarihi:</strong> {formatDate(log.resolvedAt)}</p>}
                   </div>

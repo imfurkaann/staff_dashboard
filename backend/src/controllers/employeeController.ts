@@ -1,15 +1,28 @@
 import { Request, Response, NextFunction } from 'express';
-import { EmployeeService } from '../services/employeeService';
+import { CreateEmployeeDTO, EmployeeService } from '../services/employeeService';
 import { AuthenticatedRequest } from '../middleware/authMiddleware';
 import { createEmployeeWorkbook } from '../services/employeeExportService';
 import { AppError } from '../middleware/errorHandler';
 import { formatIstanbulDate } from '../utils/dateTime';
 import { scopeEmployeeData } from '../security/dataScope';
 import { hasPermission, permissions } from '../security/permissions';
+import { config } from '../config';
+import { validateEmployeeDepartmentFilter, validateEmployeeFilterStatus, validateEmployeeGenderFilter, validateEmployeeId } from '../security/employeePolicy';
+
+const singleQuery = (value: unknown, name: string): string | undefined => {
+  if (value === undefined || value === '') return undefined;
+  if (typeof value !== 'string') throw new AppError(`${name} tek bir değer olmalıdır.`, 400);
+  return value;
+};
+const requestBody = (value: unknown): Record<string, any> => {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new AppError('İstek gövdesi geçersiz.', 400);
+  return value as Record<string, any>;
+};
 
 export class EmployeeController {
   public static async remove(req: AuthenticatedRequest, res: Response, next: NextFunction) {
     try {
+      validateEmployeeId(req.params.id);
       const deletedById = req.user?.id;
       await EmployeeService.deleteEmployee(req.params.id, deletedById);
       res.status(200).json({ success: true, message: 'Personel kaydı silindi.' });
@@ -22,14 +35,14 @@ export class EmployeeController {
    */
   public static async getAll(req: AuthenticatedRequest, res: Response, next: NextFunction) {
     try {
-      const search = req.query.search as string;
-      const status = req.query.status as string;
-      const department = req.query.department as string;
-      const gender = req.query.gender as string;
-      const startDate = req.query.startDate as string;
-      const endDate = req.query.endDate as string;
+      const search = singleQuery(req.query.search, 'Arama filtresi');
+      const status = validateEmployeeFilterStatus(singleQuery(req.query.status, 'Durum filtresi'));
+      const department = validateEmployeeDepartmentFilter(singleQuery(req.query.department, 'Departman filtresi'));
+      const gender = validateEmployeeGenderFilter(singleQuery(req.query.gender, 'Cinsiyet filtresi'));
+      const startDate = singleQuery(req.query.startDate, 'Başlangıç tarihi');
+      const endDate = singleQuery(req.query.endDate, 'Bitiş tarihi');
 
-      const employees = scopeEmployeeData(await EmployeeService.getAllEmployees(search, status, department, gender, startDate, endDate), req.user?.role);
+      const employees = scopeEmployeeData(await EmployeeService.getAllEmployees(search, status, department, gender, startDate, endDate, config.employee.listMaxRows), req.user?.role);
 
       res.status(200).json({
         success: true,
@@ -45,14 +58,14 @@ export class EmployeeController {
    */
   public static async exportExcel(req: AuthenticatedRequest, res: Response, next: NextFunction) {
     try {
-      const search = req.query.search as string;
-      const status = req.query.status as string;
-      const department = req.query.department as string;
-      const gender = req.query.gender as string;
-      const startDate = req.query.startDate as string;
-      const endDate = req.query.endDate as string;
+      const search = singleQuery(req.query.search, 'Arama filtresi');
+      const status = validateEmployeeFilterStatus(singleQuery(req.query.status, 'Durum filtresi'));
+      const department = validateEmployeeDepartmentFilter(singleQuery(req.query.department, 'Departman filtresi'));
+      const gender = validateEmployeeGenderFilter(singleQuery(req.query.gender, 'Cinsiyet filtresi'));
+      const startDate = singleQuery(req.query.startDate, 'Başlangıç tarihi');
+      const endDate = singleQuery(req.query.endDate, 'Bitiş tarihi');
 
-      const employees = await EmployeeService.getExportEmployees(search, status, department, gender, startDate, endDate);
+      const employees = await EmployeeService.getExportEmployees(search, status, department, gender, startDate, endDate, config.employee.exportMaxRows);
       const generatedBy = req.user?.fullName || 'Lojman Yönetimi';
 
       const buffer = await createEmployeeWorkbook(employees, generatedBy);
@@ -70,12 +83,14 @@ export class EmployeeController {
    */
   public static async create(req: AuthenticatedRequest, res: Response, next: NextFunction) {
     try {
+      const body = requestBody(req.body) as unknown as CreateEmployeeDTO;
       const createdById = req.user?.id;
-      if (!hasPermission(req.user?.role, permissions.USER_MANAGE) && req.body?.systemUser) {
+      if (!hasPermission(req.user?.role, permissions.USER_MANAGE) && body.systemUser) {
         throw new AppError('Yalnızca sistem yöneticisi yetkili hesap oluşturabilir.', 403);
       }
+      if (body.systemUser?.createAccount && body.systemUser?.role && body.systemUser.role !== 'STAFF') throw new AppError('Personel portal hesabı yalnızca STAFF rolüyle oluşturulabilir.', 400);
       const employee = await EmployeeService.createEmployee({
-        ...req.body,
+        ...body,
         createdById,
       });
 
@@ -95,12 +110,15 @@ export class EmployeeController {
   public static async update(req: AuthenticatedRequest, res: Response, next: NextFunction) {
     try {
       const { id } = req.params;
+      validateEmployeeId(id);
+      const body = requestBody(req.body);
       const createdById = req.user?.id;
-      if (!hasPermission(req.user?.role, permissions.USER_MANAGE) && req.body?.systemUser) {
+      if (!hasPermission(req.user?.role, permissions.USER_MANAGE) && body.systemUser) {
         throw new AppError('Yalnızca sistem yöneticisi hesap yetkisini değiştirebilir.', 403);
       }
+      if (body.systemUser?.role && body.systemUser.role !== 'STAFF') throw new AppError('Personel portal hesabı yalnızca STAFF rolünde olabilir.', 400);
       const employee = await EmployeeService.updateEmployee(id, {
-        ...req.body,
+        ...body,
         createdById,
       });
 
@@ -119,7 +137,7 @@ export class EmployeeController {
    */
   public static async getAvailableBeds(req: AuthenticatedRequest, res: Response, next: NextFunction) {
     try {
-      const gender = req.query.gender as string;
+      const gender = singleQuery(req.query.gender, 'Cinsiyet filtresi');
       const beds = await EmployeeService.getAvailableBeds(gender);
 
       res.status(200).json({
@@ -137,6 +155,7 @@ export class EmployeeController {
   public static async addInventory(req: AuthenticatedRequest, res: Response, next: NextFunction) {
     try {
       const { id } = req.params;
+      validateEmployeeId(id);
       const createdById = req.user?.id;
       const item = await EmployeeService.addInventoryItem(id, {
         ...req.body,
@@ -159,6 +178,7 @@ export class EmployeeController {
   public static async addDisciplinaryNote(req: AuthenticatedRequest, res: Response, next: NextFunction) {
     try {
       const { id } = req.params;
+      validateEmployeeId(id);
       const createdById = req.user?.id;
       const note = await EmployeeService.addDisciplinaryNote(id, {
         ...req.body,
@@ -181,6 +201,7 @@ export class EmployeeController {
   public static async updateInventory(req: AuthenticatedRequest, res: Response, next: NextFunction) {
     try {
       const { inventoryId } = req.params;
+      validateEmployeeId(inventoryId, 'Zimmet kimliği');
       const item = await EmployeeService.updateInventoryItem(inventoryId, req.body);
 
       res.status(200).json({
@@ -199,6 +220,7 @@ export class EmployeeController {
   public static async getById(req: AuthenticatedRequest, res: Response, next: NextFunction) {
     try {
       const { id } = req.params;
+      validateEmployeeId(id);
       const employee = scopeEmployeeData(await EmployeeService.getEmployeeById(id), req.user?.role);
 
       res.status(200).json({
@@ -216,6 +238,7 @@ export class EmployeeController {
   public static async returnInventory(req: AuthenticatedRequest, res: Response, next: NextFunction) {
     try {
       const { inventoryId } = req.params;
+      validateEmployeeId(inventoryId, 'Zimmet kimliği');
       const returnedById = req.user?.id;
       const { status, notes } = req.body || {};
       const item = await EmployeeService.returnInventoryItem(inventoryId, returnedById, status, notes);
@@ -236,6 +259,7 @@ export class EmployeeController {
   public static async updateDisciplinaryNote(req: AuthenticatedRequest, res: Response, next: NextFunction) {
     try {
       const { noteId } = req.params;
+      validateEmployeeId(noteId, 'Disiplin notu kimliği');
       const note = await EmployeeService.updateDisciplinaryNote(noteId, req.body);
 
       res.status(200).json({
@@ -254,7 +278,8 @@ export class EmployeeController {
   public static async deleteDisciplinaryNote(req: AuthenticatedRequest, res: Response, next: NextFunction) {
     try {
       const { noteId } = req.params;
-      await EmployeeService.deleteDisciplinaryNote(noteId);
+      validateEmployeeId(noteId, 'Disiplin notu kimliği');
+      await EmployeeService.deleteDisciplinaryNote(noteId, req.user?.id);
 
       res.status(200).json({
         success: true,
@@ -271,7 +296,8 @@ export class EmployeeController {
   public static async deleteInventory(req: AuthenticatedRequest, res: Response, next: NextFunction) {
     try {
       const { inventoryId } = req.params;
-      await EmployeeService.deleteInventoryItem(inventoryId);
+      validateEmployeeId(inventoryId, 'Zimmet kimliği');
+      await EmployeeService.deleteInventoryItem(inventoryId, req.user?.id);
 
       res.status(200).json({
         success: true,
@@ -288,6 +314,7 @@ export class EmployeeController {
   public static async checkoutRoom(req: AuthenticatedRequest, res: Response, next: NextFunction) {
     try {
       const { id } = req.params;
+      validateEmployeeId(id);
       const checkedOutById = req.user?.id;
       const employee = await EmployeeService.checkoutEmployeeFromRoom(id, checkedOutById);
 
@@ -307,7 +334,8 @@ export class EmployeeController {
   public static async generateAccount(req: AuthenticatedRequest, res: Response, next: NextFunction) {
     try {
       const { id } = req.params;
-      const credentials = await EmployeeService.generateAccountForEmployee(id);
+      validateEmployeeId(id);
+      const credentials = await EmployeeService.generateAccountForEmployee(id, req.user!.id);
 
       res.status(200).json({
         success: true,

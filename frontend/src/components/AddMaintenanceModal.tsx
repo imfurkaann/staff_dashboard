@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertTriangle,
   ArrowLeft,
@@ -76,6 +76,7 @@ export const AddMaintenanceModal: React.FC<AddMaintenanceModalProps> = ({
   currentUserRole,
   currentUserFullName = 'Teknik Personel',
 }) => {
+  const requestKeyRef = useRef('');
   const [faultType, setFaultType] = useState<MaintenanceType | null>(null);
   const [rooms, setRooms] = useState<Room[]>([]);
   const [roomInventories, setRoomInventories] = useState<RoomInventory[]>([]);
@@ -109,6 +110,7 @@ export const AddMaintenanceModal: React.FC<AddMaintenanceModalProps> = ({
 
   useEffect(() => {
     if (!isOpen) return;
+    if (!maintenance) requestKeyRef.current = crypto.randomUUID();
     setError(null);
     setRoomsLoading(true);
     roomApi.getRooms().then(setRooms).catch(() => setError('Oda listesi yüklenemedi.')).finally(() => setRoomsLoading(false));
@@ -189,6 +191,7 @@ export const AddMaintenanceModal: React.FC<AddMaintenanceModalProps> = ({
           location: location.trim() || null,
           assignedTo: assignedTo.trim() || null,
           resolutionNote: resolutionNote.trim() || null,
+          ...(maintenance.type === 'ROOM_INVENTORY' && status !== 'RESOLVED' && status !== 'CLOSED' ? { inventoryStatus } : {}),
           ...(canManageServiceDetails ? {
             serviceProvider: serviceProvider.trim() || null,
             serviceReference: serviceReference.trim() || null,
@@ -207,7 +210,7 @@ export const AddMaintenanceModal: React.FC<AddMaintenanceModalProps> = ({
             ? { roomInventoryId, inventoryStatus, category: 'Demirbaş Arızası' }
             : { category, location: location.trim() || undefined }),
         };
-        await maintenanceApi.createMaintenance(payload);
+        await maintenanceApi.createMaintenance(payload, requestKeyRef.current);
       }
       onSuccess();
       onClose();
@@ -219,7 +222,8 @@ export const AddMaintenanceModal: React.FC<AddMaintenanceModalProps> = ({
   };
 
   const selectedInventory = roomInventories.find((item) => item.id === roomInventoryId);
-  const allowedInventoryStatusOptions = canRetireInventory ? inventoryStatusOptions : inventoryStatusOptions.filter((item) => item.value !== 'LOST');
+  const allowedInventoryStatusOptions = (canRetireInventory ? inventoryStatusOptions : inventoryStatusOptions.filter((item) => item.value !== 'LOST'))
+    .filter((item) => !maintenance || item.value !== 'LOST');
   const statusHelp = allowedInventoryStatusOptions.find((item) => item.value === inventoryStatus)?.help;
 
   return (
@@ -282,6 +286,7 @@ export const AddMaintenanceModal: React.FC<AddMaintenanceModalProps> = ({
               <label className="sm:col-span-2 space-y-1.5 text-xs font-extrabold text-slate-700">Arıza Açıklaması *<span className="relative block"><FileText className="absolute left-3 top-3 w-4 h-4 text-slate-400" /><textarea required rows={4} maxLength={2000} value={description} onChange={(e) => setDescription(e.target.value)} placeholder={faultType === 'ROOM_INVENTORY' ? 'Seçilen demirbaş durumunun nedenini ve tespit detaylarını yazın...' : 'Sorunu ve belirtileri detaylı şekilde açıklayın...'} className="w-full pl-9 pr-3 py-2.5 rounded-xl border border-slate-300 bg-slate-50 outline-none text-xs font-bold resize-none" /></span></label>
 
               {maintenance && <>
+                {maintenance.type === 'ROOM_INVENTORY' && status !== 'RESOLVED' && status !== 'CLOSED' && <label className="sm:col-span-2 space-y-1.5 text-xs font-extrabold text-slate-700">Güncel Demirbaş Durumu<select value={inventoryStatus} onChange={(e) => setInventoryStatus(e.target.value as InventoryFaultStatus)} className="w-full px-3 py-2.5 rounded-xl border border-slate-300 bg-slate-50">{allowedInventoryStatusOptions.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select><span className="block font-semibold text-slate-500">Durum değişikliği stok hareket geçmişine kaydedilir.</span></label>}
                 <label className="space-y-1.5 text-xs font-extrabold text-slate-700">Arıza Durumu<select value={status} onChange={(e) => setStatus(e.target.value as MaintenanceStatus)} className="w-full px-3 py-2.5 rounded-xl border border-slate-300 bg-slate-50"><option value="OPEN">Açık</option><option value="IN_PROGRESS">İşlemde</option><option value="RESOLVED">Çözüldü</option><option value="CLOSED">Kapatıldı</option></select></label>
                 <label className="space-y-1.5 text-xs font-extrabold text-slate-700">Çözümleyen Personel<span className="relative block"><User className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" /><input maxLength={100} value={assignedTo} onChange={(e) => setAssignedTo(e.target.value)} className="w-full pl-9 pr-3 py-2.5 rounded-xl border border-slate-300 bg-slate-50" /></span></label>
                 <label className="sm:col-span-2 space-y-1.5 text-xs font-extrabold text-slate-700">Çözüm / Yapılan İşlem Notu{(status === 'RESOLVED' || status === 'CLOSED') ? ' *' : ''}<textarea required={status === 'RESOLVED' || status === 'CLOSED'} rows={2} maxLength={1000} value={resolutionNote} onChange={(e) => setResolutionNote(e.target.value)} placeholder="Yapılan kontrolü, onarımı veya sonucu eksiksiz yazın..." className="w-full px-3 py-2.5 rounded-xl border border-slate-300 bg-slate-50 resize-none" /></label>

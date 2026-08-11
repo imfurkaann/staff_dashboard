@@ -61,6 +61,7 @@ export const RoomDetailView: React.FC<RoomDetailViewProps> = ({
   const canManageCleaning = can(currentUser.role, 'CLEANING_MANAGE');
   const canCreateMaintenance = can(currentUser.role, 'MAINTENANCE_CREATE');
   const canUpdateMaintenance = can(currentUser.role, 'MAINTENANCE_UPDATE');
+  const canFullyUpdateMaintenance = can(currentUser.role, 'MAINTENANCE_FULL_UPDATE');
   const canManageInventory = can(currentUser.role, 'ROOM_INVENTORY_MANAGE');
   const [currentRoom, setCurrentRoom] = useState<Room>(room);
   const [activeTab, setActiveTab] = useState<RoomTabType>(() => {
@@ -98,7 +99,7 @@ export const RoomDetailView: React.FC<RoomDetailViewProps> = ({
 
   // Edit Room Modal State
   const [showEditRoomModal, setShowEditRoomModal] = useState(false);
-  const [editRoomForm, setEditRoomForm] = useState({ roomNumber: room.roomNumber, floor: room.floor, capacity: room.capacity, status: room.status });
+  const [editRoomForm, setEditRoomForm] = useState({ roomNumber: room.roomNumber, floor: room.floor, capacity: room.capacity });
   const [editRoomSubmitting, setEditRoomSubmitting] = useState(false);
 
   // Delete Room Modal State
@@ -572,7 +573,6 @@ export const RoomDetailView: React.FC<RoomDetailViewProps> = ({
                   roomNumber: currentRoom.roomNumber,
                   floor: currentRoom.floor,
                   capacity: currentRoom.capacity,
-                  status: currentRoom.status,
                 });
                 setShowEditRoomModal(true);
               }}
@@ -1115,8 +1115,8 @@ export const RoomDetailView: React.FC<RoomDetailViewProps> = ({
 
                       {/* Reported By */}
                       <td className="py-3.5 px-4 whitespace-nowrap max-w-[140px]">
-                        <span className="font-extrabold text-slate-800 block truncate max-w-[130px]" title={log.reportedBy || 'Lojman Yönetimi'}>
-                          {log.reportedBy || 'Lojman Yönetimi'}
+                        <span className="font-extrabold text-slate-800 block truncate max-w-[130px]" title={log.reportedBy && log.reportedBy !== 'Sistem Kullanıcısı' ? log.reportedBy : 'Sistem / Eski Kayıt'}>
+                          {log.reportedBy && log.reportedBy !== 'Sistem Kullanıcısı' ? log.reportedBy : 'Sistem / Eski Kayıt'}
                         </span>
                       </td>
 
@@ -1125,7 +1125,7 @@ export const RoomDetailView: React.FC<RoomDetailViewProps> = ({
                         {log.assignedTo ? (
                           <span className="font-extrabold text-slate-800 block truncate max-w-[140px]" title={log.assignedTo}>{log.assignedTo}</span>
                         ) : log.status === 'RESOLVED' || log.status === 'CLOSED' ? (
-                          <span className="font-extrabold text-slate-800 block truncate max-w-[140px]">Lojman Yönetimi</span>
+                          <span className="font-extrabold text-slate-800 block truncate max-w-[140px]">Sistem / Eski Kayıt</span>
                         ) : (
                           <span className="text-xs font-semibold text-slate-400 italic">Henüz Çözülmedi</span>
                         )}
@@ -1143,9 +1143,9 @@ export const RoomDetailView: React.FC<RoomDetailViewProps> = ({
 
                       {/* Actions */}
                       <td className="py-3.5 px-4 text-right whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
-                        <div className="flex items-center justify-end gap-1">
+                        {canUpdateMaintenance && <div className="flex items-center justify-end gap-1">
                           {log.status === 'RESOLVED' || log.status === 'CLOSED' ? (
-                            <button
+                            canFullyUpdateMaintenance && <button
                               type="button"
                               disabled={updatingMaintenanceId === log.id}
                               onClick={() => handleUndoResolveMaintenance(log)}
@@ -1168,7 +1168,7 @@ export const RoomDetailView: React.FC<RoomDetailViewProps> = ({
                             </button>
                           )}
 
-                          <button
+                          {(!['RESOLVED', 'CLOSED'].includes(log.status) || canFullyUpdateMaintenance) && <button
                             type="button"
                             disabled={updatingMaintenanceId === log.id}
                             onClick={() => openMaintenanceEdit(log)}
@@ -1177,9 +1177,9 @@ export const RoomDetailView: React.FC<RoomDetailViewProps> = ({
                           >
                             <FilePenLine className="w-3.5 h-3.5 shrink-0 group-hover:scale-110 transition-transform duration-300" />
                             <span className="max-w-0 opacity-0 group-hover:max-w-[80px] group-hover:opacity-100 group-hover:ml-1 transition-all duration-300 text-[11px] font-extrabold whitespace-nowrap overflow-hidden">Düzenle</span>
-                          </button>
+                          </button>}
 
-                        </div>
+                        </div>}
                       </td>
                     </tr>
                   ))}
@@ -1843,19 +1843,6 @@ export const RoomDetailView: React.FC<RoomDetailViewProps> = ({
                 </div>
               </div>
 
-              <div>
-                <label className="block font-bold text-slate-800 mb-1">Oda Durumu</label>
-                <select
-                  value={editRoomForm.status}
-                  onChange={(e) => setEditRoomForm({ ...editRoomForm, status: e.target.value as RoomStatusType })}
-                  className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl font-bold text-slate-900 outline-none cursor-pointer"
-                >
-                  <option value="READY">🟢 Hazır (Müsait)</option>
-                  <option value="NEEDS_CLEANING">🟡 Temizlik Bekliyor</option>
-                  <option value="OUT_OF_ORDER">🔴 Arızalı / Bakımda</option>
-                </select>
-              </div>
-
               <div className="pt-2 flex justify-end gap-2">
                 <button
                   type="button"
@@ -2011,18 +1998,20 @@ export const RoomDetailView: React.FC<RoomDetailViewProps> = ({
         log={selectedMaintenanceDetail as any}
         isOpen={Boolean(selectedMaintenanceDetail)}
         onClose={() => setSelectedMaintenanceDetail(null)}
-        onEdit={(logToEdit) => {
+        onEdit={canUpdateMaintenance && (!selectedMaintenanceDetail || !['RESOLVED', 'CLOSED'].includes(selectedMaintenanceDetail.status) || canFullyUpdateMaintenance) ? (logToEdit) => {
           setSelectedMaintenanceDetail(null);
           openMaintenanceEdit(logToEdit as any);
-        }}
-        onStatusChange={(logToChange, newStatus) => {
+        } : undefined}
+        onStatusChange={canUpdateMaintenance ? (logToChange, newStatus) => {
           setSelectedMaintenanceDetail(null);
           if (newStatus === 'RESOLVED') {
             handleResolveMaintenance(logToChange as any);
           } else {
             handleUndoResolveMaintenance(logToChange as any);
           }
-        }}
+        } : undefined}
+        currentUserRole={currentUser.role}
+        currentUserFullName={currentUser.fullName}
       />
     </div>
   );

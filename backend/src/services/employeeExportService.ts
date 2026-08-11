@@ -54,6 +54,11 @@ const statusLabels: Record<string, string> = {
   CHECKED_OUT: 'AYRILMIŞ / ÇIKIŞ YAPMIŞ',
 };
 
+export function safeEmployeeExcelCell(value: unknown): string {
+  const text = value === null || value === undefined ? '' : String(value);
+  return /^[=+\-@]/.test(text.trimStart()) ? `'${text}` : text;
+}
+
 export async function createEmployeeWorkbook(rows: ExportEmployee[], generatedBy: string): Promise<Buffer> {
   const workbook = new ExcelJS.Workbook();
   const sheet = workbook.addWorksheet('Personel Kayıtları');
@@ -160,7 +165,7 @@ export async function createEmployeeWorkbook(rows: ExportEmployee[], generatedBy
     const row = sheet.getRow(rowIndex);
     row.height = 20;
 
-    row.values = [
+    const textCells = [
       statusLabels[emp.status] || emp.status,
       emp.registrationNo || '-',
       maskedTc,
@@ -180,6 +185,10 @@ export async function createEmployeeWorkbook(rows: ExportEmployee[], generatedBy
       (emp.emergencyContactName || '-').toLocaleUpperCase('tr-TR'),
       (emp.emergencyRelation || '-').toLocaleUpperCase('tr-TR'),
       emp.emergencyContactPhone || '-',
+    ].map(safeEmployeeExcelCell);
+
+    row.values = [
+      ...textCells,
       new Date(emp.createdAt),
       new Date(emp.createdAt),
       roomCheckInDate ? new Date(roomCheckInDate) : '',

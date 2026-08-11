@@ -5,15 +5,46 @@ import { MaintenancePriority, MaintenanceStatus, MaintenanceType, RoomInventoryS
 import { AuthenticatedRequest } from '../middleware/authMiddleware';
 import { formatIstanbulDate } from '../utils/dateTime';
 import { hasPermission, permissions } from '../security/permissions';
+import { AppError } from '../middleware/errorHandler';
+import { config } from '../config';
+import { scopeMaintenanceData } from '../security/dataScope';
+import { validateMaintenanceId } from '../security/maintenancePolicy';
 
-const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-const isUuid = (value: unknown): value is string => typeof value === 'string' && uuidPattern.test(value);
-const cleanString = (value: unknown, maxLength: number) => typeof value === 'string' ? value.trim().slice(0, maxLength) : '';
+const requestBody = (value: unknown): Record<string, any> => {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new AppError('İstek gövdesi geçersiz.', 400);
+  return value as Record<string, any>;
+};
+const cleanString = (value: unknown, maxLength: number) => {
+  if (value === undefined || value === null) return '';
+  if (typeof value !== 'string') throw new AppError('Metin alanı geçersiz.', 400);
+  const clean = value.trim();
+  if (clean.length > maxLength) throw new AppError(`Metin alanı en fazla ${maxLength} karakter olabilir.`, 400);
+  return clean;
+};
+const singleQuery = (value: unknown, name: string): string | undefined => {
+  if (value === undefined || value === '') return undefined;
+  if (typeof value !== 'string') throw new AppError(`${name} tek bir değer olmalıdır.`, 400);
+  return value;
+};
+const positiveIntegerQuery = (value: unknown, name: string): number | undefined => {
+  const raw = singleQuery(value, name);
+  if (raw === undefined) return undefined;
+  if (!/^\d+$/.test(raw)) throw new AppError(`${name} pozitif tam sayı olmalıdır.`, 400);
+  const parsed = Number(raw);
+  if (!Number.isSafeInteger(parsed) || parsed < 1) throw new AppError(`${name} pozitif tam sayı olmalıdır.`, 400);
+  return parsed;
+};
 
 export const maintenanceController = {
   getMaintenances: async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const { status, priority, category, blockId, search, dateStart, dateEnd, page, pageSize } = req.query;
+      const status = singleQuery(req.query.status, 'Durum filtresi');
+      const priority = singleQuery(req.query.priority, 'Öncelik filtresi');
+      const category = singleQuery(req.query.category, 'Kategori filtresi');
+      const blockId = singleQuery(req.query.blockId, 'Blok filtresi');
+      const search = singleQuery(req.query.search, 'Arama filtresi');
+      const dateStart = singleQuery(req.query.dateStart, 'Başlangıç tarihi');
+      const dateEnd = singleQuery(req.query.dateEnd, 'Bitiş tarihi');
 
       if (status && status !== 'ALL' && !Object.values(MaintenanceStatus).includes(String(status) as MaintenanceStatus)) {
         return res.status(400).json({ success: false, message: 'Geçersiz arıza durumu filtresi.' });
@@ -23,26 +54,26 @@ export const maintenanceController = {
         return res.status(400).json({ success: false, message: 'Geçersiz arıza önceliği filtresi.' });
       }
 
-      if (blockId && !isUuid(String(blockId))) {
-        return res.status(400).json({ success: false, message: 'Geçersiz blok kimliği.' });
+      if (blockId) {
+        validateMaintenanceId(blockId, 'Blok kimliği');
       }
 
-      const parsedPage = page ? parseInt(String(page), 10) : undefined;
-      const parsedPageSize = pageSize ? parseInt(String(pageSize), 10) : undefined;
+      const parsedPage = positiveIntegerQuery(req.query.page, 'Sayfa');
+      const parsedPageSize = positiveIntegerQuery(req.query.pageSize, 'Sayfa boyutu');
 
       const result = await maintenanceService.getMaintenances({
-        status: status ? (String(status) as MaintenanceStatus | 'ALL') : undefined,
-        priority: priority ? (String(priority) as MaintenancePriority | 'ALL') : undefined,
-        category: category ? String(category) : undefined,
-        blockId: blockId ? String(blockId) : undefined,
+        status: status ? (status as MaintenanceStatus | 'ALL') : undefined,
+        priority: priority ? (priority as MaintenancePriority | 'ALL') : undefined,
+        category,
+        blockId,
         search: cleanString(search, 100) || undefined,
         dateStart: dateStart ? String(dateStart) : undefined,
         dateEnd: dateEnd ? String(dateEnd) : undefined,
-        page: parsedPage && !isNaN(parsedPage) ? parsedPage : undefined,
-        pageSize: parsedPageSize && !isNaN(parsedPageSize) ? parsedPageSize : undefined,
+        page: parsedPage,
+        pageSize: parsedPageSize,
       });
 
-      res.status(200).json({ success: true, data: result });
+      res.status(200).json({ success: true, data: scopeMaintenanceData(result, (req as AuthenticatedRequest).user?.role) });
     } catch (error) {
       next(error);
     }
@@ -50,6 +81,8 @@ export const maintenanceController = {
 
   createMaintenance: async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
     try {
+      const requestKey = req.get('X-Idempotency-Key');
+      if (requestKey) validateMaintenanceId(requestKey, 'Tekrar-gönderim anahtarı');
       const {
         roomId,
         type = 'GENERAL',
@@ -61,7 +94,7 @@ export const maintenanceController = {
         category,
         location,
         assignedTo,
-      } = req.body;
+      } = requestBody(req.body);
 
       const cleanTitle = cleanString(title, 100);
       const cleanDescription = cleanString(description, 2000);
@@ -76,16 +109,12 @@ export const maintenanceController = {
         });
       }
 
-      if (roomId && !isUuid(String(roomId))) {
-        return res.status(400).json({ success: false, message: 'Geçersiz oda kimliği.' });
-      }
+      if (roomId) validateMaintenanceId(roomId, 'Oda kimliği');
 
       if (!Object.values(MaintenanceType).includes(type)) {
         return res.status(400).json({ success: false, message: 'Geçersiz arıza kayıt türü.' });
       }
-      if (roomInventoryId && !isUuid(String(roomInventoryId))) {
-        return res.status(400).json({ success: false, message: 'Geçersiz oda demirbaşı kimliği.' });
-      }
+      if (roomInventoryId) validateMaintenanceId(roomInventoryId, 'Oda demirbaşı kimliği');
       if (inventoryStatus && !Object.values(RoomInventoryStatus).includes(inventoryStatus)) {
         return res.status(400).json({ success: false, message: 'Geçersiz demirbaş durumu.' });
       }
@@ -98,6 +127,7 @@ export const maintenanceController = {
       }
 
       const maintenance = await maintenanceService.createMaintenance({
+        requestKey,
         roomId: roomId ? String(roomId) : undefined,
         type,
         roomInventoryId: roomInventoryId ? String(roomInventoryId) : undefined,
@@ -114,7 +144,7 @@ export const maintenanceController = {
 
       res.status(201).json({
         success: true,
-        data: maintenance,
+        data: scopeMaintenanceData(maintenance, req.user?.role),
         message: 'Arıza kaydı başarıyla oluşturuldu.',
       });
     } catch (error) {
@@ -125,11 +155,9 @@ export const maintenanceController = {
   updateMaintenance: async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
     try {
       const { id } = req.params;
-      const { title, description, priority, status, assignedTo, category, location, resolutionNote, inventoryStatus, serviceProvider, serviceReference, laborCost, partsCost, warrantyCovered, sentToServiceAt, returnedFromServiceAt } = req.body;
+      const { title, description, priority, status, assignedTo, category, location, resolutionNote, inventoryStatus, serviceProvider, serviceReference, laborCost, partsCost, warrantyCovered, sentToServiceAt, returnedFromServiceAt } = requestBody(req.body);
 
-      if (!isUuid(id)) {
-        return res.status(400).json({ success: false, message: 'Geçersiz arıza kaydı kimliği.' });
-      }
+      validateMaintenanceId(id);
 
       if (priority && !Object.values(MaintenancePriority).includes(priority)) {
         return res.status(400).json({ success: false, message: 'Geçersiz arıza önceliği.' });
@@ -140,8 +168,8 @@ export const maintenanceController = {
       }
       if (inventoryStatus && !Object.values(RoomInventoryStatus).includes(inventoryStatus)) return res.status(400).json({ success: false, message: 'Geçersiz demirbaş durumu.' });
       if (!hasPermission(req.user?.role, permissions.MAINTENANCE_FULL_UPDATE)
-        && [laborCost, partsCost, warrantyCovered].some((value) => value !== undefined)) {
-        return res.status(403).json({ success: false, message: 'Servis maliyeti ve garanti bilgilerini yalnızca yetkili yönetici düzenleyebilir.' });
+        && [serviceProvider, serviceReference, laborCost, partsCost, warrantyCovered, sentToServiceAt, returnedFromServiceAt].some((value) => value !== undefined)) {
+        return res.status(403).json({ success: false, message: 'Servis, maliyet ve garanti bilgilerini yalnızca tam güncelleme yetkili kullanıcı düzenleyebilir.' });
       }
       const parsedLaborCost = laborCost === undefined ? undefined : Number(laborCost);
       const parsedPartsCost = partsCost === undefined ? undefined : Number(partsCost);
@@ -173,11 +201,13 @@ export const maintenanceController = {
         sentToServiceAt: sentToServiceAt === undefined ? undefined : sentToServiceAt || null,
         returnedFromServiceAt: returnedFromServiceAt === undefined ? undefined : returnedFromServiceAt || null,
         performedBy: userSolver,
+        performedById: req.user?.id,
+        canFullUpdate: hasPermission(req.user?.role, permissions.MAINTENANCE_FULL_UPDATE),
       });
 
       res.status(200).json({
         success: true,
-        data: updated,
+        data: scopeMaintenanceData(updated, req.user?.role),
         message: 'Arıza kaydı güncellendi.',
       });
     } catch (error) {
@@ -187,16 +217,26 @@ export const maintenanceController = {
 
   exportExcel: async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
     try {
-      const { status, priority, category, blockId, search, dateStart, dateEnd } = req.query;
+      const status = singleQuery(req.query.status, 'Durum filtresi');
+      const priority = singleQuery(req.query.priority, 'Öncelik filtresi');
+      const category = singleQuery(req.query.category, 'Kategori filtresi');
+      const blockId = singleQuery(req.query.blockId, 'Blok filtresi');
+      const search = singleQuery(req.query.search, 'Arama filtresi');
+      const dateStart = singleQuery(req.query.dateStart, 'Başlangıç tarihi');
+      const dateEnd = singleQuery(req.query.dateEnd, 'Bitiş tarihi');
+      if (status && status !== 'ALL' && !Object.values(MaintenanceStatus).includes(status as MaintenanceStatus)) throw new AppError('Geçersiz arıza durumu filtresi.', 400);
+      if (priority && priority !== 'ALL' && !Object.values(MaintenancePriority).includes(priority as MaintenancePriority)) throw new AppError('Geçersiz arıza önceliği filtresi.', 400);
+      if (blockId) validateMaintenanceId(blockId, 'Blok kimliği');
 
       const result = await maintenanceService.getMaintenances({
-        status: status ? (String(status) as MaintenanceStatus | 'ALL') : undefined,
-        priority: priority ? (String(priority) as MaintenancePriority | 'ALL') : undefined,
-        category: category ? String(category) : undefined,
-        blockId: blockId ? String(blockId) : undefined,
+        status: status ? (status as MaintenanceStatus | 'ALL') : undefined,
+        priority: priority ? (priority as MaintenancePriority | 'ALL') : undefined,
+        category,
+        blockId,
         search: cleanString(search, 100) || undefined,
-        dateStart: dateStart ? String(dateStart) : undefined,
-        dateEnd: dateEnd ? String(dateEnd) : undefined,
+        dateStart,
+        dateEnd,
+        exportMaxRows: config.maintenance.exportMaxRows,
       });
 
       const generatedBy = req.user?.fullName || 'Lojman Yönetimi';

@@ -30,6 +30,21 @@ export const config = {
   visitor: {
     exportMaxRows: Math.min(Math.max(parseInt(process.env.VISITOR_EXPORT_MAX_ROWS || '5000', 10) || 5000, 100), 50000),
   },
+  room: {
+    occupancyExportMaxRows: Math.min(Math.max(parseInt(process.env.ROOM_OCCUPANCY_EXPORT_MAX_ROWS || '10000', 10) || 10000, 100), 50000),
+    inventoryExportMaxRows: Math.min(Math.max(parseInt(process.env.ROOM_INVENTORY_EXPORT_MAX_ROWS || '10000', 10) || 10000, 100), 50000),
+  },
+  maintenance: {
+    exportMaxRows: Math.min(Math.max(parseInt(process.env.MAINTENANCE_EXPORT_MAX_ROWS || '10000', 10) || 10000, 100), 50000),
+  },
+  stock: {
+    exportMaxRows: Math.min(Math.max(parseInt(process.env.STOCK_EXPORT_MAX_ROWS || '10000', 10) || 10000, 100), 50000),
+    overviewMaxItems: Math.min(Math.max(parseInt(process.env.STOCK_OVERVIEW_MAX_ITEMS || '5000', 10) || 5000, 100), 20000),
+  },
+  employee: {
+    listMaxRows: Math.min(Math.max(parseInt(process.env.EMPLOYEE_LIST_MAX_ROWS || '5000', 10) || 5000, 100), 20000),
+    exportMaxRows: Math.min(Math.max(parseInt(process.env.EMPLOYEE_EXPORT_MAX_ROWS || '10000', 10) || 10000, 100), 50000),
+  },
   security: {
     saltRounds: parseInt(process.env.BCRYPT_SALT_ROUNDS || '10', 10),
     encryptionKey: process.env.DATA_ENCRYPTION_KEY || process.env.JWT_SECRET || 'development_only_encryption_key',

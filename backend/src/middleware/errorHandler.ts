@@ -36,6 +36,9 @@ export const errorHandler = (
     } else if (err.code === 'P2003' || err.code === 'P2014') {
       statusCode = 409;
       message = 'Bu kayıt ilişkili veriler bulunduğu için değiştirilemez veya silinemez.';
+    } else if (err.code === 'P2034') {
+      statusCode = 409;
+      message = 'Kayıt aynı anda başka bir işlemde değiştirildi. Güncel veriyi yenileyip tekrar deneyin.';
     }
   }
 

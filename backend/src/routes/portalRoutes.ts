@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { PortalController } from '../controllers/portalController';
 import { authenticateToken, authorizePermissions } from '../middleware/authMiddleware';
 import { permissions } from '../security/permissions';
+import { pushTestRateLimiter } from '../middleware/rateLimiter';
 
 const router = Router();
 
@@ -14,5 +15,5 @@ router.get('/me', PortalController.getMyPortalData);
 router.get('/push/public-key', PortalController.getPushPublicKey);
 router.post('/push/subscribe', PortalController.subscribePush);
 router.delete('/push/subscribe', PortalController.unsubscribePush);
-router.post('/push/test', PortalController.testPush);
+router.post('/push/test', pushTestRateLimiter, PortalController.testPush);
 export default router;

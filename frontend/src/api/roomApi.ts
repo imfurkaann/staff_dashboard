@@ -221,7 +221,7 @@ export const roomApi = {
     return response.data.data;
   },
 
-  updateRoom: async (roomId: string, payload: { roomNumber?: string; floor?: number; capacity?: number; roomType?: string; status?: RoomStatusType }): Promise<Room> => {
+  updateRoom: async (roomId: string, payload: { roomNumber?: string; floor?: number; capacity?: number; roomType?: string }): Promise<Room> => {
     const response = await api.put<{ success: boolean; data: Room; message: string }>(`/${roomId}`, payload);
     return response.data.data;
   },

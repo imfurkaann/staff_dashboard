@@ -3,6 +3,7 @@ import { AppError } from '../middleware/errorHandler';
 import { MaintenancePriority, MaintenanceStatus, MaintenanceType, Prisma, RoomInventoryStatus } from '@prisma/client';
 import { assertDateRange, parseIstanbulDateBoundary } from '../utils/dateTime';
 import { releaseRoomStock } from '../utils/stockBalance';
+import { assertClosedMaintenanceEditable, assertMaintenanceTransition } from '../security/maintenancePolicy';
 
 const inventoryFaultStatuses = new Set<RoomInventoryStatus>([
   'MAINTENANCE_REQUIRED',
@@ -24,7 +25,13 @@ const maintenanceInclude = {
   roomInventory: {
     select: { id: true, assetTag: true, itemName: true, brand: true, serialNo: true, quantity: true, status: true, returnedAt: true },
   },
-  events: { orderBy: { createdAt: 'desc' as const } },
+  createdBy: { select: { id: true, fullName: true } },
+  updatedBy: { select: { id: true, fullName: true } },
+  events: {
+    orderBy: { createdAt: 'desc' as const },
+    take: 100,
+    include: { performedByUser: { select: { id: true, fullName: true } } },
+  },
 } satisfies Prisma.MaintenanceLogInclude;
 
 export interface MaintenanceFilterOptions {
@@ -37,9 +44,11 @@ export interface MaintenanceFilterOptions {
   dateEnd?: string;
   page?: number;
   pageSize?: number;
+  exportMaxRows?: number;
 }
 
 export interface CreateMaintenanceInput {
+  requestKey?: string;
   roomId?: string;
   type?: MaintenanceType;
   roomInventoryId?: string;
@@ -72,6 +81,8 @@ export interface UpdateMaintenanceInput {
   sentToServiceAt?: string | Date | null;
   returnedFromServiceAt?: string | Date | null;
   performedBy: string;
+  performedById?: string;
+  canFullUpdate?: boolean;
 }
 
 export const maintenanceService = {
@@ -79,7 +90,7 @@ export const maintenanceService = {
    * Get maintenance records with filters, summary statistics, and pagination support
    */
   async getMaintenances(filters: MaintenanceFilterOptions = {}) {
-    const { status, priority, category, blockId, search, dateStart, dateEnd, page, pageSize } = filters;
+    const { status, priority, category, blockId, search, dateStart, dateEnd, page, pageSize, exportMaxRows } = filters;
 
     const whereCondition: Prisma.MaintenanceLogWhereInput = {};
 
@@ -135,10 +146,12 @@ export const maintenanceService = {
     delete baseScopedConditionForPriority.priority;
 
     const currentPage = page && page > 0 ? Math.floor(page) : 1;
-    const limit = pageSize && pageSize > 0 ? Math.min(Math.floor(pageSize), 100) : undefined;
-    const skip = limit ? (currentPage - 1) * limit : undefined;
+    const limit = exportMaxRows
+      ? Math.min(Math.max(Math.floor(exportMaxRows), 1), 50_000)
+      : (pageSize && pageSize > 0 ? Math.min(Math.floor(pageSize), 100) : 25);
+    const skip = (currentPage - 1) * limit;
 
-    const [items, totalCount, openCount, inProgressCount, resolvedCount, urgentCount] = await Promise.all([
+    const [items, totalCount, openCount, inProgressCount, resolvedCount, closedCount, urgentCount] = await Promise.all([
       prisma.maintenanceLog.findMany({
         where: whereCondition,
         orderBy: [
@@ -146,14 +159,15 @@ export const maintenanceService = {
           { priority: 'desc' },
           { createdAt: 'desc' },
         ],
-        ...(skip !== undefined ? { skip } : {}),
-        ...(limit !== undefined ? { take: limit } : {}),
+        skip,
+        take: limit,
         include: maintenanceInclude,
       }),
       prisma.maintenanceLog.count({ where: whereCondition }),
       prisma.maintenanceLog.count({ where: { ...baseScopedCondition, status: 'OPEN' } }),
       prisma.maintenanceLog.count({ where: { ...baseScopedCondition, status: 'IN_PROGRESS' } }),
-      prisma.maintenanceLog.count({ where: { ...baseScopedCondition, status: { in: ['RESOLVED', 'CLOSED'] } } }),
+      prisma.maintenanceLog.count({ where: { ...baseScopedCondition, status: 'RESOLVED' } }),
+      prisma.maintenanceLog.count({ where: { ...baseScopedCondition, status: 'CLOSED' } }),
       prisma.maintenanceLog.count({
         where: {
           ...baseScopedConditionForPriority,
@@ -164,6 +178,9 @@ export const maintenanceService = {
     ]);
 
     const effectiveLimit = limit || totalCount || 1;
+    if (exportMaxRows && totalCount > exportMaxRows) {
+      throw new AppError(`Arıza raporu ${exportMaxRows.toLocaleString('tr-TR')} satır sınırını aşıyor. Filtreyi veya tarih aralığını daraltın.`, 413);
+    }
     const totalPages = Math.ceil(totalCount / effectiveLimit) || 1;
 
     return {
@@ -173,6 +190,7 @@ export const maintenanceService = {
         openCount,
         inProgressCount,
         resolvedCount,
+        closedCount,
         urgentCount,
       },
       pagination: {
@@ -189,6 +207,7 @@ export const maintenanceService = {
    */
   async createMaintenance(data: CreateMaintenanceInput) {
     const {
+      requestKey,
       roomId,
       type = 'GENERAL',
       roomInventoryId,
@@ -218,12 +237,28 @@ export const maintenanceService = {
 
     try {
       return await prisma.$transaction(async (tx) => {
+        if (requestKey) {
+          const existingRequest = await tx.maintenanceLog.findUnique({ where: { requestKey }, include: maintenanceInclude });
+          if (existingRequest) {
+            if ((existingRequest.createdById || null) !== (createdById || null)) {
+              throw new AppError('Bu tekrar-gönderim anahtarı başka bir işlemde kullanılmış.', 409);
+            }
+            const sameRequest = existingRequest.roomId === roomId
+              && existingRequest.type === type
+              && (existingRequest.roomInventoryId || null) === (roomInventoryId || null)
+              && existingRequest.description === cleanDescription
+              && existingRequest.priority === priority;
+            if (!sameRequest) throw new AppError('Bu tekrar-gönderim anahtarı farklı bir arıza isteğinde kullanılmış.', 409);
+            return existingRequest;
+          }
+        }
         const room = await tx.room.findUnique({ where: { id: roomId }, include: { block: true } });
         if (!room) throw new AppError('Seçilen oda bulunamadı.', 404);
 
         if (type === 'GENERAL') {
           const maintenance = await tx.maintenanceLog.create({
             data: {
+              requestKey: requestKey || null,
               roomId,
               type,
               title: (title?.trim() || category?.trim() || cleanDescription.slice(0, 50) || 'Arıza Bildirimi').toLocaleUpperCase('tr-TR'),
@@ -234,12 +269,18 @@ export const maintenanceService = {
               category: category?.trim().toLocaleUpperCase('tr-TR') || null,
               location: location?.trim().toLocaleUpperCase('tr-TR') || null,
               assignedTo: assignedTo?.trim().toLocaleUpperCase('tr-TR') || null,
+              createdById: createdById || null,
+              updatedById: createdById || null,
             },
           });
           await tx.maintenanceEvent.create({ data: {
             maintenanceId: maintenance.id, action: 'FAULT_REPORTED', toStatus: 'OPEN', notes: cleanDescription,
             performedBy: (reportedBy?.trim() || 'Lojman Yönetimi').toLocaleUpperCase('tr-TR'),
+            performedById: createdById || null,
           } });
+          if (priority === 'HIGH' || priority === 'URGENT') {
+            await tx.room.update({ where: { id: roomId }, data: { status: 'OUT_OF_ORDER' } });
+          }
           return tx.maintenanceLog.findUniqueOrThrow({ where: { id: maintenance.id }, include: maintenanceInclude });
         }
 
@@ -258,6 +299,7 @@ export const maintenanceService = {
 
         const maintenance = await tx.maintenanceLog.create({
           data: {
+            requestKey: requestKey || null,
             roomId,
             type,
             roomInventoryId: inventory.id,
@@ -275,6 +317,8 @@ export const maintenanceService = {
             category: (category?.trim() || 'Demirbaş Arızası').toLocaleUpperCase('tr-TR'),
             location: (location?.trim() || `${inventory.itemName}${inventory.serialNo ? ` / ${inventory.serialNo}` : ''}`).toLocaleUpperCase('tr-TR'),
             assignedTo: assignedTo?.trim().toLocaleUpperCase('tr-TR') || null,
+            createdById: createdById || null,
+            updatedById: createdById || null,
           },
         });
 
@@ -285,6 +329,7 @@ export const maintenanceService = {
           inventoryStatus,
           notes: cleanDescription,
           performedBy: (reportedBy?.trim() || 'Lojman Yönetimi').toLocaleUpperCase('tr-TR'),
+          performedById: createdById || null,
         } });
 
         const isLost = inventoryStatus === 'LOST';
@@ -318,12 +363,28 @@ export const maintenanceService = {
           },
         });
 
+        if (priority === 'HIGH' || priority === 'URGENT') {
+          await tx.room.update({ where: { id: roomId }, data: { status: 'OUT_OF_ORDER' } });
+        }
+
         return tx.maintenanceLog.findUniqueOrThrow({ where: { id: maintenance.id }, include: maintenanceInclude });
-      });
-    } catch (error) {
+      }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+    } catch (error: any) {
       if (error && typeof error === 'object' && 'code' in error && error.code === 'P2002') {
+        if (requestKey) {
+          const existingRequest = await prisma.maintenanceLog.findUnique({ where: { requestKey }, include: maintenanceInclude });
+          const sameRequest = existingRequest
+            && (existingRequest.createdById || null) === (createdById || null)
+            && existingRequest.roomId === roomId
+            && existingRequest.type === type
+            && (existingRequest.roomInventoryId || null) === (roomInventoryId || null)
+            && existingRequest.description === cleanDescription
+            && existingRequest.priority === priority;
+          if (sameRequest) return existingRequest;
+        }
         throw new AppError('Bu demirbaş için devam eden bir arıza kaydı zaten bulunuyor.', 409);
       }
+      if (error?.code === 'P2034') throw new AppError('Arıza veya oda aynı anda değiştirildi. Lütfen işlemi yeniden deneyin.', 409);
       throw error;
     }
   },
@@ -336,6 +397,8 @@ export const maintenanceService = {
     if (!existing) {
       throw new AppError('Arıza kaydı bulunamadı.', 404);
     }
+    assertClosedMaintenanceEditable(existing.status, Boolean(data.canFullUpdate));
+    if (data.status) assertMaintenanceTransition(existing.status, data.status, Boolean(data.canFullUpdate));
     if (data.inventoryStatus && existing.type !== 'ROOM_INVENTORY') throw new AppError('Genel oda arızasında demirbaş durumu değiştirilemez.', 400);
     if (data.inventoryStatus === 'LOST' || data.inventoryStatus === 'RETIRED') throw new AppError('Kayıp/hurda işlemleri mevcut arıza güncellemesinden yapılamaz; kontrollü stok süreci kullanılmalıdır.', 400);
     if ((data.status === 'RESOLVED' || data.status === 'CLOSED') && !(data.resolutionNote?.trim() || existing.resolutionNote?.trim())) {
@@ -358,6 +421,9 @@ export const maintenanceService = {
     if ((sentAt && isNaN(sentAt.getTime())) || (returnedAt && isNaN(returnedAt.getTime()))) throw new AppError('Servis tarihleri geçersiz.', 400);
     if (returnedAt && !sentAt) throw new AppError('Servisten dönüş tarihi girilmeden önce servise gönderilme tarihi kaydedilmelidir.', 400);
     if (sentAt && returnedAt && returnedAt < sentAt) throw new AppError('Servisten dönüş tarihi gönderilme tarihinden önce olamaz.', 400);
+    if (['RESOLVED', 'CLOSED'].includes(nextMaintenanceStatus) && sentAt && !returnedAt) {
+      throw new AppError('Servise gönderilmiş bir arıza, servisten dönüş tarihi kaydedilmeden sonuçlandırılamaz.', 400);
+    }
 
     if (existing.type === 'ROOM_INVENTORY' && data.status && ['OPEN', 'IN_PROGRESS'].includes(data.status)) {
       const conflictingFault = await prisma.maintenanceLog.findFirst({
@@ -367,7 +433,7 @@ export const maintenanceService = {
       if (conflictingFault) throw new AppError('Bu demirbaş için başka bir aktif arıza kaydı bulunuyor. Eski kayıt yeniden açılamaz.', 409);
     }
 
-    const updateData: Prisma.MaintenanceLogUpdateInput = {};
+    const updateData: Prisma.MaintenanceLogUncheckedUpdateInput = {};
 
     if (data.title?.trim()) updateData.title = data.title.trim().toLocaleUpperCase('tr-TR');
     if (data.description?.trim()) updateData.description = data.description.trim().toLocaleUpperCase('tr-TR');
@@ -383,6 +449,7 @@ export const maintenanceService = {
     if (data.warrantyCovered !== undefined) updateData.warrantyCovered = Boolean(data.warrantyCovered);
     if (data.sentToServiceAt !== undefined) updateData.sentToServiceAt = data.sentToServiceAt ? new Date(data.sentToServiceAt) : null;
     if (data.returnedFromServiceAt !== undefined) updateData.returnedFromServiceAt = data.returnedFromServiceAt ? new Date(data.returnedFromServiceAt) : null;
+    updateData.updatedById = data.performedById || null;
 
     if (data.status) {
       updateData.status = data.status;
@@ -396,7 +463,8 @@ export const maintenanceService = {
       }
     }
 
-    return prisma.$transaction(async (tx) => {
+    try {
+      return await prisma.$transaction(async (tx) => {
       const changed = await tx.maintenanceLog.updateMany({ where: { id, updatedAt: existing.updatedAt }, data: updateData as Prisma.MaintenanceLogUpdateManyMutationInput });
       if (changed.count !== 1) throw new AppError('Arıza kaydı başka bir kullanıcı tarafından güncellendi. Güncel veriyi yenileyip tekrar deneyin.', 409);
       let nextInventoryStatus = data.inventoryStatus;
@@ -404,7 +472,11 @@ export const maintenanceService = {
         if ((data.status === 'RESOLVED' || data.status === 'CLOSED') && !nextInventoryStatus) nextInventoryStatus = 'HEALTHY';
         if (data.status === 'OPEN' && (existing.status === 'RESOLVED' || existing.status === 'CLOSED') && !nextInventoryStatus) nextInventoryStatus = 'MAINTENANCE_REQUIRED';
         if (nextInventoryStatus && nextInventoryStatus !== existing.roomInventory.status) {
-          await tx.roomInventory.update({ where: { id: existing.roomInventory.id }, data: { status: nextInventoryStatus } });
+          const inventoryChanged = await tx.roomInventory.updateMany({
+            where: { id: existing.roomInventory.id, returnedAt: null, updatedAt: existing.roomInventory.updatedAt },
+            data: { status: nextInventoryStatus },
+          });
+          if (inventoryChanged.count !== 1) throw new AppError('Bağlı demirbaş aynı anda başka bir stok işleminde değiştirildi. Sayfayı yenileyip tekrar deneyin.', 409);
           await tx.stockMovement.create({ data: {
             stockItemId: existing.roomInventory.stockItemId,
             roomId: existing.roomId,
@@ -418,6 +490,7 @@ export const maintenanceService = {
             serialNo: existing.roomInventory.serialNo,
             reason: `ARIZA SÜRECİ: ${nextInventoryStatus}`,
             notes: data.resolutionNote?.trim() || null,
+            createdById: data.performedById || null,
           } });
         }
       }
@@ -434,8 +507,19 @@ export const maintenanceService = {
         partsCost: data.partsCost,
         warrantyCovered: data.warrantyCovered,
         performedBy: data.performedBy.trim().toLocaleUpperCase('tr-TR'),
+        performedById: data.performedById || null,
       } });
+      const effectivePriority = data.priority || existing.priority;
+      if (['OPEN', 'IN_PROGRESS'].includes(nextMaintenanceStatus) && ['HIGH', 'URGENT'].includes(effectivePriority)) {
+        await tx.room.update({ where: { id: existing.roomId }, data: { status: 'OUT_OF_ORDER' } });
+      }
       return tx.maintenanceLog.findUniqueOrThrow({ where: { id }, include: maintenanceInclude });
-    });
+      }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+    } catch (error: any) {
+      if (error instanceof AppError) throw error;
+      if (error?.code === 'P2002') throw new AppError('Bu demirbaş için başka bir aktif arıza kaydı bulunuyor.', 409);
+      if (error?.code === 'P2034') throw new AppError('Arıza, oda veya demirbaş aynı anda değiştirildi. Lütfen işlemi yeniden deneyin.', 409);
+      throw error;
+    }
   },
 };

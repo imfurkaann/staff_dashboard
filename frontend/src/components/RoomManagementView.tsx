@@ -185,6 +185,11 @@ export const RoomManagementView: React.FC<RoomManagementViewProps> = ({ onNaviga
     return Array.from(floorSet).sort((a, b) => a - b);
   }, [rooms]);
 
+  const unsafeOccupiedRooms = useMemo(
+    () => rooms.filter((room) => room.status === 'OUT_OF_ORDER' && room.beds.some((bed) => bed.isOccupied)),
+    [rooms],
+  );
+
   // Filtered rooms strictly matching:
   // - Block, Floor, Status, Occupancy
   // - Search Query ONLY matching Oda No or Personel Adı
@@ -453,6 +458,18 @@ export const RoomManagementView: React.FC<RoomManagementViewProps> = ({ onNaviga
           </div>
         </div>
       </div>
+
+      {unsafeOccupiedRooms.length > 0 && (
+        <div className="flex items-start gap-3 rounded-2xl border border-rose-300 bg-rose-50 px-4 py-3 text-rose-900">
+          <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-rose-700" />
+          <div>
+            <p className="text-sm font-black">Kullanım dışı odada kalan personel bulunuyor</p>
+            <p className="mt-0.5 text-xs font-semibold">
+              {unsafeOccupiedRooms.map((room) => `${room.block.name} / ${room.roomNumber}`).join(', ')}. Personeli güvenli bir odaya aktarın veya arıza durumunu doğrulayın.
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* Main Content Area - Full Width Grid */}
       {loading ? (

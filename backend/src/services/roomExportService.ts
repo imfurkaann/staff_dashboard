@@ -1,6 +1,12 @@
 import ExcelJS from 'exceljs';
 import { decryptSensitiveData } from '../utils/crypto';
 
+/** Prevent spreadsheet programs from evaluating user-controlled text as a formula. */
+export function safeExcelCell(value: unknown): string {
+  const text = value === null || value === undefined ? '' : String(value);
+  return /^[=+\-@]/.test(text) ? `'${text}` : text;
+}
+
 export interface ExportOccupancy {
   checkInDate: Date;
   checkOutDate: Date | null;
@@ -154,17 +160,17 @@ export async function createOccupancyWorkbook(rows: ExportOccupancy[], generated
     row.height = 20;
 
     row.values = [
-      statusLabel,
-      blockName,
-      roomNumber,
-      bedLabel,
-      firstName,
-      lastName,
-      decryptedTc,
-      registrationNo,
-      title,
-      department,
-      company,
+      safeExcelCell(statusLabel),
+      safeExcelCell(blockName),
+      safeExcelCell(roomNumber),
+      safeExcelCell(bedLabel),
+      safeExcelCell(firstName),
+      safeExcelCell(lastName),
+      safeExcelCell(decryptedTc),
+      safeExcelCell(registrationNo),
+      safeExcelCell(title),
+      safeExcelCell(department),
+      safeExcelCell(company),
       new Date(occ.checkInDate),
       new Date(occ.checkInDate),
       occ.checkOutDate ? new Date(occ.checkOutDate) : '',
@@ -301,11 +307,11 @@ export async function createRoomInventoryWorkbook(rows: ExportRoomInventory[], g
         const row = sheet.getRow(currentRowNum);
         row.height = 19;
 
-        const c1 = row.getCell(1); c1.value = inv.itemName; c1.font = { name: 'Arial', size: 9.5, bold: true };
-        const c2 = row.getCell(2); c2.value = inv.brand || '-'; c2.font = { name: 'Arial', size: 9.5 };
-        const c3 = row.getCell(3); c3.value = inv.serialNo || '-'; c3.font = { name: 'Arial', size: 9.5 };
+        const c1 = row.getCell(1); c1.value = safeExcelCell(inv.itemName); c1.font = { name: 'Arial', size: 9.5, bold: true };
+        const c2 = row.getCell(2); c2.value = safeExcelCell(inv.brand || '-'); c2.font = { name: 'Arial', size: 9.5 };
+        const c3 = row.getCell(3); c3.value = safeExcelCell(inv.serialNo || '-'); c3.font = { name: 'Arial', size: 9.5 };
         const c4 = row.getCell(4); c4.value = inv.quantity; c4.font = { name: 'Arial', size: 9.5, bold: true }; c4.alignment = { horizontal: 'center' };
-        const c5 = row.getCell(5); c5.value = statusText; c5.font = { name: 'Arial', size: 9.5, bold: true };
+        const c5 = row.getCell(5); c5.value = safeExcelCell(statusText); c5.font = { name: 'Arial', size: 9.5, bold: true };
         const c6 = row.getCell(6); c6.value = new Date(inv.installedAt); c6.numFmt = 'dd.mm.yyyy'; c6.font = { name: 'Arial', size: 9.5 };
 
         // Apply borders & row background fills

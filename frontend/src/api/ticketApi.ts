@@ -146,6 +146,18 @@ export function connectTicketSocket(onEvent: (event: { type: 'TICKET_CREATED' | 
   let ws: WebSocket | null = null;
   let reconnectTimer: any = null;
   let isUnmounted = false;
+  let reconnectAttempt = 0;
+
+  function scheduleReconnect() {
+    if (isUnmounted || reconnectTimer) return;
+    const baseDelay = Math.min(30_000, 1_000 * (2 ** reconnectAttempt));
+    const delay = baseDelay + Math.floor(Math.random() * 500);
+    reconnectAttempt = Math.min(reconnectAttempt + 1, 5);
+    reconnectTimer = setTimeout(() => {
+      reconnectTimer = null;
+      connect();
+    }, delay);
+  }
 
   function connect() {
     if (isUnmounted) return;
@@ -153,6 +165,7 @@ export function connectTicketSocket(onEvent: (event: { type: 'TICKET_CREATED' | 
       ws = new WebSocket(wsUrl);
 
       ws.onopen = () => {
+        reconnectAttempt = 0;
         if (import.meta.env.DEV) console.log('⚡ [TicketWebSocket] Bağlantı başarılı:', wsUrl);
       };
 
@@ -168,18 +181,14 @@ export function connectTicketSocket(onEvent: (event: { type: 'TICKET_CREATED' | 
       };
 
       ws.onclose = () => {
-        if (!isUnmounted) {
-          reconnectTimer = setTimeout(connect, 3000);
-        }
+        scheduleReconnect();
       };
 
       ws.onerror = () => {
         ws?.close();
       };
     } catch (err) {
-      if (!isUnmounted) {
-        reconnectTimer = setTimeout(connect, 3000);
-      }
+      scheduleReconnect();
     }
   }
 

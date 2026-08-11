@@ -73,7 +73,7 @@ export const AddEmployeeModal: React.FC<AddEmployeeModalProps> = ({
   const [systemUsername, setSystemUsername] = useState('');
   const [systemEmail, setSystemEmail] = useState('');
   const [systemPassword, setSystemPassword] = useState('');
-  const [systemRole, setSystemRole] = useState<'ADMIN' | 'HOUSING_MANAGER' | 'SECURITY' | 'STAFF'>('HOUSING_MANAGER');
+  const [systemRole, setSystemRole] = useState<'STAFF'>('STAFF');
 
   // Optional Room/Bed Assignment State
   const [assignBed, setAssignBed] = useState(false);
@@ -163,13 +163,13 @@ export const AddEmployeeModal: React.FC<AddEmployeeModalProps> = ({
           setSystemUsername(initialData.user.username || '');
           setSystemEmail(initialData.user.email || '');
           setSystemPassword('');
-          setSystemRole(initialData.user.role || 'HOUSING_MANAGER');
+          setSystemRole('STAFF');
         } else {
           setCreateSystemUser(false);
           setSystemUsername('');
           setSystemEmail('');
           setSystemPassword('');
-          setSystemRole('HOUSING_MANAGER');
+          setSystemRole('STAFF');
         }
       } else {
         setFirstName('');
@@ -199,7 +199,7 @@ export const AddEmployeeModal: React.FC<AddEmployeeModalProps> = ({
         setSystemUsername('');
         setSystemEmail('');
         setSystemPassword('');
-        setSystemRole('HOUSING_MANAGER');
+        setSystemRole('STAFF');
       }
     }
   }, [isOpen, initialData]);
@@ -398,7 +398,7 @@ export const AddEmployeeModal: React.FC<AddEmployeeModalProps> = ({
           username: systemUsername.trim(),
           email: systemEmail.trim(),
           password: systemPassword.trim() || undefined,
-          role: systemRole,
+          role: 'STAFF' as const,
         } : undefined,
       };
 

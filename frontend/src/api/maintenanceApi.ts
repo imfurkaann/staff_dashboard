@@ -1,6 +1,11 @@
 import axios from 'axios';
 import { appConfig } from '../config/appConfig';
 
+function maintenanceError(error: unknown, fallback: string): Error {
+  const candidate = error as { response?: { data?: { message?: string } }; message?: string };
+  return new Error(candidate.response?.data?.message || candidate.message || fallback);
+}
+
 export type MaintenanceStatus = 'OPEN' | 'IN_PROGRESS' | 'RESOLVED' | 'CLOSED';
 export type MaintenancePriority = 'LOW' | 'MEDIUM' | 'HIGH' | 'URGENT';
 export type MaintenanceType = 'GENERAL' | 'ROOM_INVENTORY';
@@ -41,8 +46,8 @@ export interface MaintenanceLog {
   resolutionNote?: string | null;
   serviceProvider?: string | null;
   serviceReference?: string | null;
-  laborCost: number;
-  partsCost: number;
+  laborCost?: number;
+  partsCost?: number;
   warrantyCovered: boolean;
   sentToServiceAt?: string | null;
   returnedFromServiceAt?: string | null;
@@ -66,6 +71,7 @@ export interface MaintenanceSummaryStats {
   openCount: number;
   inProgressCount: number;
   resolvedCount: number;
+  closedCount: number;
   urgentCount: number;
 }
 
@@ -127,36 +133,49 @@ export const maintenanceApi = {
     if (filters.page) params.append('page', String(filters.page));
     if (filters.pageSize) params.append('pageSize', String(filters.pageSize));
 
-    const response = await axios.get<{ success: boolean; data: MaintenanceListResponse }>(
+    try {
+      const response = await axios.get<{ success: boolean; data: MaintenanceListResponse }>(
       `${appConfig.apiBaseUrl}/maintenance`,
       {
         params,
         withCredentials: true,
       }
     );
-    return response.data.data;
+      return response.data.data;
+    } catch (error) {
+      throw maintenanceError(error, 'Arıza kayıtları alınamadı.');
+    }
   },
 
-  createMaintenance: async (dto: CreateMaintenanceDTO): Promise<MaintenanceLog> => {
-    const response = await axios.post<{ success: boolean; data: MaintenanceLog }>(
+  createMaintenance: async (dto: CreateMaintenanceDTO, requestKey?: string): Promise<MaintenanceLog> => {
+    try {
+      const response = await axios.post<{ success: boolean; data: MaintenanceLog }>(
       `${appConfig.apiBaseUrl}/maintenance`,
       dto,
       {
         withCredentials: true,
+        headers: requestKey ? { 'X-Idempotency-Key': requestKey } : undefined,
       }
     );
-    return response.data.data;
+      return response.data.data;
+    } catch (error) {
+      throw maintenanceError(error, 'Arıza kaydı oluşturulamadı.');
+    }
   },
 
   updateMaintenance: async (id: string, dto: UpdateMaintenanceDTO): Promise<MaintenanceLog> => {
-    const response = await axios.patch<{ success: boolean; data: MaintenanceLog }>(
+    try {
+      const response = await axios.patch<{ success: boolean; data: MaintenanceLog }>(
       `${appConfig.apiBaseUrl}/maintenance/${id}`,
       dto,
       {
         withCredentials: true,
       }
     );
-    return response.data.data;
+      return response.data.data;
+    } catch (error) {
+      throw maintenanceError(error, 'Arıza kaydı güncellenemedi.');
+    }
   },
 
   exportExcel: async (filters: MaintenanceQueryFilters = {}): Promise<void> => {
@@ -169,7 +188,8 @@ export const maintenanceApi = {
     if (filters.dateStart) params.append('dateStart', filters.dateStart);
     if (filters.dateEnd) params.append('dateEnd', filters.dateEnd);
 
-    const response = await axios.get<Blob>(
+    try {
+      const response = await axios.get<Blob>(
       `${appConfig.apiBaseUrl}/maintenance/export.xlsx`,
       {
         params,
@@ -187,6 +207,9 @@ export const maintenanceApi = {
     document.body.appendChild(anchor);
     anchor.click();
     anchor.remove();
-    URL.revokeObjectURL(url);
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      throw maintenanceError(error, 'Arıza raporu indirilemedi.');
+    }
   },
 };

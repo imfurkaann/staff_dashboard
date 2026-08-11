@@ -194,13 +194,13 @@ export const VisitorRecordsTable: React.FC<Props> = ({
                         className="font-bold text-slate-900 text-xs truncate max-w-[130px]"
                         title={visitor.hostEmployeeName || 'Belirtilmedi'}
                       >
-                        {visitor.hostEmployeeName || '-'}
+                        {visitor.hostEmployeeName || 'Personel seçilmedi'}
                       </div>
                       <div
                         className="text-[10px] text-[#1e3a8a] font-bold truncate max-w-[130px]"
                         title={visitor.hostRoomLabel || 'Oda Ataması Yok'}
                       >
-                        {visitor.hostRoomLabel || 'Oda yok'}
+                        {visitor.hostRoomLabel || 'Bağımsız giriş'}
                       </div>
                     </td>
 

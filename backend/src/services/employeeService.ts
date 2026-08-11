@@ -1,14 +1,16 @@
 import bcrypt from 'bcryptjs';
-import { Role } from '@prisma/client';
+import { Prisma, Role } from '@prisma/client';
 import prisma from '../db/prisma';
 import { AppError } from '../middleware/errorHandler';
 import { encryptSensitiveData, hashSensitiveData, maskTcNo } from '../utils/crypto';
 import { generateUniqueUsername, generateUniqueEasyPassword } from '../utils/credentialGenerator';
 import { assertDateRange, parseIstanbulDateBoundary } from '../utils/dateTime';
 import { boundedText, normalizeIdentifier, normalizeInventoryItemName, normalizePhone, normalizeUpper, strictBoolean } from '../utils/normalization';
+import { syncSharedAssetPersonnelAssignment, syncSharedAssetReturn } from './sharedAssetSync';
 import { AGE_GROUPS, canonicalChoice, EMERGENCY_RELATIONS, EMPLOYEE_DEPARTMENTS, EMPLOYEE_TITLES, LANGUAGE_NATIONALITIES, SHIFT_TYPES } from '../utils/employeeDomain';
 import { config } from '../config';
 import { releasePersonnelStock, reservePersonnelStock } from '../utils/stockBalance';
+import { validateEmployeeDepartmentFilter, validateEmployeeFilterStatus, validateEmployeeGenderFilter } from '../security/employeePolicy';
 
 /**
  * Turkish Locale-aware Title Case Normalization
@@ -26,6 +28,19 @@ function validateEmail(email: string): string {
   const clean = email.trim().toLocaleLowerCase('en-US');
   if (clean.length > 254 || !EMAIL_PATTERN.test(clean)) throw new AppError('Geçerli bir e-posta adresi giriniz.', 400);
   return clean;
+}
+
+function validatePortalUsername(value: string): string {
+  const username = value.trim().toLocaleLowerCase('en-US');
+  if (!/^[a-z0-9._-]{3,50}$/.test(username)) throw new AppError('Kullanıcı adı 3-50 karakter olmalı ve yalnızca küçük harf, rakam, nokta, tire veya alt çizgi içermelidir.', 400);
+  return username;
+}
+
+function validatePortalPassword(value: string): string {
+  if (value.length < 12 || !/[A-ZÇĞİÖŞÜ]/.test(value) || !/[a-zçğıöşü]/.test(value) || !/\d/.test(value) || !/[^A-Za-zÇĞİÖŞÜçğıöşü0-9]/.test(value)) {
+    throw new AppError('Sistem kullanıcısı şifresi en az 12 karakter; büyük harf, küçük harf, rakam ve özel karakter içermelidir.', 400);
+  }
+  return value;
 }
 
 function applyEmployeeSearch(where: any, search?: string): void {
@@ -117,26 +132,28 @@ export class EmployeeService {
         include: { beds: { select: { id: true, roomId: true } } },
       });
       if (!employee || employee.isDeleted) throw new AppError('Personel bulunamadı.', 404);
+      const insideVisitors = await tx.visitor.count({ where: { hostEmployeeId: employeeId, status: 'INSIDE', isDeleted: false } });
+      if (insideVisitors > 0) throw new AppError(`Personelin içeride görünen ${insideVisitors} ziyaretçisi bulunuyor. Personeli silmeden önce ziyaretçi çıkışlarını tamamlayın.`, 409);
       const now = new Date();
       if (employee.beds.length > 0) {
         await tx.bed.updateMany({
           where: { currentEmployeeId: employeeId },
           data: { currentEmployeeId: null, isOccupied: false },
         });
-        await tx.occupancyLog.updateMany({
-          where: { employeeId, checkOutDate: null },
-          data: { checkOutDate: now, checkedOutById: deletedById || null },
-        });
       }
+      await tx.occupancyLog.updateMany({
+        where: { employeeId, checkOutDate: null },
+        data: { checkOutDate: now, checkedOutById: deletedById || null },
+      });
       // Also close active inventories assigned to deleted employee and return their stock
       const activeStockInventories = await tx.inventoryItem.findMany({
-        where: { employeeId, returnedDate: null, stockItemId: { not: null } },
+        where: { employeeId, isDeleted: false, returnedDate: null, stockItemId: { not: null } },
       });
       if (activeStockInventories.length > 0) {
         throw new AppError(`Personelin ${activeStockInventories.length} aktif stok zimmeti bulunuyor. Personeli silmeden önce zimmetleri teslim alın veya kayıp/zayi olarak kapatın.`, 409);
       }
       await tx.inventoryItem.updateMany({
-        where: { employeeId, returnedDate: null },
+        where: { employeeId, isDeleted: false, returnedDate: null },
         data: {
           status: 'TAM_İADE_ALINDI',
           returnedDate: now,
@@ -158,6 +175,10 @@ export class EmployeeService {
           status: 'CHECKED_OUT',
         },
       });
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable }).catch((error: any) => {
+      if (error instanceof AppError) throw error;
+      if (error?.code === 'P2034') throw new AppError('Personel, ziyaretçi veya zimmet aynı anda değiştirildi. Lütfen işlemi yeniden deneyin.', 409);
+      throw error;
     });
   }
 
@@ -179,9 +200,11 @@ export class EmployeeService {
           },
         },
         inventories: {
+          where: { isDeleted: false },
           orderBy: { createdAt: 'desc' },
         },
         disciplinaryNotes: {
+          where: { isDeleted: false },
           orderBy: { createdAt: 'desc' },
         },
         occupancies: {
@@ -215,24 +238,17 @@ export class EmployeeService {
   /**
    * Get list of employees with optional search & filters
    */
-  public static async getAllEmployees(search?: string, status?: string, department?: string, gender?: string, startDate?: string, endDate?: string) {
+  public static async getAllEmployees(search?: string, status?: string, department?: string, gender?: string, startDate?: string, endDate?: string, maxRows = 5000) {
+    const validatedStatus = validateEmployeeFilterStatus(status);
+    const validatedDepartment = validateEmployeeDepartmentFilter(department);
+    const validatedGender = validateEmployeeGenderFilter(gender);
     const where: any = { isDeleted: false };
 
-    if (status && status !== 'ALL') {
-      if (['PENDING_ASSIGNMENT', 'RESIDENT', 'ON_LEAVE', 'CHECKED_OUT'].includes(status)) {
-        where.status = status;
-      }
-    }
+    if (validatedStatus !== 'ALL') where.status = validatedStatus;
 
-    if (department && department !== 'ALL') {
-      where.department = department;
-    }
+    if (validatedDepartment !== 'ALL') where.department = validatedDepartment;
 
-    if (gender && gender !== 'ALL') {
-      if (['Male', 'Female'].includes(gender)) {
-        where.gender = gender;
-      }
-    }
+    if (validatedGender !== 'ALL') where.gender = validatedGender;
 
     if (startDate || endDate) {
       const start = parseIstanbulDateBoundary(startDate, false);
@@ -276,7 +292,10 @@ export class EmployeeService {
         },
       },
       orderBy: { createdAt: 'desc' },
+      take: maxRows + 1,
     });
+
+    if (employees.length > maxRows) throw new AppError(`Personel listesi ${maxRows.toLocaleString('tr-TR')} kayıt sınırını aşıyor. Arama veya filtre kullanın.`, 413);
 
     return employees.map(emp => {
       const latestOccupancy = emp.occupancies && emp.occupancies.length > 0 ? emp.occupancies[0] : null;
@@ -384,13 +403,12 @@ export class EmployeeService {
     let generatedAccountInfo: { username: string; password: string } | null = null;
     let accountCreateData: { username: string; email: string; passwordHash: string; fullName: string; role: Role } | null = null;
 
-    if (data.systemUser?.createAccount !== false) {
+    if (data.systemUser?.createAccount === true) {
       let targetUsername = data.systemUser?.username?.trim().toLowerCase();
       let targetEmail = data.systemUser?.email ? validateEmail(data.systemUser.email) : undefined;
       let targetPassword = data.systemUser?.password;
-      let targetRole = data.systemUser?.role && USER_ROLES.has(data.systemUser.role)
-        ? data.systemUser.role
-        : Role.STAFF;
+      if (data.systemUser.role && data.systemUser.role !== Role.STAFF) throw new AppError('Personel portal hesabı yalnızca STAFF rolüyle oluşturulabilir.', 400);
+      const targetRole = Role.STAFF;
 
       if (!targetUsername) {
         targetUsername = await generateUniqueUsername(normalizedFirstName, normalizedLastName);
@@ -398,10 +416,8 @@ export class EmployeeService {
       if (!targetPassword) {
         targetPassword = await generateUniqueEasyPassword();
       }
-      if (targetPassword.length < 10 || !/[A-ZÇĞİÖŞÜ]/.test(targetPassword) || !/\d/.test(targetPassword)) {
-        throw new AppError('Sistem kullanıcısı şifresi en az 10 karakter, bir büyük harf ve bir rakam içermelidir.', 400);
-      }
-      if (!/^[a-z0-9._-]{3,50}$/.test(targetUsername)) throw new AppError('Kullanıcı adı 3-50 karakter olmalı ve yalnızca küçük harf, rakam, nokta, tire veya alt çizgi içermelidir.', 400);
+      targetPassword = validatePortalPassword(targetPassword);
+      targetUsername = validatePortalUsername(targetUsername);
       if (!targetEmail) {
         targetEmail = `${targetUsername}@lojman.local`;
       }
@@ -439,6 +455,7 @@ export class EmployeeService {
       if (accountCreateData) {
         const newUser = await tx.user.create({ data: { ...accountCreateData, isActive: true } });
         createdUserId = newUser.id;
+        await tx.userAuditLog.create({ data: { targetUserId: newUser.id, actorUserId: createdById || null, action: 'EMPLOYEE_PORTAL_ACCOUNT_CREATED', afterRole: Role.STAFF, notes: 'PERSONEL KAYDIYLA BAĞLI PORTAL HESABI OLUŞTURULDU' } });
       }
 
       // 1. Create Employee
@@ -489,6 +506,8 @@ export class EmployeeService {
         if (bed.isOccupied) {
           throw new AppError('Seçilen yatak zaten dolu.', 400);
         }
+
+        if (bed.room.roomType !== 'PERSONEL_ODASI') throw new AppError('Hizmet alanlarına personel yerleştirilemez.', 400);
 
         if (bed.room.status !== 'READY') {
           throw new AppError(
@@ -556,20 +575,7 @@ export class EmployeeService {
           },
         });
 
-        // Automatically create Bed Inventory Item (Zimmet)
-        await tx.inventoryItem.create({
-          data: {
-            employeeId: newEmployee.id,
-            itemName: `${bed.room.block.name} • Oda ${bed.room.roomNumber} - ${bed.bedLabel}`,
-            itemCode: 'YATAK-ZİMMETİ',
-            category: 'LOJMAN_ZİMMETİ',
-            status: 'TESLİM_EDİLDİ',
-            notes: 'Oda yerleşimi ile otomatik olarak atandı.',
-            createdById: createdById || null,
-          },
-        });
       }
-
       const created = await tx.employee.findUnique({
         where: { id: newEmployee.id },
         include: {
@@ -609,6 +615,11 @@ export class EmployeeService {
         checkOutDate: latestOccupancy ? latestOccupancy.checkOutDate : null,
         generatedAccountInfo,
       };
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable }).catch((error: any) => {
+      if (error instanceof AppError) throw error;
+      if (error?.code === 'P2002') throw new AppError('TC/Pasaport, sicil, kullanıcı adı veya e-posta bilgisi başka bir kayıtta kullanılıyor.', 409);
+      if (error?.code === 'P2034') throw new AppError('Personel veya yatak aynı anda değiştirildi. Lütfen işlemi yeniden deneyin.', 409);
+      throw error;
     });
   }
 
@@ -616,7 +627,7 @@ export class EmployeeService {
    * Update Employee details
    */
   public static async updateEmployee(employeeId: string, data: Partial<CreateEmployeeDTO>) {
-    const employee = await prisma.employee.findUnique({ where: { id: employeeId } });
+    const employee = await prisma.employee.findFirst({ where: { id: employeeId, isDeleted: false } });
     if (!employee) throw new AppError('Personel bulunamadı.', 404);
 
     const updateData: any = {};
@@ -626,6 +637,25 @@ export class EmployeeService {
     if (data.lastName !== undefined) updateData.lastName = boundedText(data.lastName, 'Personel soyadı', 80, { required: true, minLength: 2, casing: 'upper' });
     if (data.gender !== undefined) {
       if (!GENDERS.has(data.gender)) throw new AppError('Geçerli bir cinsiyet seçilmelidir.', 400);
+      if (data.gender !== employee.gender) {
+        const currentBed = await prisma.bed.findFirst({
+          where: { currentEmployeeId: employeeId, isOccupied: true },
+          include: {
+            room: {
+              include: {
+                block: true,
+                beds: { where: { isOccupied: true, currentEmployeeId: { not: employeeId } }, include: { currentEmployee: { select: { gender: true } } } },
+              },
+            },
+          },
+        });
+        if (currentBed) {
+          const policy = currentBed.room.block.genderPolicy;
+          if ((policy !== 'Mixed' && policy !== data.gender) || currentBed.room.beds.some((bed) => bed.currentEmployee?.gender !== data.gender)) {
+            throw new AppError('Personelin cinsiyeti mevcut blok veya oda yerleşim politikasıyla uyuşmuyor. Önce uygun bir odaya transfer edin.', 409);
+          }
+        }
+      }
       updateData.gender = data.gender;
     }
     if (data.department !== undefined) updateData.department = canonicalChoice(data.department, EMPLOYEE_DEPARTMENTS, 'Departman', true);
@@ -669,10 +699,11 @@ export class EmployeeService {
     // System User Account Update / Creation
     if (data.systemUser) {
       if (data.systemUser.createAccount) {
+        if (data.systemUser.role && data.systemUser.role !== Role.STAFF) throw new AppError('Personel portal hesabı yalnızca STAFF rolünde olabilir.', 400);
         if (employee.userId) {
           const updateUserData: any = {};
           if (data.systemUser.username) {
-            const newUsername = data.systemUser.username.trim().toLowerCase();
+            const newUsername = validatePortalUsername(data.systemUser.username);
             const duplicate = await prisma.user.findFirst({
               where: { username: newUsername, NOT: { id: employee.userId } },
             });
@@ -692,13 +723,10 @@ export class EmployeeService {
             updateUserData.email = newEmail;
           }
           if (data.systemUser.role) {
-            if (!USER_ROLES.has(data.systemUser.role)) throw new AppError('Geçersiz sistem kullanıcı rolü.', 400);
-            updateUserData.role = data.systemUser.role;
+            updateUserData.role = Role.STAFF;
           }
-          if (data.systemUser.password && data.systemUser.password.trim().length >= 10 && /[A-ZÇĞİÖŞÜ]/.test(data.systemUser.password) && /\d/.test(data.systemUser.password)) {
-            updateUserData.passwordHash = await bcrypt.hash(data.systemUser.password.trim(), config.security.saltRounds);
-          } else if (data.systemUser.password) {
-            throw new AppError('Sistem kullanıcısı şifresi en az 10 karakter, bir büyük harf ve bir rakam içermelidir.', 400);
+          if (data.systemUser.password) {
+            updateUserData.passwordHash = await bcrypt.hash(validatePortalPassword(data.systemUser.password.trim()), config.security.saltRounds);
           }
           if (Object.keys(updateUserData).length > 0) {
             pendingUserUpdate = { ...(pendingUserUpdate || {}), ...updateUserData };
@@ -707,17 +735,17 @@ export class EmployeeService {
           const { username, email, password, role } = data.systemUser;
           if (!username || !username.trim()) throw new AppError('Sistem kullanıcısı için kullanıcı adı zorunludur.', 400);
           if (!email || !email.trim()) throw new AppError('Sistem kullanıcısı için e-posta adresi zorunludur.', 400);
-          if (!password || password.length < 10 || !/[A-ZÇĞİÖŞÜ]/.test(password) || !/\d/.test(password)) throw new AppError('Sistem kullanıcısı şifresi en az 10 karakter, bir büyük harf ve bir rakam içermelidir.', 400);
+          if (!password) throw new AppError('Sistem kullanıcısı için parola zorunludur.', 400);
 
-          const cleanUsername = username.trim().toLowerCase();
+          const cleanUsername = validatePortalUsername(username);
           const cleanEmail = validateEmail(email);
           const existingUser = await prisma.user.findFirst({
             where: { OR: [{ username: cleanUsername }, { email: cleanEmail }] },
           });
           if (existingUser) throw new AppError('Girilen kullanıcı adı veya e-posta adresi sistemde zaten kayıtlı.', 409);
 
-          const passwordHash = await bcrypt.hash(password, config.security.saltRounds);
-          const userRole = role && USER_ROLES.has(role) ? role : Role.STAFF;
+          const passwordHash = await bcrypt.hash(validatePortalPassword(password), config.security.saltRounds);
+          const userRole = Role.STAFF;
 
           const targetFirstName = data.firstName ? normalizeText(data.firstName) : employee.firstName;
           const targetLastName = data.lastName ? normalizeText(data.lastName)?.toLocaleUpperCase('tr-TR') : employee.lastName;
@@ -737,10 +765,12 @@ export class EmployeeService {
     return prisma.$transaction(async (tx) => {
       if (pendingUserUpdate && employee.userId) {
         await tx.user.update({ where: { id: employee.userId }, data: pendingUserUpdate });
+        await tx.userAuditLog.create({ data: { targetUserId: employee.userId, actorUserId: data.createdById || null, action: 'EMPLOYEE_PORTAL_ACCOUNT_UPDATED', beforeRole: Role.STAFF, afterRole: Role.STAFF, notes: 'PERSONEL PROFİLİNDEN PORTAL HESABI GÜNCELLENDİ' } });
       }
       if (pendingUserCreate) {
         const newUser = await tx.user.create({ data: pendingUserCreate });
         updateData.userId = newUser.id;
+        await tx.userAuditLog.create({ data: { targetUserId: newUser.id, actorUserId: data.createdById || null, action: 'EMPLOYEE_PORTAL_ACCOUNT_CREATED', afterRole: Role.STAFF, notes: 'MEVCUT PERSONELE PORTAL HESABI BAĞLANDI' } });
       }
       // If bedId is provided, handle bed assignment
       if (data.bedId) {
@@ -750,9 +780,13 @@ export class EmployeeService {
         });
 
         if (!bed) throw new AppError('Seçilen yatak bulunamadı.', 404);
+        if (bed.currentEmployeeId === employeeId) {
+          throw new AppError('Personel zaten seçilen yatakta konaklıyor. Aynı yatağa yeniden atama yapılamaz.', 409);
+        }
         if (bed.isOccupied && bed.currentEmployeeId !== employeeId) {
           throw new AppError('Seçilen yatak başka bir personel tarafından dolu.', 400);
         }
+        if (bed.room.roomType !== 'PERSONEL_ODASI') throw new AppError('Hizmet alanlarına personel yerleştirilemez.', 400);
 
         if (bed.room.status !== 'READY') {
           throw new AppError(
@@ -816,6 +850,8 @@ export class EmployeeService {
 
         // Update status to RESIDENT
         updateData.status = 'RESIDENT';
+        updateData.checkedOutById = null;
+        if (employee.userId) await tx.user.update({ where: { id: employee.userId }, data: { isActive: true } });
 
         // Log Occupancy
         await tx.occupancyLog.create({
@@ -846,8 +882,8 @@ export class EmployeeService {
               },
             },
           },
-          inventories: { orderBy: { createdAt: 'desc' } },
-          disciplinaryNotes: { orderBy: { createdAt: 'desc' } },
+          inventories: { where: { isDeleted: false }, orderBy: { createdAt: 'desc' } },
+          disciplinaryNotes: { where: { isDeleted: false }, orderBy: { createdAt: 'desc' } },
           occupancies: {
             orderBy: { checkInDate: 'desc' },
             include: {
@@ -874,6 +910,11 @@ export class EmployeeService {
         checkInDate: latestOccupancy ? latestOccupancy.checkInDate : null,
         checkOutDate: latestOccupancy ? latestOccupancy.checkOutDate : null,
       };
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable }).catch((error: any) => {
+      if (error instanceof AppError) throw error;
+      if (error?.code === 'P2002') throw new AppError('Personel, yatak, kullanıcı adı veya e-posta bilgisi başka bir işlemde kullanıldı.', 409);
+      if (error?.code === 'P2034') throw new AppError('Personel veya yatak aynı anda değiştirildi. Lütfen işlemi yeniden deneyin.', 409);
+      throw error;
     });
   }
 
@@ -884,13 +925,24 @@ export class EmployeeService {
     const employee = await prisma.employee.findUnique({ where: { id: employeeId, isDeleted: false } });
     if (!employee) throw new AppError('Personel bulunamadı.', 404);
     const category = data.category || 'LOJMAN_ZİMMETİ';
+    const cleanSerial = normalizeIdentifier(data.serialNo);
     if (!['LOJMAN_ZİMMETİ', 'ŞAHSİ_EŞYA'].includes(category)) throw new AppError('Geçersiz eşya kategorisi.', 400);
     if (category === 'LOJMAN_ZİMMETİ' && !data.stockItemId) throw new AppError('Lojman zimmeti için depo stok kartı seçilmelidir.', 400);
 
     if (category === 'LOJMAN_ZİMMETİ' && data.stockItemId) {
-      return prisma.$transaction(async (tx) => {
+      try {
+        return await prisma.$transaction(async (tx) => {
         const stockItem = await tx.stockItem.findUnique({ where: { id: data.stockItemId } });
         if (!stockItem || !stockItem.isActive) throw new AppError('Seçilen aktif stok kalemi bulunamadı.', 404);
+        if (stockItem.itemType !== 'SARF_MALZEME' && !cleanSerial) throw new AppError('Demirbaş zimmeti için cihazın üretici seri numarası zorunludur.', 400);
+        if (cleanSerial) {
+          await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`INVENTORY_SERIAL:${cleanSerial}`}))`;
+          const [personnelDuplicate, roomDuplicate] = await Promise.all([
+            tx.inventoryItem.findFirst({ where: { serialNo: cleanSerial, returnedDate: null, isDeleted: false }, select: { id: true } }),
+            tx.roomInventory.findFirst({ where: { serialNo: cleanSerial, returnedAt: null }, select: { id: true } }),
+          ]);
+          if (personnelDuplicate || roomDuplicate) throw new AppError('Bu seri numarası başka bir aktif zimmette kullanılıyor.', 409);
+        }
         if (stockItem.totalStock - stockItem.usedStock - stockItem.usedInRooms <= 0) {
           throw new AppError(`Depoda yeterli miktarda "${stockItem.itemName}" kalmamıştır.`, 400);
         }
@@ -901,7 +953,7 @@ export class EmployeeService {
             itemName: stockItem.itemName,
             itemCode: stockItem.itemCode,
             category,
-            serialNo: data.serialNo ? boundedText(data.serialNo, 'Seri numarası', 120, { casing: 'upper' }) : null,
+            serialNo: cleanSerial,
             photoUrl: validatePhotoUrl(data.photoUrl),
             status: 'TESLİM_EDİLDİ',
             notes: data.notes ? boundedText(data.notes, 'Eşya notu', 1000, { casing: 'upper' }) : null,
@@ -909,54 +961,98 @@ export class EmployeeService {
             stockItemId: stockItem.id,
           },
         });
+        const sharedAssetId = await syncSharedAssetPersonnelAssignment(tx, stockItem.id, created.id, employee.id, created.assignedDate, data.createdById);
         await tx.stockMovement.create({ data: {
           stockItemId: stockItem.id, employeeId, personnelInventoryId: created.id,
+          sharedAssetId,
           type: 'PERSONNEL_ASSIGNMENT', quantity: -1, itemNameSnapshot: stockItem.itemName,
           reason: 'PERSONELE ZİMMET', notes: created.notes, createdById: data.createdById,
         } });
         return created;
-      });
+        }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+      } catch (error: any) {
+        if (error instanceof AppError) throw error;
+        if (error?.code === 'P2002') throw new AppError('Bu seri numarası başka bir aktif zimmette kullanılıyor.', 409);
+        if (error?.code === 'P2034') throw new AppError('Zimmet veya stok aynı anda değiştirildi. Lütfen işlemi yeniden deneyin.', 409);
+        throw error;
+      }
     }
 
     const rawItemName = boundedText(data.itemName, 'Eşya adı', 120, { required: true, casing: 'upper' })!;
     const itemName = normalizeInventoryItemName(rawItemName)!;
 
-    return prisma.inventoryItem.create({
-      data: {
+    try {
+      return await prisma.$transaction(async (tx) => {
+        if (cleanSerial) {
+          await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`INVENTORY_SERIAL:${cleanSerial}`}))`;
+          const [personnelDuplicate, roomDuplicate] = await Promise.all([
+            tx.inventoryItem.findFirst({ where: { serialNo: cleanSerial, returnedDate: null, isDeleted: false }, select: { id: true } }),
+            tx.roomInventory.findFirst({ where: { serialNo: cleanSerial, returnedAt: null }, select: { id: true } }),
+          ]);
+          if (personnelDuplicate || roomDuplicate) throw new AppError('Bu seri numarası başka bir aktif zimmette kullanılıyor.', 409);
+        }
+        return tx.inventoryItem.create({ data: {
         employeeId,
         itemName,
         itemCode: boundedText(data.itemCode, 'Eşya kodu', 80, { casing: 'upper' }),
         category,
-        serialNo: boundedText(data.serialNo, 'Seri numarası', 120, { casing: 'upper' }),
+        serialNo: cleanSerial,
         photoUrl: validatePhotoUrl(data.photoUrl),
         status: category === 'ŞAHSİ_EŞYA' ? 'ÇIKIŞ_İZİNLİ_ŞAHSİ_MÜLK' : 'TESLİM_EDİLDİ',
         notes: boundedText(data.notes, 'Eşya notu', 1000, { casing: 'upper' }),
         createdById: data.createdById || null,
-      },
-    });
+        } });
+      }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+    } catch (error: any) {
+      if (error instanceof AppError) throw error;
+      if (error?.code === 'P2002') throw new AppError('Bu seri numarası başka bir aktif zimmette kullanılıyor.', 409);
+      if (error?.code === 'P2034') throw new AppError('Eşya kaydı aynı anda değiştirildi. Lütfen işlemi yeniden deneyin.', 409);
+      throw error;
+    }
   }
 
   /**
    * Update Inventory or Personal Belonging Item
    */
   public static async updateInventoryItem(inventoryId: string, data: { itemName?: string; serialNo?: string; notes?: string }) {
-    const existing = await prisma.inventoryItem.findUnique({ where: { id: inventoryId }, select: { id: true, stockItemId: true } });
+    const existing = await prisma.inventoryItem.findFirst({ where: { id: inventoryId, isDeleted: false }, select: { id: true, stockItemId: true, returnedDate: true, updatedAt: true } });
     if (!existing) throw new AppError('Zimmet/Eşya kaydı bulunamadı.', 404);
-    return prisma.inventoryItem.update({
-      where: { id: inventoryId },
-      data: {
-        ...(data.itemName !== undefined && !existing.stockItemId && { itemName: normalizeInventoryItemName(boundedText(data.itemName, 'Eşya adı', 120, { required: true, casing: 'upper' }))! }),
-        ...(data.serialNo !== undefined && { serialNo: boundedText(data.serialNo, 'Seri numarası', 120, { casing: 'upper' }) }),
-        ...(data.notes !== undefined && { notes: boundedText(data.notes, 'Eşya notu', 1000, { casing: 'upper' }) }),
-      },
-    });
+    if (existing.returnedDate) throw new AppError('Kapatılmış zimmet veya eşya kaydı değiştirilemez.', 409);
+    const cleanSerial = data.serialNo === undefined ? undefined : normalizeIdentifier(data.serialNo);
+    try {
+      return await prisma.$transaction(async (tx) => {
+        if (cleanSerial) {
+          await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`INVENTORY_SERIAL:${cleanSerial}`}))`;
+          const [personnelDuplicate, roomDuplicate] = await Promise.all([
+            tx.inventoryItem.findFirst({ where: { id: { not: inventoryId }, serialNo: cleanSerial, returnedDate: null, isDeleted: false }, select: { id: true } }),
+            tx.roomInventory.findFirst({ where: { serialNo: cleanSerial, returnedAt: null }, select: { id: true } }),
+          ]);
+          if (personnelDuplicate || roomDuplicate) throw new AppError('Bu seri numarası başka bir aktif zimmette kullanılıyor.', 409);
+        }
+        const changed = await tx.inventoryItem.updateMany({
+          where: { id: inventoryId, isDeleted: false, returnedDate: null, updatedAt: existing.updatedAt },
+          data: {
+            ...(data.itemName !== undefined && !existing.stockItemId && { itemName: normalizeInventoryItemName(boundedText(data.itemName, 'Eşya adı', 120, { required: true, casing: 'upper' }))! }),
+            ...(data.serialNo !== undefined && { serialNo: cleanSerial }),
+            ...(data.notes !== undefined && { notes: boundedText(data.notes, 'Eşya notu', 1000, { casing: 'upper' }) }),
+          },
+        });
+        if (changed.count !== 1) throw new AppError('Zimmet kaydı başka bir kullanıcı tarafından güncellendi. Sayfayı yenileyin.', 409);
+        return tx.inventoryItem.findUniqueOrThrow({ where: { id: inventoryId } });
+      }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+    } catch (error: any) {
+      if (error instanceof AppError) throw error;
+      if (error?.code === 'P2002') throw new AppError('Bu seri numarası başka bir aktif zimmette kullanılıyor.', 409);
+      if (error?.code === 'P2034') throw new AppError('Zimmet kaydı aynı anda değiştirildi. Lütfen işlemi yeniden deneyin.', 409);
+      throw error;
+    }
   }
 
   /**
    * Return / Receive back Inventory Item (Teslim Al / İade Al veya Teslim Alınamadı Kaydı)
    */
   public static async returnInventoryItem(inventoryId: string, returnedById?: string, status?: string, notes?: string) {
-    const existing = await prisma.inventoryItem.findUnique({ where: { id: inventoryId } });
+    const existing = await prisma.inventoryItem.findFirst({ where: { id: inventoryId, isDeleted: false } });
     if (!existing) throw new AppError('Zimmet/Eşya kaydı bulunamadı.', 404);
     if (existing.returnedDate) throw new AppError('Bu zimmet daha önce kapatılmış.', 409);
     const finalStatus = status || 'TAM_İADE_ALINDI';
@@ -972,39 +1068,43 @@ export class EmployeeService {
       return prisma.$transaction(async (tx) => {
         const isLost = finalStatus === 'TESLİM_ALINAMADI';
         await releasePersonnelStock(tx, existing.stockItemId!, isLost);
-        const updated = await tx.inventoryItem.update({
-          where: { id: inventoryId },
-          data: dataToUpdate,
-        });
+        const changed = await tx.inventoryItem.updateMany({ where: { id: inventoryId, isDeleted: false, returnedDate: null, updatedAt: existing.updatedAt }, data: dataToUpdate });
+        if (changed.count !== 1) throw new AppError('Zimmet başka bir işlemde kapatıldı. Sayfayı yenileyin.', 409);
+        const updated = await tx.inventoryItem.findUniqueOrThrow({ where: { id: inventoryId } });
         const stockItem = await tx.stockItem.findUniqueOrThrow({ where: { id: existing.stockItemId! } });
+        const sharedAssetId = await syncSharedAssetReturn(tx, stockItem.id, 'EMPLOYEE', existing.id, isLost ? 'RETIRED' : 'AVAILABLE', dataToUpdate.notes || finalStatus, returnedById);
         await tx.stockMovement.create({ data: {
           stockItemId: stockItem.id, employeeId: existing.employeeId, personnelInventoryId: existing.id,
+          sharedAssetId,
           type: isLost ? 'RETIREMENT' : 'PERSONNEL_RETURN', quantity: isLost ? -1 : 1,
           itemNameSnapshot: existing.itemName, reason: finalStatus,
           notes: dataToUpdate.notes || null, createdById: returnedById,
         } });
         return updated;
+      }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable }).catch((error: any) => {
+        if (error instanceof AppError) throw error;
+        if (error?.code === 'P2034') throw new AppError('Zimmet veya stok aynı anda değiştirildi. Lütfen işlemi yeniden deneyin.', 409);
+        throw error;
       });
     }
 
-    return prisma.inventoryItem.update({
-      where: { id: inventoryId },
-      data: dataToUpdate,
-    });
+    const changed = await prisma.inventoryItem.updateMany({ where: { id: inventoryId, isDeleted: false, returnedDate: null, updatedAt: existing.updatedAt }, data: dataToUpdate });
+    if (changed.count !== 1) throw new AppError('Eşya kaydı başka bir işlemde kapatıldı. Sayfayı yenileyin.', 409);
+    return prisma.inventoryItem.findUniqueOrThrow({ where: { id: inventoryId } });
   }
 
   /**
    * Delete Inventory Item
    */
-  public static async deleteInventoryItem(inventoryId: string) {
-    const existing = await prisma.inventoryItem.findUnique({ where: { id: inventoryId } });
+  public static async deleteInventoryItem(inventoryId: string, deletedById?: string) {
+    const existing = await prisma.inventoryItem.findFirst({ where: { id: inventoryId, isDeleted: false } });
     if (!existing) throw new AppError('Zimmet/Eşya kaydı bulunamadı.', 404);
 
     if (existing.stockItemId) throw new AppError('Stok bağlantılı zimmet kayıtları denetim geçmişini korumak için silinemez.', 409);
 
-    return prisma.inventoryItem.delete({
-      where: { id: inventoryId },
-    });
+    const archived = await prisma.inventoryItem.updateMany({ where: { id: inventoryId, isDeleted: false, updatedAt: existing.updatedAt }, data: { isDeleted: true, deletedAt: new Date(), deletedById: deletedById || null } });
+    if (archived.count !== 1) throw new AppError('Eşya kaydı başka bir kullanıcı tarafından güncellendi. Sayfayı yenileyin.', 409);
+    return { archived: true };
   }
 
   /**
@@ -1032,28 +1132,30 @@ export class EmployeeService {
    * Update Disiplin / Şikayet Notu
    */
   public static async updateDisciplinaryNote(noteId: string, data: { title?: string; content?: string }) {
-    const note = await prisma.disciplinaryNote.findUnique({ where: { id: noteId } });
+    const note = await prisma.disciplinaryNote.findFirst({ where: { id: noteId, isDeleted: false } });
     if (!note) throw new AppError('Disiplin notu bulunamadı.', 404);
 
-    return prisma.disciplinaryNote.update({
-      where: { id: noteId },
+    const changed = await prisma.disciplinaryNote.updateMany({
+      where: { id: noteId, isDeleted: false, updatedAt: note.updatedAt },
       data: {
         ...(data.title !== undefined && { title: boundedText(data.title, 'Not başlığı', 150, { required: true, casing: 'upper' })! }),
         ...(data.content !== undefined && { content: boundedText(data.content, 'Not açıklaması', 3000, { required: true, casing: 'upper' })! }),
       },
     });
+    if (changed.count !== 1) throw new AppError('Disiplin notu başka bir kullanıcı tarafından güncellendi. Sayfayı yenileyin.', 409);
+    return prisma.disciplinaryNote.findUniqueOrThrow({ where: { id: noteId } });
   }
 
   /**
    * Delete Disiplin / Şikayet Notu
    */
-  public static async deleteDisciplinaryNote(noteId: string) {
-    const note = await prisma.disciplinaryNote.findUnique({ where: { id: noteId } });
+  public static async deleteDisciplinaryNote(noteId: string, deletedById?: string) {
+    const note = await prisma.disciplinaryNote.findFirst({ where: { id: noteId, isDeleted: false } });
     if (!note) throw new AppError('Disiplin notu bulunamadı.', 404);
 
-    return prisma.disciplinaryNote.delete({
-      where: { id: noteId },
-    });
+    const archived = await prisma.disciplinaryNote.updateMany({ where: { id: noteId, isDeleted: false, updatedAt: note.updatedAt }, data: { isDeleted: true, deletedAt: new Date(), deletedById: deletedById || null } });
+    if (archived.count !== 1) throw new AppError('Disiplin notu başka bir kullanıcı tarafından güncellendi. Sayfayı yenileyin.', 409);
+    return { archived: true };
   }
 
   /**
@@ -1063,14 +1165,17 @@ export class EmployeeService {
     if (gender && !GENDERS.has(gender)) throw new AppError('Geçersiz cinsiyet filtresi.', 400);
     const where: any = {
       isOccupied: false,
+      currentEmployeeId: null,
       room: {
         status: 'READY',
+        roomType: 'PERSONEL_ODASI',
       },
     };
 
     if (gender) {
       where.room = {
         status: 'READY',
+        roomType: 'PERSONEL_ODASI',
         block: {
           OR: [
             { genderPolicy: gender },
@@ -1102,40 +1207,31 @@ export class EmployeeService {
       ],
     });
 
-    if (gender) {
-      return availableBeds.filter((bed) => {
-        const roomOccupants = bed.room.beds;
-        const hasOppositeGender = roomOccupants.some(
-          (b) => b.currentEmployee && b.currentEmployee.gender !== gender
-        );
-        return !hasOppositeGender;
-      });
-    }
-
-    return availableBeds;
+    return availableBeds.filter((bed) => {
+      if (bed.room.beds.length >= bed.room.capacity) return false;
+      if (!gender) return true;
+      const roomOccupants = bed.room.beds;
+      const hasOppositeGender = roomOccupants.some(
+        (b) => b.currentEmployee && b.currentEmployee.gender !== gender
+      );
+      return !hasOppositeGender;
+    });
   }
 
   /**
    * Get all employee details including encrypted TC number for Excel export
    */
-  public static async getExportEmployees(search?: string, status?: string, department?: string, gender?: string, startDate?: string, endDate?: string) {
+  public static async getExportEmployees(search?: string, status?: string, department?: string, gender?: string, startDate?: string, endDate?: string, maxRows = 10000) {
+    const validatedStatus = validateEmployeeFilterStatus(status);
+    const validatedDepartment = validateEmployeeDepartmentFilter(department);
+    const validatedGender = validateEmployeeGenderFilter(gender);
     const where: any = { isDeleted: false };
 
-    if (status && status !== 'ALL') {
-      if (['PENDING_ASSIGNMENT', 'RESIDENT', 'ON_LEAVE', 'CHECKED_OUT'].includes(status)) {
-        where.status = status;
-      }
-    }
+    if (validatedStatus !== 'ALL') where.status = validatedStatus;
 
-    if (department && department !== 'ALL') {
-      where.department = department;
-    }
+    if (validatedDepartment !== 'ALL') where.department = validatedDepartment;
 
-    if (gender && gender !== 'ALL') {
-      if (['Male', 'Female'].includes(gender)) {
-        where.gender = gender;
-      }
-    }
+    if (validatedGender !== 'ALL') where.gender = validatedGender;
 
     if (startDate || endDate) {
       const start = parseIstanbulDateBoundary(startDate, false);
@@ -1154,7 +1250,7 @@ export class EmployeeService {
 
     applyEmployeeSearch(where, search);
 
-    return prisma.employee.findMany({
+    const rows = await prisma.employee.findMany({
       where,
       include: {
         createdBy: {
@@ -1200,7 +1296,10 @@ export class EmployeeService {
         },
       },
       orderBy: { createdAt: 'desc' },
+      take: maxRows + 1,
     });
+    if (rows.length > maxRows) throw new AppError(`Personel raporu ${maxRows.toLocaleString('tr-TR')} kayıt sınırını aşıyor. Filtreyi veya tarih aralığını daraltın.`, 413);
+    return rows;
   }
 
   /**
@@ -1208,8 +1307,8 @@ export class EmployeeService {
    */
   public static async checkoutEmployeeFromRoom(employeeId: string, checkedOutById?: string) {
     return prisma.$transaction(async (tx) => {
-      const employee = await tx.employee.findUnique({
-        where: { id: employeeId },
+      const employee = await tx.employee.findFirst({
+        where: { id: employeeId, isDeleted: false },
         include: { beds: true },
       });
       if (!employee) throw new AppError('Personel bulunamadı.', 404);
@@ -1218,6 +1317,12 @@ export class EmployeeService {
       if (!hasBed) {
         throw new AppError('Personel zaten herhangi bir odaya yerleştirilmemiş.', 400);
       }
+      const activeStockInventories = await tx.inventoryItem.count({ where: { employeeId, isDeleted: false, returnedDate: null, stockItemId: { not: null } } });
+      if (activeStockInventories > 0) throw new AppError(`Personelin ${activeStockInventories} aktif stok zimmeti bulunuyor. Oda çıkışından önce zimmetleri teslim alın veya teslim alınamadı olarak kapatın.`, 409);
+      const insideVisitors = await tx.visitor.count({ where: { hostEmployeeId: employeeId, status: 'INSIDE', isDeleted: false } });
+      if (insideVisitors > 0) throw new AppError(`Personelin içeride görünen ${insideVisitors} ziyaretçisi bulunuyor. Oda çıkışından önce ziyaretçi çıkışlarını tamamlayın.`, 409);
+      const openOccupancies = await tx.occupancyLog.count({ where: { employeeId, checkOutDate: null } });
+      if (openOccupancies !== 1) throw new AppError('Personelin yatak kaydı ile açık konaklama geçmişi uyuşmuyor. İşlem durduruldu; sistem yöneticisi veri bütünlüğünü kontrol etmelidir.', 409);
 
       const now = new Date();
 
@@ -1259,8 +1364,8 @@ export class EmployeeService {
               },
             },
           },
-          inventories: { orderBy: { createdAt: 'desc' } },
-          disciplinaryNotes: { orderBy: { createdAt: 'desc' } },
+          inventories: { where: { isDeleted: false }, orderBy: { createdAt: 'desc' } },
+          disciplinaryNotes: { where: { isDeleted: false }, orderBy: { createdAt: 'desc' } },
           occupancies: {
             orderBy: { checkInDate: 'desc' },
             include: {
@@ -1287,13 +1392,17 @@ export class EmployeeService {
         checkInDate: latestOccupancy ? latestOccupancy.checkInDate : null,
         checkOutDate: latestOccupancy ? latestOccupancy.checkOutDate : null,
       };
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable }).catch((error: any) => {
+      if (error instanceof AppError) throw error;
+      if (error?.code === 'P2034') throw new AppError('Personel çıkışı aynı anda başka bir işlemle çakıştı. Sayfayı yenileyip tekrar deneyin.', 409);
+      throw error;
     });
   }
 
   /**
    * Generates a unique username and easy password for an existing employee who has no user account
    */
-  public static async generateAccountForEmployee(employeeId: string) {
+  public static async generateAccountForEmployee(employeeId: string, actorUserId: string) {
     const employee = await prisma.employee.findUnique({
       where: { id: employeeId, isDeleted: false },
       include: { user: true },
@@ -1309,21 +1418,24 @@ export class EmployeeService {
     const email = `${username}@lojman.local`;
     const passwordHash = await bcrypt.hash(password, config.security.saltRounds);
 
-    const newUser = await prisma.user.create({
-      data: {
-        username,
-        email,
-        passwordHash,
-        fullName: `${employee.firstName} ${employee.lastName}`,
-        role: Role.STAFF,
-        isActive: true,
-      },
-    });
-
-    await prisma.employee.update({
-      where: { id: employeeId },
-      data: { userId: newUser.id },
-    });
+    try {
+      await prisma.$transaction(async (tx) => {
+        const current = await tx.employee.findFirst({ where: { id: employeeId, isDeleted: false }, select: { id: true, userId: true, updatedAt: true } });
+        if (!current) throw new AppError('Personel bulunamadı.', 404);
+        if (current.userId) throw new AppError('Bu personelin zaten tanımlı bir kullanıcı hesabı var.', 409);
+        const newUser = await tx.user.create({ data: {
+          username, email, passwordHash, fullName: `${employee.firstName} ${employee.lastName}`, role: Role.STAFF, isActive: employee.status !== 'CHECKED_OUT',
+        } });
+        const linked = await tx.employee.updateMany({ where: { id: employeeId, isDeleted: false, userId: null, updatedAt: current.updatedAt }, data: { userId: newUser.id } });
+        if (linked.count !== 1) throw new AppError('Personel hesabı aynı anda başka bir işlemde değiştirildi. Sayfayı yenileyin.', 409);
+        await tx.userAuditLog.create({ data: { targetUserId: newUser.id, actorUserId, action: 'EMPLOYEE_PORTAL_ACCOUNT_GENERATED', afterRole: Role.STAFF, notes: 'PERSONEL DETAYINDAN TEK KULLANIMLIK PAROLA ÜRETİLDİ' } });
+      }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+    } catch (error: any) {
+      if (error instanceof AppError) throw error;
+      if (error?.code === 'P2002') throw new AppError('Kullanıcı adı veya e-posta başka bir hesapta kullanılıyor. İşlemi yeniden deneyin.', 409);
+      if (error?.code === 'P2034') throw new AppError('Personel hesabı aynı anda değiştirildi. İşlemi yeniden deneyin.', 409);
+      throw error;
+    }
 
     return {
       username,

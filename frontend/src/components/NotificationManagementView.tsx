@@ -17,13 +17,14 @@ import {
   UserCheck,
   FileText,
   User as UserIcon,
-  ChevronDown
+  ChevronDown,
+  Archive
 } from 'lucide-react';
 import { DateRangePicker } from './DateRangePicker';
 import { notificationApi, SentNotification, RecipientInfo, NotificationQuery, NotificationSummaryStats } from '../api/notificationApi';
 import { employeeApi, Employee } from '../api/employeeApi';
-import { roomApi } from '../api/roomApi';
 import { User } from '../api/authApi';
+import { can } from '../security/accessControl';
 
 interface NotificationManagementViewProps {
   currentUser: User;
@@ -35,6 +36,7 @@ const labelBase =
   'max-w-0 opacity-0 group-hover:max-w-[80px] group-hover:opacity-100 group-hover:ml-1 transition-all duration-300 text-[11px] font-extrabold whitespace-nowrap overflow-hidden';
 
 export const NotificationManagementView: React.FC<NotificationManagementViewProps> = ({ currentUser }) => {
+  const canDelete = can(currentUser.role, 'NOTIFICATION_DELETE');
   const [history, setHistory] = useState<SentNotification[]>([]);
   const [summary, setSummary] = useState<NotificationSummaryStats>({
     totalCount: 0,
@@ -44,7 +46,7 @@ export const NotificationManagementView: React.FC<NotificationManagementViewProp
   });
 
   const [selectedPriority, setSelectedPriority] = useState<string>('ALL');
-  const [selectedTargetType, setSelectedTargetType] = useState<string>('ALL');
+  const [selectedTargetType, setSelectedTargetType] = useState<string>('ANY');
   const [search, setSearch] = useState<string>('');
   const [dateStart, setDateStart] = useState<string>('');
   const [dateEnd, setDateEnd] = useState<string>('');
@@ -92,7 +94,7 @@ export const NotificationManagementView: React.FC<NotificationManagementViewProp
   const queryParams = useMemo<NotificationQuery>(() => {
     return {
       priority: selectedPriority !== 'ALL' ? selectedPriority : undefined,
-      targetType: selectedTargetType !== 'ALL' ? selectedTargetType : undefined,
+      targetType: selectedTargetType !== 'ANY' ? selectedTargetType : undefined,
       search: search.trim() || undefined,
       dateStart: dateStart || undefined,
       dateEnd: dateEnd || undefined,
@@ -175,21 +177,24 @@ export const NotificationManagementView: React.FC<NotificationManagementViewProp
 
   const fetchOptions = async () => {
     try {
-      const roomList = await roomApi.getRooms();
-      if (roomList) {
-        const uniqueBlocksMap = new Map<string, string>();
-        roomList.forEach((r) => {
-          if (r.block) {
-            uniqueBlocksMap.set(r.block.id, r.block.name);
-          }
-        });
-        setBlocks(Array.from(uniqueBlocksMap.entries()).map(([id, name]) => ({ id, name })));
-      }
-
       const empData = await employeeApi.getEmployees();
       if (empData) {
-        setEmployees(empData);
-        const depts = Array.from(new Set(empData.map((e) => e.department).filter(Boolean)));
+        const residentEmployees = empData.filter((employee) =>
+          Boolean(employee.userId) &&
+          employee.beds?.some((bed) => bed.isOccupied) &&
+          (!employee.user || (employee.user.isActive && employee.user.role === 'STAFF'))
+        );
+        setEmployees(residentEmployees);
+
+        const uniqueBlocksMap = new Map<string, string>();
+        residentEmployees.forEach((employee) => {
+          employee.beds?.forEach((bed) => {
+            if (bed.isOccupied) uniqueBlocksMap.set(bed.room.block.id, bed.room.block.name);
+          });
+        });
+        setBlocks(Array.from(uniqueBlocksMap.entries()).map(([id, name]) => ({ id, name })));
+
+        const depts = Array.from(new Set(residentEmployees.map((e) => e.department).filter(Boolean)));
         setDepartments(depts as string[]);
       }
     } catch (err: any) {
@@ -210,7 +215,7 @@ export const NotificationManagementView: React.FC<NotificationManagementViewProp
   };
 
   const filteredEmployeesForSelection = employees.filter((emp) => {
-    if (!emp.userId) return false;
+    if (!emp.userId || !emp.beds?.some((bed) => bed.isOccupied)) return false;
     const queryStr = employeeSearch.toLowerCase().trim();
     const matchesSearch = !queryStr || 
       emp.firstName.toLowerCase().includes(queryStr) ||
@@ -298,8 +303,6 @@ export const NotificationManagementView: React.FC<NotificationManagementViewProp
       setSelectedGender('');
       setSelectedBlocks([]);
       setSelectedDepts([]);
-      setIsSendModalOpen(false);
-      
       // Reload archive list
       void loadData(false, 1);
     } catch (err: any) {
@@ -343,6 +346,29 @@ export const NotificationManagementView: React.FC<NotificationManagementViewProp
     if (!q) return true;
     return rec.fullName.toLowerCase().includes(q) || rec.username.toLowerCase().includes(q);
   }) || [];
+
+  const openNotificationDetail = async (item: SentNotification) => {
+    try {
+      setError(null);
+      setSelectedDetailNotif(await notificationApi.getNotificationDetail(item.id));
+      setModalSearch('');
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'Duyuru ayrıntısı yüklenemedi.');
+    }
+  };
+
+  const archiveNotification = async () => {
+    if (!selectedDetailNotif || !canDelete) return;
+    if (!window.confirm('Bu duyuru personel ekranlarından kaldırılacak ve denetim kaydı korunacaktır. Devam edilsin mi?')) return;
+    try {
+      await notificationApi.deleteNotification(selectedDetailNotif.id);
+      setSelectedDetailNotif(null);
+      setStatusMessage({ type: 'success', text: 'Duyuru güvenli şekilde arşivlendi.' });
+      await loadData(false, 1);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'Duyuru arşivlenemedi.');
+    }
+  };
 
   const renderPriorityBadge = (priorityVal: 'NORMAL' | 'IMPORTANT' | 'URGENT') => {
     switch (priorityVal) {
@@ -449,6 +475,13 @@ export const NotificationManagementView: React.FC<NotificationManagementViewProp
         </div>
       )}
 
+      {statusMessage && !isSendModalOpen && (
+        <div className={`flex justify-between rounded-2xl border px-4 py-3 text-xs font-bold ${statusMessage.type === 'success' ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : 'border-rose-200 bg-rose-50 text-rose-800'}`}>
+          <span>{statusMessage.text}</span>
+          <button onClick={() => setStatusMessage(null)} className="cursor-pointer"><X className="w-4 h-4" /></button>
+        </div>
+      )}
+
       {/* Filter Controls Bar matching Maintenance filter bar layout */}
       <div className="relative z-40 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-12 gap-3 rounded-2xl border border-slate-300 bg-white p-3 shadow-xs items-center">
         {/* Search */}
@@ -473,8 +506,8 @@ export const NotificationManagementView: React.FC<NotificationManagementViewProp
               onChange={(e) => setSelectedTargetType(e.target.value)}
               className="w-full pl-10 pr-3 py-2 rounded-xl border border-slate-300 bg-slate-50 focus:bg-white focus:border-[#1e3a8a] outline-none text-xs font-bold text-slate-900 cursor-pointer appearance-none"
             >
-              <option value="ALL">Tüm Hedef Kitleler</option>
-              <option value="ALL_TARGET">Tüm Lojman</option>
+              <option value="ANY">Tüm Hedef Kitleler</option>
+              <option value="ALL">Tüm Lojman</option>
               <option value="BLOCK">Bloğa Özel</option>
               <option value="DEPARTMENT">Departmana Özel</option>
               <option value="SPECIFIC_USERS">Özel Kişiler</option>
@@ -573,7 +606,7 @@ export const NotificationManagementView: React.FC<NotificationManagementViewProp
                       <tr
                         key={item.id}
                         onClick={() => {
-                          setSelectedDetailNotif(item);
+                          void openNotificationDetail(item);
                           setModalSearch('');
                         }}
                         className="hover:bg-slate-50/80 transition-colors cursor-pointer"
@@ -680,7 +713,7 @@ export const NotificationManagementView: React.FC<NotificationManagementViewProp
                   <div
                     key={item.id}
                     onClick={() => {
-                      setSelectedDetailNotif(item);
+                      void openNotificationDetail(item);
                       setModalSearch('');
                     }}
                     className="p-4 space-y-3 cursor-pointer hover:bg-slate-50/60 transition-colors"
@@ -1130,6 +1163,8 @@ export const NotificationManagementView: React.FC<NotificationManagementViewProp
                       ? `Blok (${selectedDetailNotif.targetValue})`
                       : selectedDetailNotif.targetType === 'DEPARTMENT'
                       ? `Departman (${selectedDetailNotif.targetValue})`
+                      : selectedDetailNotif.targetType === 'GENDER'
+                      ? `Cinsiyet (${selectedDetailNotif.targetValue === 'Male' ? 'Erkek' : 'Kadın'})`
                       : 'Özel Kişiler'}
                   </span>
                 </div>
@@ -1235,7 +1270,16 @@ export const NotificationManagementView: React.FC<NotificationManagementViewProp
             </div>
 
             {/* Modal Footer */}
-            <div className="border-t border-slate-200 bg-slate-50 p-4 flex justify-end shrink-0">
+            <div className="border-t border-slate-200 bg-slate-50 p-4 flex justify-between gap-2 shrink-0">
+              {canDelete ? (
+                <button
+                  type="button"
+                  onClick={() => void archiveNotification()}
+                  className="inline-flex items-center gap-1.5 px-4 py-2 bg-rose-50 hover:bg-rose-100 text-rose-800 border border-rose-200 text-xs font-bold rounded-xl transition cursor-pointer"
+                >
+                  <Archive className="w-4 h-4" /> Duyuruyu Arşivle
+                </button>
+              ) : <span />}
               <button
                 type="button"
                 onClick={() => setSelectedDetailNotif(null)}

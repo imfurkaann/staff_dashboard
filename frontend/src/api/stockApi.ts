@@ -92,6 +92,11 @@ export interface StockOverview {
   summary: { totalRegistered: number; available: number; inRooms: number; inService: number; issues: number; criticalCards: number };
 }
 
+export interface StockMovementList {
+  items: StockMovement[];
+  pagination: { page: number; pageSize: number; total: number; totalPages: number };
+}
+
 const request = async <T>(path: string, init?: RequestInit): Promise<T> => {
   const response = await fetch(`${appConfig.apiBaseUrl}/stock${path}`, {
     credentials: 'include',
@@ -105,19 +110,30 @@ const request = async <T>(path: string, init?: RequestInit): Promise<T> => {
 
 export const stockApi = {
   getOverview: () => request<StockOverview>(''),
+  getMovements: (filters: { search?: string; stockItemId?: string; type?: MovementType | 'ALL'; dateStart?: string; dateEnd?: string; page?: number; pageSize?: number } = {}) => {
+    const params = new URLSearchParams();
+    if (filters.search) params.set('search', filters.search);
+    if (filters.stockItemId) params.set('stockItemId', filters.stockItemId);
+    if (filters.type && filters.type !== 'ALL') params.set('type', filters.type);
+    if (filters.dateStart) params.set('dateStart', filters.dateStart);
+    if (filters.dateEnd) params.set('dateEnd', filters.dateEnd);
+    if (filters.page) params.set('page', String(filters.page));
+    if (filters.pageSize) params.set('pageSize', String(filters.pageSize));
+    return request<StockMovementList>(`/movements?${params.toString()}`);
+  },
   getNextItemCode: (category?: string) => request<{ itemCode: string }>(`/next-code${category ? `?category=${encodeURIComponent(category)}` : ''}`),
   // Compatibility for employee/room detail selectors; all data still comes from the central stock overview.
   getStockItems: async () => (await request<StockOverview>('')).items,
-  createStockItem: (payload: Partial<StockItem> & { itemName: string; totalStock?: number }) => request<StockItem>('', { method: 'POST', body: JSON.stringify(payload) }),
-  updateStockItem: (id: string, payload: Partial<StockItem>) => request<StockItem>(`/${id}`, { method: 'PUT', body: JSON.stringify(payload) }),
-  receive: (id: string, payload: { quantity: number; reason?: string; notes?: string }) => request<StockItem>(`/${id}/receive`, { method: 'POST', body: JSON.stringify(payload) }),
-  reconcileCount: (id: string, payload: { countedAvailable: number; notes?: string }) => request<{ item: StockItem; previousAvailable: number; countedAvailable: number; difference: number }>(`/${id}/reconcile-count`, { method: 'POST', body: JSON.stringify(payload) }),
-  assignRoom: (id: string, payload: { roomId: string; quantity: number; brand?: string; serialNo?: string; notes?: string }) => request<RoomAssignment>(`/${id}/assign-room`, { method: 'POST', body: JSON.stringify(payload) }),
-  assignRooms: (id: string, payload: { roomIds: string[]; quantityPerRoom: number; brand?: string; notes?: string }) => request<{ assignments: RoomAssignment[]; roomCount: number; totalQuantity: number }>(`/${id}/assign-rooms`, { method: 'POST', body: JSON.stringify(payload) }),
-  returnAssignment: (id: string, payload: { outcome: 'RETURNED' | 'RETIRED'; notes?: string }) => request<RoomAssignment>(`/assignments/${id}/return`, { method: 'POST', body: JSON.stringify(payload) }),
-  transferAssignment: (id: string, payload: { roomId: string; notes?: string }) => request<RoomAssignment>(`/assignments/${id}/transfer`, { method: 'POST', body: JSON.stringify(payload) }),
-  updateAssignmentIdentity: (id: string, payload: { brand?: string; serialNo?: string; notes?: string }) => request<RoomAssignment>(`/assignments/${id}/identity`, { method: 'PATCH', body: JSON.stringify(payload) }),
-  replaceAssignment: (id: string, payload: { brand?: string; serialNo?: string; notes?: string }) => request<RoomAssignment>(`/assignments/${id}/replace`, { method: 'POST', body: JSON.stringify(payload) }),
+  createStockItem: (payload: Partial<StockItem> & { itemName: string; totalStock?: number }, key?: string) => request<StockItem>('', { method: 'POST', headers: key ? { 'X-Idempotency-Key': key } : undefined, body: JSON.stringify(payload) }),
+  updateStockItem: (id: string, payload: Partial<StockItem>, key?: string) => request<StockItem>(`/${id}`, { method: 'PUT', headers: key ? { 'X-Idempotency-Key': key } : undefined, body: JSON.stringify(payload) }),
+  receive: (id: string, payload: { quantity: number; reason?: string; notes?: string }, key?: string) => request<StockItem>(`/${id}/receive`, { method: 'POST', headers: key ? { 'X-Idempotency-Key': key } : undefined, body: JSON.stringify(payload) }),
+  reconcileCount: (id: string, payload: { countedAvailable: number; notes?: string }, key?: string) => request<{ item: StockItem; previousAvailable: number; countedAvailable: number; difference: number }>(`/${id}/reconcile-count`, { method: 'POST', headers: key ? { 'X-Idempotency-Key': key } : undefined, body: JSON.stringify(payload) }),
+  assignRoom: (id: string, payload: { roomId: string; quantity: number; brand?: string; serialNo?: string; notes?: string }, key?: string) => request<RoomAssignment>(`/${id}/assign-room`, { method: 'POST', headers: key ? { 'X-Idempotency-Key': key } : undefined, body: JSON.stringify(payload) }),
+  assignRooms: (id: string, payload: { roomIds: string[]; quantityPerRoom: number; brand?: string; notes?: string }, key?: string) => request<{ assignments: RoomAssignment[]; roomCount: number; totalQuantity: number }>(`/${id}/assign-rooms`, { method: 'POST', headers: key ? { 'X-Idempotency-Key': key } : undefined, body: JSON.stringify(payload) }),
+  returnAssignment: (id: string, payload: { outcome: 'RETURNED' | 'RETIRED'; notes?: string }, key?: string) => request<RoomAssignment>(`/assignments/${id}/return`, { method: 'POST', headers: key ? { 'X-Idempotency-Key': key } : undefined, body: JSON.stringify(payload) }),
+  transferAssignment: (id: string, payload: { roomId: string; notes?: string }, key?: string) => request<RoomAssignment>(`/assignments/${id}/transfer`, { method: 'POST', headers: key ? { 'X-Idempotency-Key': key } : undefined, body: JSON.stringify(payload) }),
+  updateAssignmentIdentity: (id: string, payload: { brand?: string; serialNo?: string; notes?: string }, key?: string) => request<RoomAssignment>(`/assignments/${id}/identity`, { method: 'PATCH', headers: key ? { 'X-Idempotency-Key': key } : undefined, body: JSON.stringify(payload) }),
+  replaceAssignment: (id: string, payload: { brand?: string; serialNo?: string; notes?: string }, key?: string) => request<RoomAssignment>(`/assignments/${id}/replace`, { method: 'POST', headers: key ? { 'X-Idempotency-Key': key } : undefined, body: JSON.stringify(payload) }),
   deleteStockItem: (id: string) => request<void>(`/${id}`, { method: 'DELETE' }),
   exportExcel: async () => {
     const response = await fetch(`${appConfig.apiBaseUrl}/stock/export.xlsx`, { credentials: 'include' });

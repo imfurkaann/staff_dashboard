@@ -115,12 +115,12 @@ export const employeeApi = {
     return response.data.data;
   },
 
-  getEmployeeById: async (id: string): Promise<Employee | null> => {
+  getEmployeeById: async (id: string): Promise<Employee> => {
     try {
       const response = await api.get<{ success: boolean; data: Employee }>(`/${id}`);
-      return response.data.data || null;
-    } catch (error) {
-      return null;
+      return response.data.data;
+    } catch (error: any) {
+      throw new Error(error.response?.data?.message || error.message || 'Personel detayı alınamadı.');
     }
   },
 

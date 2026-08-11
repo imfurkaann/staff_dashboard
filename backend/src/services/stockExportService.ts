@@ -1,5 +1,12 @@
 import ExcelJS from 'exceljs';
 
+export function safeStockCell(value: unknown): unknown {
+  if (typeof value !== 'string') return value;
+  return /^[=+\-@]/.test(value) ? `'${value}` : value;
+}
+
+const addSafeRow = (sheet: ExcelJS.Worksheet, values: unknown[]) => sheet.addRow(values.map(safeStockCell));
+
 const movementLabels: Record<string, string> = {
   OPENING: 'AÇILIŞ', RECEIPT: 'DEPO GİRİŞİ', ADJUSTMENT: 'FİZİKSEL SAYIM',
   ROOM_ASSIGNMENT: 'ODAYA ZİMMET', ROOM_RETURN: 'ODADAN İADE', ROOM_TRANSFER: 'ODA TRANSFERİ',
@@ -57,7 +64,7 @@ export async function createStockWorkbook(items: any[], generatedBy: string): Pr
     const available = item.totalStock - item.usedStock - item.usedInRooms;
     const usedTotal = item.usedStock + item.usedInRooms;
     const warrantyStr = item.warrantyEndDate ? new Date(item.warrantyEndDate).toLocaleDateString('tr-TR') : '-';
-    summary.addRow([
+    addSafeRow(summary, [
       item.itemCode || '-',
       item.itemName,
       item.category,
@@ -80,7 +87,7 @@ export async function createStockWorkbook(items: any[], generatedBy: string): Pr
   setupSheet(activeRooms, 'AKTİF ODA ZİMMETLERİ',
     ['BLOK', 'ODA', 'STOK KODU', 'MALZEME', 'ADET', 'DURUM', 'ZİMMET TARİHİ', 'NOT'],
     [16, 12, 16, 28, 10, 24, 20, 35], generatedBy);
-  items.forEach((item) => item.roomInventories.filter((entry: any) => !entry.returnedAt).forEach((entry: any) => activeRooms.addRow([
+  items.forEach((item) => item.roomInventories.filter((entry: any) => !entry.returnedAt).forEach((entry: any) => addSafeRow(activeRooms, [
     entry.room.block.name, entry.room.roomNumber, item.itemCode || '-', item.itemName, entry.quantity, entry.status, entry.installedAt, entry.notes || '-',
   ])));
   activeRooms.getColumn(7).numFmt = 'dd.mm.yyyy hh:mm'; styleRows(activeRooms);
@@ -89,7 +96,7 @@ export async function createStockWorkbook(items: any[], generatedBy: string): Pr
   setupSheet(roomHistory, 'TÜM ODA ZİMMET GEÇMİŞİ',
     ['BLOK', 'ODA', 'STOK KODU', 'MALZEME', 'ADET', 'SON DURUM', 'ZİMMET TARİHİ', 'KAPANIŞ TARİHİ', 'NOT'],
     [16, 12, 16, 28, 10, 24, 20, 20, 35], generatedBy);
-  items.forEach((item) => item.roomInventories.forEach((entry: any) => roomHistory.addRow([
+  items.forEach((item) => item.roomInventories.forEach((entry: any) => addSafeRow(roomHistory, [
     entry.room.block.name, entry.room.roomNumber, item.itemCode || '-', item.itemName, entry.quantity, entry.status,
     entry.installedAt, entry.returnedAt || '', entry.notes || '-',
   ])));
@@ -99,7 +106,7 @@ export async function createStockWorkbook(items: any[], generatedBy: string): Pr
   setupSheet(personnel, 'TÜM PERSONEL STOK ZİMMETLERİ',
     ['SİCİL NO', 'PERSONEL', 'DEPARTMAN', 'STOK KODU', 'MALZEME', 'DURUM', 'ZİMMET TARİHİ', 'İADE TARİHİ', 'NOT'],
     [16, 26, 22, 16, 28, 22, 20, 20, 35], generatedBy);
-  items.forEach((item) => item.inventories.forEach((entry: any) => personnel.addRow([
+  items.forEach((item) => item.inventories.forEach((entry: any) => addSafeRow(personnel, [
     entry.employee.registrationNo || '-', `${entry.employee.firstName} ${entry.employee.lastName}`, entry.employee.department,
     item.itemCode || '-', item.itemName, entry.status, entry.assignedDate, entry.returnedDate || '', entry.notes || '-',
   ])));
@@ -111,7 +118,7 @@ export async function createStockWorkbook(items: any[], generatedBy: string): Pr
     [20, 16, 28, 22, 12, 30, 24, 38, 34, 24], generatedBy);
   items.flatMap((item) => item.movements.map((movement: any) => ({ item, movement })))
     .sort((a, b) => +new Date(b.movement.createdAt) - +new Date(a.movement.createdAt))
-    .forEach(({ item, movement }) => history.addRow([
+    .forEach(({ item, movement }) => addSafeRow(history, [
       movement.createdAt, item.itemCode || '-', movement.itemNameSnapshot, movementLabels[movement.type] || movement.type, movement.quantity,
       movement.roomLabelSnapshot || (movement.employee ? `${movement.employee.firstName} ${movement.employee.lastName}${movement.employee.registrationNo ? ` / ${movement.employee.registrationNo}` : ''}` : '-'),
       movement.reason || '-', movement.notes || '-', movement.maintenance ? `${movement.maintenance.title} / ${movement.maintenance.id}` : '-', movement.createdBy?.fullName || 'SİSTEM',
