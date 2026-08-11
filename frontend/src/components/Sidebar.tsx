@@ -19,7 +19,7 @@ import {
 import { User } from '../api/authApi';
 import { appConfig } from '../config/appConfig';
 import { canAccessTab, ROLE_LABELS } from '../security/accessControl';
-import { ticketApi } from '../api/ticketApi';
+import { ticketApi, connectTicketSocket, playChimeSound } from '../api/ticketApi';
 
 interface SidebarProps {
   currentUser: User;
@@ -52,9 +52,21 @@ export const Sidebar: React.FC<SidebarProps> = ({
     };
 
     fetchPendingTickets();
-    const interval = setInterval(fetchPendingTickets, 20000);
+
+    const cleanupSocket = connectTicketSocket((event) => {
+      if (!isMounted) return;
+      if (event.type === 'TICKET_CREATED') {
+        playChimeSound();
+        fetchPendingTickets();
+      } else if (event.type === 'TICKET_UPDATED') {
+        fetchPendingTickets();
+      }
+    });
+
+    const interval = setInterval(fetchPendingTickets, 30000);
     return () => {
       isMounted = false;
+      cleanupSocket();
       clearInterval(interval);
     };
   }, [currentUser.role, activeTab]);

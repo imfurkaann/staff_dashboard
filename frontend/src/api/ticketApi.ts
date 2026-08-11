@@ -100,3 +100,97 @@ export const ticketApi = {
     return json.data;
   },
 };
+
+export function playChimeSound() {
+  try {
+    const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+    if (!AudioContextClass) return;
+    const ctx = new AudioContextClass();
+
+    const playNote = (freq: number, delay: number, duration: number) => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(freq, ctx.currentTime + delay);
+
+      gain.gain.setValueAtTime(0.25, ctx.currentTime + delay);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + delay + duration);
+
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+
+      osc.start(ctx.currentTime + delay);
+      osc.stop(ctx.currentTime + delay + duration);
+    };
+
+    // Pleasant metallic bell chime: High C (1046.5Hz) -> G (1567.98Hz)
+    playNote(1046.5, 0, 0.35);
+    playNote(1567.98, 0.12, 0.5);
+  } catch (e) {
+    // Ignore audio context restrictions if any
+  }
+}
+
+export function connectTicketSocket(onEvent: (event: { type: 'TICKET_CREATED' | 'TICKET_UPDATED'; data: SupportTicket }) => void): () => void {
+  let wsUrl = '';
+  const apiBase = appConfig.apiBaseUrl;
+
+  if (apiBase.startsWith('http://') || apiBase.startsWith('https://')) {
+    wsUrl = apiBase.replace(/^http/, 'ws').replace(/\/api\/?$/, '') + '/ws/tickets';
+  } else {
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    wsUrl = `${protocol}//${window.location.host}/ws/tickets`;
+  }
+
+  let ws: WebSocket | null = null;
+  let reconnectTimer: any = null;
+  let isUnmounted = false;
+
+  function connect() {
+    if (isUnmounted) return;
+    try {
+      ws = new WebSocket(wsUrl);
+
+      ws.onopen = () => {
+        if (import.meta.env.DEV) console.log('⚡ [TicketWebSocket] Bağlantı başarılı:', wsUrl);
+      };
+
+      ws.onmessage = (e) => {
+        try {
+          const parsed = JSON.parse(e.data);
+          if (parsed && (parsed.type === 'TICKET_CREATED' || parsed.type === 'TICKET_UPDATED')) {
+            onEvent(parsed);
+          }
+        } catch (err) {
+          // ignore parsing error
+        }
+      };
+
+      ws.onclose = () => {
+        if (!isUnmounted) {
+          reconnectTimer = setTimeout(connect, 3000);
+        }
+      };
+
+      ws.onerror = () => {
+        ws?.close();
+      };
+    } catch (err) {
+      if (!isUnmounted) {
+        reconnectTimer = setTimeout(connect, 3000);
+      }
+    }
+  }
+
+  connect();
+
+  return () => {
+    isUnmounted = true;
+    if (reconnectTimer) clearTimeout(reconnectTimer);
+    if (ws) {
+      ws.onclose = null;
+      ws.close();
+    }
+  };
+}

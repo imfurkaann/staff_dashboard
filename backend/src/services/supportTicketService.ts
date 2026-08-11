@@ -1,6 +1,7 @@
 import prisma from '../db/prisma';
 import { AppError } from '../middleware/errorHandler';
 import { SupportTicketStatus } from '@prisma/client';
+import { broadcastTicketEvent } from '../websocket/ticketSocket';
 
 export class SupportTicketService {
   private static async generateNextTicketNo(): Promise<string> {
@@ -40,7 +41,7 @@ export class SupportTicketService {
 
     const ticketNo = await this.generateNextTicketNo();
 
-    return prisma.supportTicket.create({
+    const newTicket = await prisma.supportTicket.create({
       data: {
         ticketNo,
         employeeId: data.employeeId || null,
@@ -59,6 +60,10 @@ export class SupportTicketService {
         },
       },
     });
+
+    broadcastTicketEvent('TICKET_CREATED', newTicket);
+
+    return newTicket;
   }
 
   public static async getTickets(filters?: {
@@ -131,7 +136,7 @@ export class SupportTicketService {
 
     const isResolvedOrRejected = status === SupportTicketStatus.RESOLVED || status === SupportTicketStatus.REJECTED;
 
-    return prisma.supportTicket.update({
+    const updatedTicket = await prisma.supportTicket.update({
       where: { id: ticketId },
       data: {
         status,
@@ -144,6 +149,10 @@ export class SupportTicketService {
         },
       },
     });
+
+    broadcastTicketEvent('TICKET_UPDATED', updatedTicket);
+
+    return updatedTicket;
   }
 
   public static async getTicketStats() {

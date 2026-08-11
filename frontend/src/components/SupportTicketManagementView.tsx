@@ -3,7 +3,7 @@ import {
   AlertTriangle, Check, CheckCircle2, Clock, Filter, MessageSquareWarning,
   RefreshCw, Search, X, User, ArrowRight, CornerDownRight, MessageSquare, Edit3
 } from 'lucide-react';
-import { SupportTicket, SupportTicketStatus, ticketApi } from '../api/ticketApi';
+import { SupportTicket, SupportTicketStatus, ticketApi, connectTicketSocket, playChimeSound } from '../api/ticketApi';
 import { User as UserType } from '../api/authApi';
 import { can } from '../security/accessControl';
 
@@ -77,6 +77,21 @@ export const SupportTicketManagementView: React.FC<SupportTicketManagementViewPr
 
   useEffect(() => {
     loadData();
+
+    const cleanupSocket = connectTicketSocket((event) => {
+      if (event.type === 'TICKET_CREATED') {
+        playChimeSound();
+        setTickets((prev) => [event.data, ...prev.filter((t) => t.id !== event.data.id)]);
+      } else if (event.type === 'TICKET_UPDATED') {
+        setTickets((prev) =>
+          prev.map((t) => (t.id === event.data.id ? { ...t, ...event.data } : t))
+        );
+      }
+    });
+
+    return () => {
+      cleanupSocket();
+    };
   }, [statusFilter, categoryFilter]);
 
   const handleSearchSubmit = (e: React.FormEvent) => {

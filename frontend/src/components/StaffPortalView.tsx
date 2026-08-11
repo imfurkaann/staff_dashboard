@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { User } from '../api/authApi';
 import { portalApi, StaffPortalData } from '../api/portalApi';
 import { sharedAssetApi, SharedAsset } from '../api/sharedAssetApi';
-import { ticketApi, SupportTicket } from '../api/ticketApi';
+import { ticketApi, SupportTicket, connectTicketSocket } from '../api/ticketApi';
 import { appConfig } from '../config/appConfig';
 import { 
   Building2, 
@@ -299,6 +299,16 @@ export const StaffPortalView: React.FC<StaffPortalViewProps> = ({ currentUser: _
     if (activeTab === 'tickets' && myTickets.length === 0 && !myTicketsLoading) {
       fetchMyTickets();
     }
+
+    const cleanupSocket = connectTicketSocket((event) => {
+      if (event.type === 'TICKET_CREATED' || event.type === 'TICKET_UPDATED') {
+        fetchMyTickets();
+      }
+    });
+
+    return () => {
+      cleanupSocket();
+    };
   }, [activeTab]);
 
   const handleCreateTicket = async (e: React.FormEvent) => {

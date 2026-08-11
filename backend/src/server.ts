@@ -78,10 +78,14 @@ app.use((_req, res) => res.status(404).json({ success: false, message: 'Endpoint
 // Centralized Error Handler Middleware
 app.use(errorHandler);
 
+import { initTicketWebSocket } from './websocket/ticketSocket';
+
 // Start server
 const server = app.listen(config.port, () => {
   console.log(`🚀 ${config.appName} Backend API Server ${config.port} portunda güvenli şekilde çalışıyor.`);
 });
+
+initTicketWebSocket(server);
 
 const shutdown = (signal: string) => {
   console.log(`${signal} alındı, sunucu güvenli şekilde kapatılıyor.`);
