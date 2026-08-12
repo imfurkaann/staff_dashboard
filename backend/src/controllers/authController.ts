@@ -16,7 +16,7 @@ export class AuthController {
       // Set Secure HTTP-Only Cookie via central config
       res.cookie(config.cookie.name, result.token, {
         httpOnly: true,
-        secure: config.nodeEnv === 'production',
+        secure: config.cookie.secure,
         sameSite: config.nodeEnv === 'production' ? 'strict' : 'lax',
         path: '/',
         maxAge: config.cookie.maxAgeMs,
@@ -41,7 +41,7 @@ export class AuthController {
       res.setHeader('Cache-Control', 'no-store');
       res.clearCookie(config.cookie.name, {
         httpOnly: true,
-        secure: config.nodeEnv === 'production',
+        secure: config.cookie.secure,
         sameSite: config.nodeEnv === 'production' ? 'strict' : 'lax',
         path: '/',
       });
@@ -85,7 +85,7 @@ export class AuthController {
 
       res.clearCookie(config.cookie.name, {
         httpOnly: true,
-        secure: config.nodeEnv === 'production',
+        secure: config.cookie.secure,
         sameSite: config.nodeEnv === 'production' ? 'strict' : 'lax',
         path: '/',
       });

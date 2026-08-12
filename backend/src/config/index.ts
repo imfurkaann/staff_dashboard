@@ -17,10 +17,14 @@ export const config = {
     secret: process.env.COOKIE_SECRET || 'fallback_cookie_secret',
     name: process.env.COOKIE_NAME || 'token',
     maxAgeMs: parseInt(process.env.COOKIE_MAX_AGE_DAYS || '30', 10) * 24 * 60 * 60 * 1000,
+    secure: process.env.COOKIE_SECURE
+      ? process.env.COOKIE_SECURE === 'true'
+      : process.env.NODE_ENV === 'production',
   },
   cors: {
     clientUrl: process.env.CLIENT_URL || 'http://localhost:5173',
     allowedOrigins: (process.env.CORS_ALLOWED_ORIGINS || 'http://localhost:5173').split(',').map((origin) => origin.trim()).filter(Boolean),
+    allowInsecureHttp: process.env.ALLOW_INSECURE_HTTP === 'true',
   },
   rateLimit: {
     windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS || '900000', 10),
@@ -81,12 +85,19 @@ export function validateConfig(): void {
   for (const origin of config.cors.allowedOrigins) {
     let url: URL;
     try { url = new URL(origin); } catch { throw new Error(`Geçersiz CORS origin değeri: ${origin}`); }
-    if (url.protocol !== 'https:' || url.origin !== origin || url.username || url.password) {
-      throw new Error(`Production CORS origin yalnızca tam HTTPS origin olmalıdır: ${origin}`);
+    const allowedProtocol = url.protocol === 'https:' || (config.cors.allowInsecureHttp && url.protocol === 'http:');
+    if (!allowedProtocol || url.origin !== origin || url.username || url.password) {
+      throw new Error(`Production CORS origin tam bir HTTPS origin olmalıdır (IP üzerinden HTTP için ALLOW_INSECURE_HTTP=true): ${origin}`);
     }
   }
   if (!config.cors.allowedOrigins.includes(config.cors.clientUrl)) {
     throw new Error('CLIENT_URL, CORS_ALLOWED_ORIGINS listesinde bulunmalıdır.');
+  }
+  if (!config.cookie.secure && !config.cors.allowInsecureHttp) {
+    throw new Error('COOKIE_SECURE=false yalnızca ALLOW_INSECURE_HTTP=true ile kullanılabilir.');
+  }
+  if (config.cors.allowedOrigins.some((origin) => origin.startsWith('http://')) && config.cookie.secure) {
+    throw new Error('HTTP origin kullanılırken COOKIE_SECURE=false olmalıdır.');
   }
   if (!Number.isInteger(config.port) || config.port < 1 || config.port > 65535) throw new Error('PORT değeri geçersiz.');
   if (!Number.isInteger(config.rateLimit.apiMax) || config.rateLimit.apiMax < 10) throw new Error('API_RATE_LIMIT_MAX değeri en az 10 olmalıdır.');
