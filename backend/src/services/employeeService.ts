@@ -11,6 +11,7 @@ import { AGE_GROUPS, canonicalChoice, EMERGENCY_RELATIONS, EMPLOYEE_DEPARTMENTS,
 import { config } from '../config';
 import { releasePersonnelStock, reservePersonnelStock } from '../utils/stockBalance';
 import { validateEmployeeDepartmentFilter, validateEmployeeFilterStatus, validateEmployeeGenderFilter } from '../security/employeePolicy';
+import { validatePassword } from '../security/passwordPolicy';
 
 /**
  * Turkish Locale-aware Title Case Normalization
@@ -37,10 +38,29 @@ function validatePortalUsername(value: string): string {
 }
 
 function validatePortalPassword(value: string): string {
-  if (value.length < 12 || !/[A-ZÇĞİÖŞÜ]/.test(value) || !/[a-zçğıöşü]/.test(value) || !/\d/.test(value) || !/[^A-Za-zÇĞİÖŞÜçğıöşü0-9]/.test(value)) {
-    throw new AppError('Sistem kullanıcısı şifresi en az 12 karakter; büyük harf, küçük harf, rakam ve özel karakter içermelidir.', 400);
-  }
-  return value;
+  return validatePassword(value, 'Sistem kullanıcısı parolası');
+}
+
+async function setEmployeePortalAccountActive(
+  tx: Prisma.TransactionClient,
+  userId: string,
+  isActive: boolean,
+  actorUserId: string | undefined,
+  action: string,
+  notes: string,
+): Promise<void> {
+  const current = await tx.user.findUnique({ where: { id: userId }, select: { role: true, isActive: true } });
+  if (!current || current.isActive === isActive) return;
+  const updated = await tx.user.updateMany({ where: { id: userId, isActive: current.isActive }, data: { isActive } });
+  if (updated.count !== 1) throw new AppError('Personel portal hesabı aynı anda başka bir işlemde değiştirildi.', 409);
+  await tx.userAuditLog.create({ data: {
+    targetUserId: userId,
+    actorUserId: actorUserId || null,
+    action,
+    beforeRole: current.role,
+    afterRole: current.role,
+    notes,
+  } });
 }
 
 function applyEmployeeSearch(where: any, search?: string): void {
@@ -161,10 +181,7 @@ export class EmployeeService {
         },
       });
       if (employee.userId) {
-        await tx.user.update({
-          where: { id: employee.userId },
-          data: { isActive: false },
-        });
+        await setEmployeePortalAccountActive(tx, employee.userId, false, deletedById, 'EMPLOYEE_PORTAL_ACCOUNT_DEACTIVATED', 'PERSONEL ARŞİVLENDİĞİ İÇİN PORTAL HESABI KAPATILDI');
       }
       await tx.employee.update({
         where: { id: employeeId },
@@ -401,7 +418,7 @@ export class EmployeeService {
     // System User Account creation (Auto-generated unique credentials for every employee)
     let createdUserId: string | null = null;
     let generatedAccountInfo: { username: string; password: string } | null = null;
-    let accountCreateData: { username: string; email: string; passwordHash: string; fullName: string; role: Role } | null = null;
+    let accountCreateData: { username: string; email: string; passwordHash: string; fullName: string; role: Role; mustChangePassword: boolean } | null = null;
 
     if (data.systemUser?.createAccount === true) {
       let targetUsername = data.systemUser?.username?.trim().toLowerCase();
@@ -439,6 +456,7 @@ export class EmployeeService {
         passwordHash,
         fullName: `${normalizedFirstName} ${normalizedLastName}`,
         role: targetRole,
+        mustChangePassword: true,
       };
       generatedAccountInfo = {
         username: targetUsername,
@@ -632,7 +650,7 @@ export class EmployeeService {
 
     const updateData: any = {};
     let pendingUserUpdate: Record<string, unknown> | null = null;
-    let pendingUserCreate: { username: string; email: string; passwordHash: string; fullName: string; role: Role; isActive: boolean } | null = null;
+    let pendingUserCreate: { username: string; email: string; passwordHash: string; fullName: string; role: Role; isActive: boolean; mustChangePassword: boolean } | null = null;
     if (data.firstName !== undefined) updateData.firstName = boundedText(data.firstName, 'Personel adı', 80, { required: true, minLength: 2, casing: 'upper' });
     if (data.lastName !== undefined) updateData.lastName = boundedText(data.lastName, 'Personel soyadı', 80, { required: true, minLength: 2, casing: 'upper' });
     if (data.gender !== undefined) {
@@ -727,6 +745,7 @@ export class EmployeeService {
           }
           if (data.systemUser.password) {
             updateUserData.passwordHash = await bcrypt.hash(validatePortalPassword(data.systemUser.password.trim()), config.security.saltRounds);
+            updateUserData.mustChangePassword = true;
           }
           if (Object.keys(updateUserData).length > 0) {
             pendingUserUpdate = { ...(pendingUserUpdate || {}), ...updateUserData };
@@ -756,7 +775,8 @@ export class EmployeeService {
             passwordHash,
             fullName: `${targetFirstName} ${targetLastName}`,
             role: userRole,
-            isActive: true,
+            isActive: employee.status !== 'CHECKED_OUT' || Boolean(data.bedId),
+            mustChangePassword: true,
           };
         }
       }
@@ -851,7 +871,9 @@ export class EmployeeService {
         // Update status to RESIDENT
         updateData.status = 'RESIDENT';
         updateData.checkedOutById = null;
-        if (employee.userId) await tx.user.update({ where: { id: employee.userId }, data: { isActive: true } });
+        if (employee.userId) {
+          await setEmployeePortalAccountActive(tx, employee.userId, true, data.createdById, 'EMPLOYEE_PORTAL_ACCOUNT_REACTIVATED', 'PERSONEL YENİDEN YERLEŞTİRİLDİĞİ İÇİN PORTAL HESABI AÇILDI');
+        }
 
         // Log Occupancy
         await tx.occupancyLog.create({
@@ -1343,10 +1365,7 @@ export class EmployeeService {
 
       // 3. Update employee status to CHECKED_OUT & record checkout user
       if (employee.userId) {
-        await tx.user.update({
-          where: { id: employee.userId },
-          data: { isActive: false },
-        });
+        await setEmployeePortalAccountActive(tx, employee.userId, false, checkedOutById, 'EMPLOYEE_PORTAL_ACCOUNT_DEACTIVATED', 'ODA ÇIKIŞI NEDENİYLE PORTAL HESABI KAPATILDI');
       }
 
       const updated = await tx.employee.update({
@@ -1424,7 +1443,7 @@ export class EmployeeService {
         if (!current) throw new AppError('Personel bulunamadı.', 404);
         if (current.userId) throw new AppError('Bu personelin zaten tanımlı bir kullanıcı hesabı var.', 409);
         const newUser = await tx.user.create({ data: {
-          username, email, passwordHash, fullName: `${employee.firstName} ${employee.lastName}`, role: Role.STAFF, isActive: employee.status !== 'CHECKED_OUT',
+          username, email, passwordHash, fullName: `${employee.firstName} ${employee.lastName}`, role: Role.STAFF, isActive: employee.status !== 'CHECKED_OUT', mustChangePassword: true,
         } });
         const linked = await tx.employee.updateMany({ where: { id: employeeId, isDeleted: false, userId: null, updatedAt: current.updatedAt }, data: { userId: newUser.id } });
         if (linked.count !== 1) throw new AppError('Personel hesabı aynı anda başka bir işlemde değiştirildi. Sayfayı yenileyin.', 409);

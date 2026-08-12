@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { hasPermission, permissions } from '../security/permissions';
+import { appRoles, hasPermission, permissionLabels, permissions, roleCatalog, rolePermissions } from '../security/permissions';
 import { scopeEmployeeData, scopeMaintenanceData, scopeRoomData } from '../security/dataScope';
 
 test('technical roles can process faults without receiving user administration access', () => {
@@ -49,4 +49,16 @@ test('maintenance financial values require full-update permission', () => {
   assert.equal('partsCost' in technician, false);
   assert.equal(technician.serviceProvider, 'SERVİS A');
   assert.equal((scopeMaintenanceData(record, 'TECHNICAL_MANAGER') as typeof record).laborCost, 1500);
+});
+
+test('role catalog is exhaustive and exposes the enforced permission matrix', () => {
+  assert.equal(roleCatalog.length, appRoles.length);
+  for (const role of appRoles) {
+    const catalog = roleCatalog.find((item) => item.role === role);
+    assert.ok(catalog);
+    assert.deepEqual(catalog.permissions.map((item) => item.permission), Array.from(rolePermissions[role]));
+  }
+  assert.deepEqual(Object.keys(permissionLabels).sort(), Object.values(permissions).sort());
+  assert.equal(hasPermission('HR_MANAGER', permissions.ROOM_OCCUPANCY_EXPORT), true);
+  assert.equal(hasPermission('HOUSING_STAFF', permissions.USER_MANAGE), false);
 });

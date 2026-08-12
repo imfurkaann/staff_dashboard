@@ -13,7 +13,12 @@ export interface AuthenticatedRequest extends Request {
     email: string;
     fullName: string;
     role: string;
+    mustChangePassword: boolean;
   };
+}
+
+export function isPasswordChangeRoute(baseUrl: string, path: string): boolean {
+  return baseUrl === '/api/auth' && (path === '/me' || path === '/change-password');
 }
 
 /**
@@ -49,6 +54,7 @@ export const authenticateToken = async (
         fullName: true,
         role: true,
         isActive: true,
+        mustChangePassword: true,
         passwordHash: true,
       },
     });
@@ -67,6 +73,10 @@ export const authenticateToken = async (
 
     const { passwordHash: _passwordHash, isActive: _isActive, ...safeUser } = user;
     req.user = safeUser;
+    const passwordChangeAllowed = isPasswordChangeRoute(req.baseUrl, req.path);
+    if (safeUser.mustChangePassword && !passwordChangeAllowed) {
+      throw new AppError('Devam etmeden önce geçici parolanızı değiştirmeniz gerekir.', 428);
+    }
     next();
   } catch (error: any) {
     if (error.name === 'JsonWebTokenError' || error.name === 'TokenExpiredError') {
@@ -81,6 +91,9 @@ export const authenticateToken = async (
  */
 export const authorizeRoles = (...roles: string[]) => {
   return (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+    if (req.user?.mustChangePassword) {
+      return next(new AppError('Devam etmeden önce geçici parolanızı değiştirmeniz gerekir.', 428));
+    }
     if (!req.user || !roles.includes(req.user.role)) {
       return next(
         new AppError('Bu işlem için yetkiniz bulunmamaktadır.', 403)
@@ -92,6 +105,9 @@ export const authorizeRoles = (...roles: string[]) => {
 
 export const authorizePermissions = (...required: Permission[]) => {
   return (req: AuthenticatedRequest, _res: Response, next: NextFunction) => {
+    if (req.user?.mustChangePassword) {
+      return next(new AppError('Devam etmeden önce geçici parolanızı değiştirmeniz gerekir.', 428));
+    }
     if (!req.user || !hasAllPermissions(req.user.role, required)) {
       return next(new AppError('Bu işlem için gerekli yetkiniz bulunmamaktadır.', 403));
     }
@@ -101,6 +117,9 @@ export const authorizePermissions = (...required: Permission[]) => {
 
 export const authorizeAnyPermission = (...required: Permission[]) => {
   return (req: AuthenticatedRequest, _res: Response, next: NextFunction) => {
+    if (req.user?.mustChangePassword) {
+      return next(new AppError('Devam etmeden önce geçici parolanızı değiştirmeniz gerekir.', 428));
+    }
     if (!req.user || !hasAnyPermission(req.user.role, required)) {
       return next(new AppError('Bu işlem için gerekli yetkiniz bulunmamaktadır.', 403));
     }

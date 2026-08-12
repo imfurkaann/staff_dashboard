@@ -49,8 +49,7 @@ export async function generateUniqueUsername(firstName: string, lastName: string
 }
 
 export async function generateUniqueEasyPassword(): Promise<string> {
-  const prefixes = ['Lojman', 'Personel', 'Dashboard', 'Housing'];
-  const prefix = prefixes[randomInt(prefixes.length)];
-  const num = randomInt(1000, 9999);
-  return `${prefix}${num}!`;
+  const randomPart = randomBytes(9).toString('base64url');
+  const number = randomInt(1000, 10000);
+  return `Lj!${number}-A${randomPart}a`;
 }

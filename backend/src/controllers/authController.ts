@@ -9,6 +9,7 @@ export class AuthController {
    */
   public static async login(req: Request, res: Response, next: NextFunction) {
     try {
+      res.setHeader('Cache-Control', 'no-store');
       const { usernameOrEmail, password } = req.body;
       const result = await AuthService.login({ usernameOrEmail, password });
 
@@ -16,9 +17,10 @@ export class AuthController {
       res.cookie(config.cookie.name, result.token, {
         httpOnly: true,
         secure: config.nodeEnv === 'production',
-        sameSite: 'lax',
+        sameSite: config.nodeEnv === 'production' ? 'strict' : 'lax',
         path: '/',
         maxAge: config.cookie.maxAgeMs,
+        priority: 'high',
       });
 
       res.status(200).json({
@@ -36,10 +38,11 @@ export class AuthController {
    */
   public static async logout(req: Request, res: Response, next: NextFunction) {
     try {
+      res.setHeader('Cache-Control', 'no-store');
       res.clearCookie(config.cookie.name, {
         httpOnly: true,
         secure: config.nodeEnv === 'production',
-        sameSite: 'lax',
+        sameSite: config.nodeEnv === 'production' ? 'strict' : 'lax',
         path: '/',
       });
 
@@ -57,6 +60,7 @@ export class AuthController {
    */
   public static async me(req: AuthenticatedRequest, res: Response, next: NextFunction) {
     try {
+      res.setHeader('Cache-Control', 'no-store');
       res.status(200).json({
         success: true,
         data: {
@@ -73,6 +77,7 @@ export class AuthController {
    */
   public static async changePassword(req: AuthenticatedRequest, res: Response, next: NextFunction) {
     try {
+      res.setHeader('Cache-Control', 'no-store');
       const userId = req.user!.id;
       const { oldPassword, newPassword } = req.body;
 
@@ -81,7 +86,7 @@ export class AuthController {
       res.clearCookie(config.cookie.name, {
         httpOnly: true,
         secure: config.nodeEnv === 'production',
-        sameSite: 'lax',
+        sameSite: config.nodeEnv === 'production' ? 'strict' : 'lax',
         path: '/',
       });
 

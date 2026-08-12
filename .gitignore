@@ -2,6 +2,7 @@ node_modules
 dist
 .env
 *.log
+test_accounts.local.txt
 tmp/
 backend/dist
 backend/node_modules

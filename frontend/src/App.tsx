@@ -4,6 +4,7 @@ import { StaffLoginView } from './components/StaffLoginView';
 import { authApi, User } from './api/authApi';
 import { Sidebar } from './components/Sidebar';
 import { canAccessTab, firstAllowedTab } from './security/accessControl';
+import { RequiredPasswordChangeView } from './components/RequiredPasswordChangeView';
 
 const DashboardView = lazy(() => import('./components/DashboardView').then((m) => ({ default: m.DashboardView })));
 const EmployeeManagementView = lazy(() => import('./components/EmployeeManagementView').then((m) => ({ default: m.EmployeeManagementView })));
@@ -100,6 +101,16 @@ export const App: React.FC = () => {
     );
   }
 
+  if (currentUser.mustChangePassword) {
+    return (
+      <RequiredPasswordChangeView
+        user={currentUser}
+        onCompleted={() => setCurrentUser(null)}
+        onLogout={handleLogout}
+      />
+    );
+  }
+
   // Strict Role Guard: Staff users ONLY see the Staff Mobile Portal
   if (currentUser.role === 'STAFF') {
     return <Suspense fallback={<PageLoader />}><StaffPortalView currentUser={currentUser} onLogout={handleLogout} /></Suspense>;
@@ -119,7 +130,7 @@ export const App: React.FC = () => {
       />
 
       {/* Main Content Area */}
-      <div className="flex-1 ml-0 sm:ml-20 min-h-screen p-4 pb-24 sm:p-6 lg:p-8 transition-all duration-300">
+      <div className="min-w-0 flex-1 ml-0 sm:ml-20 min-h-screen p-4 pt-20 pb-24 sm:p-6 lg:p-8 transition-all duration-300">
         <Suspense fallback={<PageLoader />}>
         {permittedTab === 'dashboard' && (
           <DashboardView
@@ -160,7 +171,7 @@ export const App: React.FC = () => {
           <SharedAssetManagementView />
         )}
 
-        {permittedTab === 'users' && <UserManagementView currentUserId={currentUser.id} />}
+        {permittedTab === 'users' && <UserManagementView currentUserId={currentUser.id} onNavigateToEmployee={(employeeId) => handleTabChange('employees', employeeId)} onOwnPasswordChanged={() => setCurrentUser(null)} />}
 
         {permittedTab === 'inventory' && (
           <div className="bg-white border border-slate-300 rounded-3xl p-8 shadow-sm">

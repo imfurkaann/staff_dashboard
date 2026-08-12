@@ -1,25 +1,25 @@
-================================================================================
-                    LOJMAN YÖNETİM SİSTEMİ - TEST HESAPLARI
-================================================================================
+LOJMAN YÖNETİM SİSTEMİ — YEREL TEST HESAPLARI ŞABLONU
 
-Aşağıdaki hesaplar sistemdeki tüm farklı roller için tanımlanmıştır.
-Giriş adresi: http://localhost
+Bu dosyada çalışan kullanıcı adı, e-posta veya parola tutulmaz.
 
---------------------------------------------------------------------------------
-ROL                    | KULLANICI ADI       | E-POSTA                    | ŞİFRE
---------------------------------------------------------------------------------
-1. Ana Yönetici        | admin               | admin@example.com          | admin12345678
-2. Sistem Yöneticisi   | test_admin          | test_admin@example.com     | Test12345678!
-3. Lojman Yöneticisi   | test_housing_mgr    | housing_mgr@example.com    | Test12345678!
-4. Lojman Personeli    | test_housing_staff  | housing_staff@example.com  | Test12345678!
-5. Teknik Yönetici     | test_tech_mgr       | tech_mgr@example.com       | Test12345678!
-6. Teknik Personel     | test_technician     | technician@example.com     | Test12345678!
-7. Temizlik Görevlisi  | test_housekeeping   | housekeeping@example.com   | Test12345678!
-8. Depo Yöneticisi     | test_warehouse_mgr  | warehouse_mgr@example.com  | Test12345678!
-9. İnsan Kaynakları    | test_hr_mgr         | hr_mgr@example.com         | Test12345678!
-10. Güvenlik Görevlisi | test_security       | security@example.com       | Test12345678!
-11. Standart Personel  | test_staff          | staff@example.com          | Test12345678!
---------------------------------------------------------------------------------
+Yerel test için:
+1. Hesapları Kullanıcı & Roller veya Personel Yönetimi ekranından oluşturun.
+2. Her hesap için benzersiz, geçici ve güçlü bir parola kullanın.
+3. Geçici parolayı kaynak koduna, Git geçmişine veya ortak belgelere yazmayın.
+4. Kullanıcı ilk girişte parolasını değiştirmek zorundadır.
+5. Test bittikten sonra hesapları kapatın veya yerel veritabanını güvenli biçimde sıfırlayın.
 
-Not: Tüm hesaplar aktif durumdadır. Kullanıcı adı veya e-posta adresi ile giriş yapılabilir.
-================================================================================
+Önerilen rol kapsamı:
+- ADMIN
+- HOUSING_MANAGER
+- HOUSING_STAFF
+- TECHNICAL_MANAGER
+- TECHNICIAN
+- HOUSEKEEPING
+- WAREHOUSE_MANAGER
+- HR_MANAGER
+- SECURITY
+- STAFF (yalnızca bir personel kaydına bağlı olarak)
+
+Not: Bu dosyanın önceki sürümünde yer alan bütün ortak test parolaları ifşa olmuş kabul
+edilmeli ve kullanıldıkları ortamlarda değiştirilmelidir.

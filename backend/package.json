@@ -8,12 +8,16 @@
     "build": "tsc",
     "test": "npm run build && node --test dist/tests/*.test.js",
     "start": "node dist/server.js",
+    "db:setup": "npm run prisma:generate && npm run prisma:migrate:deploy",
+    "db:verify": "prisma format --check && prisma validate && prisma migrate status",
     "prisma:generate": "prisma generate",
-    "prisma:migrate": "prisma migrate dev",
+    "prisma:migrate:dev": "prisma migrate dev",
     "prisma:migrate:deploy": "prisma migrate deploy",
+    "prisma:seed:dev": "ts-node src/seed.ts",
     "prisma:seed": "node dist/seed.js",
     "data:normalize": "ts-node src/scripts/normalizeExistingData.ts",
-    "data:normalize:apply": "ts-node src/scripts/normalizeExistingData.ts --apply"
+    "data:normalize:apply": "ts-node src/scripts/normalizeExistingData.ts --apply",
+    "users:verify": "node dist/scripts/verifyUserManagementProduction.js"
   },
   "dependencies": {
     "@prisma/client": "^5.10.2",

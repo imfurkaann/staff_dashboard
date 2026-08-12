@@ -85,6 +85,24 @@ export const Sidebar: React.FC<SidebarProps> = ({
   ].filter((item) => canAccessTab(currentUser.role, item.id));
 
   return (<>
+    <div className="fixed inset-x-0 top-0 z-50 flex h-16 items-center gap-3 border-b border-slate-300 bg-white px-3 shadow-sm sm:hidden no-print">
+      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#1e3a8a] text-white">
+        <Building2 className="h-5 w-5" />
+      </div>
+      <label className="min-w-0 flex-1">
+        <span className="sr-only">Yönetim sayfası</span>
+        <select
+          value={activeTab}
+          onChange={(event) => onTabChange(event.target.value)}
+          className="w-full rounded-xl border border-slate-300 bg-slate-50 px-3 py-2 text-xs font-extrabold text-slate-800 outline-none focus:border-[#1e3a8a]"
+        >
+          {menuItems.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
+        </select>
+      </label>
+      <button onClick={onLogout} aria-label="Oturumu kapat" className="rounded-xl border border-rose-200 bg-rose-50 p-2.5 text-rose-700">
+        <LogOut className="h-4 w-4" />
+      </button>
+    </div>
     <aside
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}

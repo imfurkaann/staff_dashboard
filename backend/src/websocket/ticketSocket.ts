@@ -42,11 +42,11 @@ async function authenticateUpgrade(request: IncomingMessage) {
     const user = await prisma.user.findUnique({
       where: { id: decoded.id },
       select: {
-        id: true, role: true, isActive: true, passwordHash: true,
+        id: true, role: true, isActive: true, mustChangePassword: true, passwordHash: true,
         employee: { select: { id: true } },
       },
     });
-    if (!user?.isActive || decoded.pwd !== AuthService.passwordVersion(user.passwordHash)) return null;
+    if (!user?.isActive || user.mustChangePassword || decoded.pwd !== AuthService.passwordVersion(user.passwordHash)) return null;
     if (!hasPermission(user.role, permissions.TICKET_VIEW) && !hasPermission(user.role, permissions.TICKET_CREATE)) return null;
     return {
       userId: user.id,

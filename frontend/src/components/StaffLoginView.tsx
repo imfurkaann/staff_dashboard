@@ -88,6 +88,7 @@ export const StaffLoginView: React.FC<StaffLoginViewProps> = ({ onLoginSuccess, 
                   type="text"
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
+                  maxLength={254}
                   placeholder="Örn: ahmet.yilmaz"
                   className="w-full pl-10 pr-4 py-3 bg-slate-50 border border-slate-300 rounded-xl text-xs font-semibold text-slate-900 focus:outline-none focus:ring-2 focus:ring-[#1e3a8a]/30 focus:border-[#1e3a8a] transition"
                   required
@@ -104,6 +105,7 @@ export const StaffLoginView: React.FC<StaffLoginViewProps> = ({ onLoginSuccess, 
                   type="password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
+                  maxLength={72}
                   placeholder="••••••••"
                   className="w-full pl-10 pr-4 py-3 bg-slate-50 border border-slate-300 rounded-xl text-xs font-semibold text-slate-900 focus:outline-none focus:ring-2 focus:ring-[#1e3a8a]/30 focus:border-[#1e3a8a] transition"
                   required

@@ -85,6 +85,24 @@ export const employeeAccountRateLimiter = rateLimit({
   message: { success: false, message: 'Çok fazla personel hesabı işlemi yapıldı. Lütfen daha sonra yeniden deneyin.' },
 });
 
+export const userManagementMutationRateLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: 60,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => (req as any).user.id,
+  message: { success: false, message: 'Çok fazla kullanıcı yönetimi işlemi yapıldı. Lütfen daha sonra yeniden deneyin.' },
+});
+
+export const passwordResetRateLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => (req as any).user.id,
+  message: { success: false, message: 'Bir saat içinde en fazla 10 parola sıfırlama işlemi yapılabilir.' },
+});
+
 export const stockMutationRateLimiter = rateLimit({
   windowMs: 60 * 60 * 1000,
   max: 300,

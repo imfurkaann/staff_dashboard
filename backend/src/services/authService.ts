@@ -4,6 +4,7 @@ import prisma from '../db/prisma';
 import { AppError } from '../middleware/errorHandler';
 import { config } from '../config';
 import crypto from 'crypto';
+import { validateLoginPassword, validatePassword } from '../security/passwordPolicy';
 
 const DUMMY_PASSWORD_HASH = '$2a$12$FKrZcHDuELT40ixHK1a1TOYqRGHrJYlQ5nlA/ApxePTb090ZkgZo6';
 
@@ -34,13 +35,12 @@ export class AuthService {
    * Secure User login logic with bcrypt password verification
    */
   public static async login(data: LoginDTO) {
-    const { usernameOrEmail, password } = data;
-
-    if (!usernameOrEmail || !password) {
-      throw new AppError('Kullanıcı adı/E-posta ve şifre girilmesi zorunludur.', 400);
+    const rawIdentifier = typeof data.usernameOrEmail === 'string' ? data.usernameOrEmail : '';
+    const sanitizedIdentifier = rawIdentifier.toLocaleLowerCase('en-US').trim();
+    if (!sanitizedIdentifier || sanitizedIdentifier.length > 254) {
+      throw new AppError('Kullanıcı adı veya şifre hatalı.', 401);
     }
-
-    const sanitizedIdentifier = usernameOrEmail.toLowerCase().trim();
+    const password = validateLoginPassword(data.password);
 
     // Find active user by username or email
     const user = await prisma.user.findFirst({
@@ -83,6 +83,7 @@ export class AuthService {
         email: user.email,
         fullName: user.fullName,
         role: user.role,
+        mustChangePassword: user.mustChangePassword,
       },
       token,
     };
@@ -94,13 +95,11 @@ export class AuthService {
   public static async changePassword(data: ChangePasswordDTO) {
     const { userId, oldPassword, newPassword } = data;
 
-    if (!oldPassword || !newPassword) {
+    if (typeof oldPassword !== 'string' || !oldPassword || typeof newPassword !== 'string' || !newPassword) {
       throw new AppError('Mevcut şifre ve yeni şifre girilmesi zorunludur.', 400);
     }
-
-    if (newPassword.length < 10 || !/[A-ZÇĞİÖŞÜ]/.test(newPassword) || !/\d/.test(newPassword)) {
-      throw new AppError('Yeni şifre en az 10 karakter, bir büyük harf ve bir rakam içermelidir.', 400);
-    }
+    validateLoginPassword(oldPassword);
+    const validatedNewPassword = validatePassword(newPassword, 'Yeni parola');
 
     const user = await prisma.user.findUnique({
       where: { id: userId },
@@ -115,12 +114,28 @@ export class AuthService {
       throw new AppError('Mevcut şifreniz hatalı.', 400);
     }
 
-    const newPasswordHash = await bcrypt.hash(newPassword, config.security.saltRounds);
+    if (await bcrypt.compare(validatedNewPassword, user.passwordHash)) {
+      throw new AppError('Yeni parola mevcut parolanızdan farklı olmalıdır.', 400);
+    }
 
-    await prisma.user.update({
-      where: { id: userId },
-      data: { passwordHash: newPasswordHash },
-    });
+    const newPasswordHash = await bcrypt.hash(validatedNewPassword, config.security.saltRounds);
+
+    await prisma.$transaction([
+      prisma.user.update({
+        where: { id: userId },
+        data: { passwordHash: newPasswordHash, mustChangePassword: false },
+      }),
+      prisma.userAuditLog.create({
+        data: {
+          targetUserId: userId,
+          actorUserId: userId,
+          action: 'PASSWORD_CHANGED',
+          beforeRole: user.role,
+          afterRole: user.role,
+          notes: 'KULLANICI PAROLASINI GÜVENLİ ŞEKİLDE DEĞİŞTİRDİ',
+        },
+      }),
+    ]);
 
     return { success: true, message: 'Şifreniz başarıyla güncellendi.' };
   }

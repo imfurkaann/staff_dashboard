@@ -105,3 +105,62 @@ export const roleLabels: Record<AppRole, string> = {
   SECURITY: 'Güvenlik Personeli',
   STAFF: 'Personel Portal Kullanıcısı',
 };
+
+export const roleDescriptions: Record<AppRole, string> = {
+  ADMIN: 'Sistem yapılandırması, kullanıcı yönetimi ve bütün operasyon modüllerinde tam yetki.',
+  HOUSING_MANAGER: 'Kullanıcı yönetimi dahil lojman operasyonları ve yönetim süreçlerinde tam yetki.',
+  HOUSING_STAFF: 'Lojman operasyonları; hassas personel verileri ve kullanıcı yönetimi hariç.',
+  TECHNICAL_MANAGER: 'Arıza süreçleri, teknik raporlar, cihaz yaşam döngüsü ve stok görünümü.',
+  TECHNICIAN: 'Oda ve arızalarda bildirim, işlem ve çözüm güncelleme yetkisi.',
+  HOUSEKEEPING: 'Oda görünümü ile temizlik süreçleriyle sınırlı erişim.',
+  WAREHOUSE_MANAGER: 'Depo, stok, zimmet ve ortak eşya işlemleri.',
+  HR_MANAGER: 'Hassas personel bilgileri, personel raporları ve ilgili yönetim görünümleri.',
+  SECURITY: 'Ziyaretçi süreçleri, temel oda/personel görünümü ve arıza bildirimi.',
+  STAFF: 'Yalnızca bağlı personelin kendi portal verileri, talepleri ve ortak eşya görünümü.',
+};
+
+export const permissionLabels: Record<Permission, string> = {
+  DASHBOARD_VIEW: 'Dashboard görüntüleme',
+  EMPLOYEE_VIEW: 'Personel listesi görüntüleme',
+  EMPLOYEE_SENSITIVE_VIEW: 'Hassas personel verilerini görüntüleme',
+  EMPLOYEE_MANAGE: 'Personel kayıtlarını yönetme',
+  EMPLOYEE_EXPORT: 'Personel raporu dışa aktarma',
+  ROOM_VIEW: 'Oda bilgilerini görüntüleme',
+  ROOM_MANAGE: 'Oda kayıtlarını yönetme',
+  ROOM_OCCUPANCY_EXPORT: 'Oda doluluk raporu dışa aktarma',
+  ROOM_INVENTORY_MANAGE: 'Oda envanterini yönetme',
+  CLEANING_MANAGE: 'Temizlik süreçlerini yönetme',
+  CLEANING_DELETE: 'Temizlik kaydını silme',
+  MAINTENANCE_VIEW: 'Arıza kayıtlarını görüntüleme',
+  MAINTENANCE_CREATE: 'Arıza kaydı oluşturma',
+  MAINTENANCE_UPDATE: 'Arıza sürecini güncelleme',
+  MAINTENANCE_FULL_UPDATE: 'Arıza servis ve maliyet bilgilerini yönetme',
+  MAINTENANCE_EXPORT: 'Arıza raporu dışa aktarma',
+  VISITOR_VIEW: 'Ziyaretçi kayıtlarını görüntüleme',
+  VISITOR_MANAGE: 'Ziyaretçi giriş/çıkışını yönetme',
+  VISITOR_ARCHIVE: 'Ziyaretçi kaydını arşivleme/geri alma',
+  VISITOR_EXPORT: 'Ziyaretçi raporu dışa aktarma',
+  STOCK_VIEW: 'Stok ve hareketleri görüntüleme',
+  STOCK_MANAGE: 'Stok kayıtlarını yönetme',
+  STOCK_DEVICE_LIFECYCLE: 'Cihaz zimmet yaşam döngüsünü yönetme',
+  SHARED_ASSET_VIEW: 'Ortak eşyaları görüntüleme',
+  SHARED_ASSET_MANAGE: 'Ortak eşya işlemlerini yönetme',
+  NOTIFICATION_VIEW: 'Duyuruları görüntüleme',
+  NOTIFICATION_MANAGE: 'Duyuru gönderme',
+  NOTIFICATION_DELETE: 'Duyuru silme',
+  TICKET_VIEW: 'Talep ve şikâyetleri görüntüleme',
+  TICKET_MANAGE: 'Talep ve şikâyetleri yönetme',
+  TICKET_CREATE: 'Talep ve şikâyet oluşturma',
+  USER_MANAGE: 'Kullanıcı ve rol yönetimi',
+  PORTAL_SELF: 'Kendi personel portalına erişim',
+};
+
+export const roleCatalog = appRoles.map((role) => ({
+  role,
+  label: roleLabels[role],
+  description: roleDescriptions[role],
+  permissions: Array.from(rolePermissions[role]).map((permission) => ({
+    permission,
+    label: permissionLabels[permission],
+  })),
+}));

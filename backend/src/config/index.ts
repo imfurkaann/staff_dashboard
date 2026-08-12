@@ -72,8 +72,30 @@ export function validateConfig(): void {
     throw new Error('JWT_SECRET ve COOKIE_SECRET en az 32 karakter olmalıdır.');
   }
   if (config.security.encryptionKey.length < 32) throw new Error('DATA_ENCRYPTION_KEY en az 32 karakter olmalıdır.');
+  const secrets = [config.jwt.secret, config.cookie.secret, config.security.encryptionKey];
+  if (new Set(secrets).size !== secrets.length) throw new Error('JWT_SECRET, COOKIE_SECRET ve DATA_ENCRYPTION_KEY birbirinden farklı olmalıdır.');
+  if (secrets.some((value) => /change[_-]?me|fallback|development|local_only/i.test(value))) {
+    throw new Error('Production güvenlik anahtarlarında örnek veya geliştirme değeri kullanılamaz.');
+  }
+  if (!/^[A-Za-z0-9_-]{1,64}$/.test(config.cookie.name)) throw new Error('COOKIE_NAME değeri geçersiz.');
+  for (const origin of config.cors.allowedOrigins) {
+    let url: URL;
+    try { url = new URL(origin); } catch { throw new Error(`Geçersiz CORS origin değeri: ${origin}`); }
+    if (url.protocol !== 'https:' || url.origin !== origin || url.username || url.password) {
+      throw new Error(`Production CORS origin yalnızca tam HTTPS origin olmalıdır: ${origin}`);
+    }
+  }
+  if (!config.cors.allowedOrigins.includes(config.cors.clientUrl)) {
+    throw new Error('CLIENT_URL, CORS_ALLOWED_ORIGINS listesinde bulunmalıdır.');
+  }
   if (!Number.isInteger(config.port) || config.port < 1 || config.port > 65535) throw new Error('PORT değeri geçersiz.');
   if (!Number.isInteger(config.rateLimit.apiMax) || config.rateLimit.apiMax < 10) throw new Error('API_RATE_LIMIT_MAX değeri en az 10 olmalıdır.');
+  if (!Number.isInteger(config.rateLimit.windowMs) || config.rateLimit.windowMs < 1000 || config.rateLimit.windowMs > 24 * 60 * 60 * 1000) {
+    throw new Error('RATE_LIMIT_WINDOW_MS 1 saniye ile 24 saat arasında olmalıdır.');
+  }
+  if (!Number.isInteger(config.rateLimit.max) || config.rateLimit.max < 1 || config.rateLimit.max > config.rateLimit.apiMax) {
+    throw new Error('RATE_LIMIT_MAX 1 ile API_RATE_LIMIT_MAX arasında olmalıdır.');
+  }
   if (!Number.isInteger(config.security.saltRounds) || config.security.saltRounds < 10 || config.security.saltRounds > 14) {
     throw new Error('BCRYPT_SALT_ROUNDS 10-14 arasında olmalıdır.');
   }

@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { AxiosError } from 'axios';
 import { appConfig } from '../config/appConfig';
 import { AppRole } from '../security/accessControl';
 
@@ -8,6 +9,7 @@ export interface User {
   email: string;
   fullName: string;
   role: AppRole;
+  mustChangePassword: boolean;
 }
 
 export interface LoginResponse {
@@ -15,7 +17,6 @@ export interface LoginResponse {
   message: string;
   data?: {
     user: User;
-    token: string;
   };
 }
 
@@ -32,9 +33,10 @@ export const authApi = {
     try {
       const response = await api.post<LoginResponse>('/login', { usernameOrEmail, password });
       return response.data;
-    } catch (error: any) {
-      if (error.response?.data) {
-        return error.response.data;
+    } catch (error: unknown) {
+      const apiError = error as AxiosError<LoginResponse>;
+      if (apiError.response?.data) {
+        return apiError.response.data;
       }
       return {
         success: false,
@@ -57,6 +59,16 @@ export const authApi = {
       return response.data.data.user;
     } catch (e) {
       return null;
+    }
+  },
+
+  changePassword: async (oldPassword: string, newPassword: string): Promise<{ success: boolean; message: string }> => {
+    try {
+      const response = await api.post<{ success: boolean; message: string }>('/change-password', { oldPassword, newPassword });
+      return response.data;
+    } catch (error: unknown) {
+      const apiError = error as AxiosError<{ success: boolean; message: string }>;
+      return apiError.response?.data || { success: false, message: 'Parola değiştirilemedi. Bağlantınızı kontrol edip tekrar deneyin.' };
     }
   },
 };
