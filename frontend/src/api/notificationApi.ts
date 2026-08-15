@@ -1,4 +1,5 @@
 import { appConfig } from '../config/appConfig';
+import { generateUUID } from '../utils/cryptoHelpers';
 const API_BASE_URL = appConfig.apiBaseUrl;
 
 export interface RecipientInfo {
@@ -71,12 +72,7 @@ export const notificationApi = {
   },
 
   sendNotification: async (payload: SendNotificationPayload) => {
-    const requestKey = typeof crypto.randomUUID === 'function'
-      ? crypto.randomUUID()
-      : 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (char) => {
-          const random = crypto.getRandomValues(new Uint8Array(1))[0] & 15;
-          return (char === 'x' ? random : (random & 3) | 8).toString(16);
-        });
+    const requestKey = generateUUID();
     const res = await fetch(`${API_BASE_URL}/notifications/send`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Idempotency-Key': requestKey },

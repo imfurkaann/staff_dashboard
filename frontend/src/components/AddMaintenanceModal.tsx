@@ -22,6 +22,7 @@ import {
   maintenanceApi,
 } from '../api/maintenanceApi';
 import { roomApi, Room, RoomInventory } from '../api/roomApi';
+import { generateUUID } from '../utils/cryptoHelpers';
 
 interface AddMaintenanceModalProps {
   isOpen: boolean;
@@ -110,7 +111,7 @@ export const AddMaintenanceModal: React.FC<AddMaintenanceModalProps> = ({
 
   useEffect(() => {
     if (!isOpen) return;
-    if (!maintenance) requestKeyRef.current = crypto.randomUUID();
+    if (!maintenance) requestKeyRef.current = generateUUID();
     setError(null);
     setRoomsLoading(true);
     roomApi.getRooms().then(setRooms).catch(() => setError('Oda listesi yüklenemedi.')).finally(() => setRoomsLoading(false));

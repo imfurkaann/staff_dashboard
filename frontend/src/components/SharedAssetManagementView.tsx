@@ -8,6 +8,7 @@ import {
 import {
   SharedAsset, SharedAssetLog, SharedAssetOverview, SharedAssetStatus, sharedAssetApi,
 } from '../api/sharedAssetApi';
+import { generateUUID } from '../utils/cryptoHelpers';
 
 type ModalState =
   | { type: 'checkOut'; asset?: SharedAsset }
@@ -327,7 +328,7 @@ export const SharedAssetManagementView: React.FC = () => {
   const [categoryFilter, setCategoryFilter] = useState('ALL');
   const [statusFilter, setStatusFilter] = useState('ALL');
   const [modal, setModal] = useState<ModalState>(null);
-  const operationKeyRef = useRef(crypto.randomUUID());
+  const operationKeyRef = useRef(generateUUID());
   const [history, setHistory] = useState<{ items: SharedAssetLog[]; pagination: { page: number; pageSize: number; total: number; totalPages: number } } | null>(null);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [historyFilters, setHistoryFilters] = useState({ search: '', action: '', holderType: '', dateStart: '', dateEnd: '', page: 1 });
@@ -476,7 +477,7 @@ export const SharedAssetManagementView: React.FC = () => {
   };
 
   const openCheckOut = (asset?: SharedAsset) => {
-    operationKeyRef.current = crypto.randomUUID();
+    operationKeyRef.current = generateUUID();
     setCheckOutForm({
       assetId: asset?.id || '',
       holderType: 'EMPLOYEE',
@@ -490,7 +491,7 @@ export const SharedAssetManagementView: React.FC = () => {
   };
 
   const openCheckIn = (asset: SharedAsset) => {
-    operationKeyRef.current = crypto.randomUUID();
+    operationKeyRef.current = generateUUID();
     setCheckInForm({
       locationNote: asset.locationNote || '',
       notes: '',
@@ -500,7 +501,7 @@ export const SharedAssetManagementView: React.FC = () => {
   };
 
   const openMaintenanceLog = (asset: SharedAsset) => {
-    operationKeyRef.current = crypto.randomUUID();
+    operationKeyRef.current = generateUUID();
     setMaintForm({
       action: asset.status === 'MAINTENANCE' ? 'REPAIR_COMPLETED' : 'FAULT_REPORTED',
       notes: '',
@@ -510,7 +511,7 @@ export const SharedAssetManagementView: React.FC = () => {
   };
 
   const openRetire = (asset: SharedAsset) => {
-    operationKeyRef.current = crypto.randomUUID();
+    operationKeyRef.current = generateUUID();
     setRetireNotes('');
     setModal({ type: 'retire', asset });
   };

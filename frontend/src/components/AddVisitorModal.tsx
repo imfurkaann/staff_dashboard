@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Building2, Car, FileText, Loader2, Phone, Search, User, UserCheck, Users, X } from 'lucide-react';
 import { CreateVisitorPayload, Visitor, VisitorHostCandidate, visitorApi } from '../api/visitorApi';
+import { generateUUID } from '../utils/cryptoHelpers';
 
 interface AddVisitorModalProps {
   isOpen: boolean;
@@ -32,7 +33,7 @@ export const AddVisitorModal: React.FC<AddVisitorModalProps> = ({ isOpen, onClos
     });
     setError(null);
     submittingRef.current = false;
-    requestKeyRef.current = crypto.randomUUID();
+    requestKeyRef.current = generateUUID();
     setEmployeesLoading(true);
     visitorApi.getHostCandidates().then(setEmployees).catch(() => setError('Konaklayan personel listesi yüklenemedi.')).finally(() => setEmployeesLoading(false));
   }, [isOpen, visitor, fixedHostEmployeeId]);

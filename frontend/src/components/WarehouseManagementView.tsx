@@ -7,6 +7,7 @@ import {
 import { AssignmentStatus, MovementType, RoomAssignment, StockItem, StockMovement, StockMovementList, StockOverview, stockApi } from '../api/stockApi';
 import { User } from '../api/authApi';
 import { can } from '../security/accessControl';
+import { generateUUID } from '../utils/cryptoHelpers';
 
 type MainTab = 'stock' | 'rooms' | 'personnel' | 'movements';
 type ModalState =
@@ -324,7 +325,7 @@ export const WarehouseManagementView: React.FC<{ currentUser: User }> = ({ curre
   };
 
   const openCreate = () => {
-    operationKeyRef.current = crypto.randomUUID();
+    operationKeyRef.current = generateUUID();
     setCardForm({
       itemName: '',
       itemCode: '',
@@ -343,7 +344,7 @@ export const WarehouseManagementView: React.FC<{ currentUser: User }> = ({ curre
   };
 
   const openEdit = (item: StockItem) => {
-    operationKeyRef.current = crypto.randomUUID();
+    operationKeyRef.current = generateUUID();
     setCardForm({
       itemName: item.itemName,
       itemCode: item.itemCode || '',
@@ -361,15 +362,15 @@ export const WarehouseManagementView: React.FC<{ currentUser: User }> = ({ curre
     setModal({ type: 'edit', item });
   };
 
-  const openReceive = (item: StockItem) => { operationKeyRef.current = crypto.randomUUID(); setReceiveForm({ quantity: 1, reason: 'SATIN ALMA / MAL KABUL', notes: '' }); setModal({ type: 'receive', item }); };
-  const openCount = (item: StockItem) => { operationKeyRef.current = crypto.randomUUID(); setCountForm({ countedAvailable: item.availableStock, notes: '' }); setModal({ type: 'count', item }); };
+  const openReceive = (item: StockItem) => { operationKeyRef.current = generateUUID(); setReceiveForm({ quantity: 1, reason: 'SATIN ALMA / MAL KABUL', notes: '' }); setModal({ type: 'receive', item }); };
+  const openCount = (item: StockItem) => { operationKeyRef.current = generateUUID(); setCountForm({ countedAvailable: item.availableStock, notes: '' }); setModal({ type: 'count', item }); };
   const openAssign = (item?: StockItem) => {
-    operationKeyRef.current = crypto.randomUUID();
+    operationKeyRef.current = generateUUID();
     setAssignForm({ stockItemId: item?.id || '', roomId: '', roomIds: [], quantity: 1, mode: 'SINGLE', roomSearch: '', brand: '', serialNo: '', notes: '' });
     setModal({ type: 'assign', item });
   };
   const openAssignment = (item: StockItem, assignment: RoomAssignment) => {
-    operationKeyRef.current = crypto.randomUUID();
+    operationKeyRef.current = generateUUID();
     setAssignmentForm({ action: !assignment.serialNo && item.itemType !== 'SARF_MALZEME' ? 'IDENTITY' : assignment.maintenances?.length ? 'REPLACE' : 'TRANSFER', roomId: '', outcome: 'RETURNED', brand: assignment.brand || '', serialNo: assignment.serialNo || '', notes: '' });
     setModal({ type: 'assignment', item, assignment });
   };
