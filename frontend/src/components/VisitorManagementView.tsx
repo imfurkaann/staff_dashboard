@@ -101,7 +101,41 @@ export const VisitorManagementView: React.FC<Props> = ({ currentUser }) => {
     }
   };
 
-  if (view === 'history') return <VisitorHistoryView currentUser={currentUser} onBack={() => setView('list')} />;
+  const switchView = (nextView: 'list' | 'history', skipPushState = false) => {
+    setView(nextView);
+    if (!skipPushState) {
+      const url = new URL(window.location.href);
+      url.searchParams.set('tab', 'visitors');
+      if (nextView === 'history') {
+        url.searchParams.set('subView', 'history');
+        window.history.pushState({ tab: 'visitors', view: 'visitor-history', timestamp: Date.now() }, '', url.toString());
+      } else {
+        url.searchParams.delete('subView');
+        window.history.pushState({ tab: 'visitors', view: 'list', timestamp: Date.now() }, '', url.toString());
+      }
+    }
+  };
+
+  useEffect(() => {
+    const handlePopState = (e: PopStateEvent) => {
+      const state = e.state;
+      if (!state || state.view !== 'visitor-history') {
+        setView('list');
+      } else {
+        setView('history');
+      }
+    };
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
+
+  if (view === 'history') return <VisitorHistoryView currentUser={currentUser} onBack={() => {
+    if (window.history.state?.view === 'visitor-history') {
+      window.history.back();
+    } else {
+      switchView('list');
+    }
+  }} />;
 
   return (
     <div className="space-y-4 animate-fadeIn w-full max-w-full overflow-hidden">
@@ -150,7 +184,7 @@ export const VisitorManagementView: React.FC<Props> = ({ currentUser }) => {
         <div className="flex items-center gap-2 shrink-0">
           <button
             type="button"
-            onClick={() => setView('history')}
+            onClick={() => switchView('history')}
             className="inline-flex items-center gap-1.5 h-9 px-3.5 rounded-xl bg-violet-50 text-violet-700 hover:bg-violet-600 hover:text-white border border-violet-200 hover:border-violet-600 font-extrabold text-xs transition-all cursor-pointer shadow-xs whitespace-nowrap"
           >
             <History className="w-4 h-4" />

@@ -151,8 +151,14 @@ export const EmployeeManagementView: React.FC<EmployeeManagementViewProps> = ({ 
   const [activeEmployeeDetail, setActiveEmployeeDetail] = useState<Employee | null>(null);
   const [assignRoomEmployee, setAssignRoomEmployee] = useState<Employee | null>(null);
 
-  const openEmployeeDetail = async (emp: Employee) => {
+  const openEmployeeDetail = async (emp: Employee, skipPushState = false) => {
     localStorage.setItem('staff_app_active_emp_id', emp.id);
+    if (!skipPushState) {
+      const url = new URL(window.location.href);
+      url.searchParams.set('tab', 'employees');
+      url.searchParams.set('empId', emp.id);
+      window.history.pushState({ tab: 'employees', view: 'employee-detail', empId: emp.id, timestamp: Date.now() }, '', url.toString());
+    }
     try {
       setActiveEmployeeDetail(await employeeApi.getEmployeeById(emp.id));
     } catch (err: any) {
@@ -164,8 +170,28 @@ export const EmployeeManagementView: React.FC<EmployeeManagementViewProps> = ({ 
   const closeEmployeeDetail = () => {
     setActiveEmployeeDetail(null);
     localStorage.removeItem('staff_app_active_emp_id');
+    const url = new URL(window.location.href);
+    url.searchParams.set('tab', 'employees');
+    url.searchParams.delete('empId');
+    if (window.history.state?.view === 'employee-detail') {
+      window.history.back();
+    } else {
+      window.history.replaceState({ tab: 'employees', timestamp: Date.now() }, '', url.toString());
+    }
     fetchEmployees();
   };
+
+  useEffect(() => {
+    const handlePopState = (e: PopStateEvent) => {
+      const state = e.state;
+      if (!state || state.view !== 'employee-detail') {
+        setActiveEmployeeDetail(null);
+        localStorage.removeItem('staff_app_active_emp_id');
+      }
+    };
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
 
   // Modals state
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);

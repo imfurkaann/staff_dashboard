@@ -99,11 +99,35 @@ export const SupportTicketManagementView: React.FC<SupportTicketManagementViewPr
     loadData();
   };
 
-  const openTicketDetail = (ticket: SupportTicket) => {
+  const openTicketDetail = (ticket: SupportTicket, skipPushState = false) => {
     setSelectedTicket(ticket);
     setUpdateStatus(ticket.status);
     setUpdateNote(ticket.adminNote || '');
+    if (!skipPushState) {
+      const url = new URL(window.location.href);
+      url.searchParams.set('tab', 'tickets');
+      url.searchParams.set('ticketId', ticket.id);
+      window.history.pushState({ tab: 'tickets', view: 'ticket-modal', ticketId: ticket.id, timestamp: Date.now() }, '', url.toString());
+    }
   };
+
+  const closeTicketDetail = () => {
+    setSelectedTicket(null);
+    if (window.history.state?.view === 'ticket-modal') {
+      window.history.back();
+    }
+  };
+
+  useEffect(() => {
+    const handlePopState = (e: PopStateEvent) => {
+      const state = e.state;
+      if (!state || state.view !== 'ticket-modal') {
+        setSelectedTicket(null);
+      }
+    };
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
 
   const handleStatusUpdate = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -300,14 +324,14 @@ export const SupportTicketManagementView: React.FC<SupportTicketManagementViewPr
 
       {/* Modal: Ticket Detail & Status Update */}
       {selectedTicket && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 p-4" onClick={() => setSelectedTicket(null)}>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 p-4" onClick={closeTicketDetail}>
           <div className="w-full max-w-xl rounded-3xl border border-slate-300 bg-white shadow-2xl overflow-hidden" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between border-b border-slate-200 bg-slate-50 px-6 py-4">
               <div>
                 <span className="font-mono font-black text-xs text-[#1e3a8a] bg-blue-50 px-2 py-0.5 rounded border border-blue-200">{selectedTicket.ticketNo}</span>
                 <h3 className="font-black text-slate-900 text-base mt-1">{selectedTicket.subject}</h3>
               </div>
-              <button type="button" onClick={() => setSelectedTicket(null)} className="p-1 rounded-xl text-slate-400 hover:bg-slate-200 hover:text-slate-700">
+              <button type="button" onClick={closeTicketDetail} className="p-1 rounded-xl text-slate-400 hover:bg-slate-200 hover:text-slate-700">
                 <X className="w-5 h-5" />
               </button>
             </div>

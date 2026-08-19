@@ -32,17 +32,33 @@ export const App: React.FC = () => {
   });
 
   const [activeTab, setActiveTab] = useState<string>(() => {
+    const params = new URLSearchParams(window.location.search);
+    const urlTab = params.get('tab');
     const savedTab = localStorage.getItem('staff_app_active_tab');
-    return ['employees', 'rooms', 'visitors', 'tickets', 'issues', 'maintenance', 'notifications', 'warehouse', 'shared-assets', 'users'].includes(savedTab || '') ? savedTab! : 'dashboard';
+    const validTabs = ['employees', 'rooms', 'visitors', 'tickets', 'issues', 'maintenance', 'notifications', 'warehouse', 'shared-assets', 'users', 'inventory', 'kbs'];
+    if (urlTab && validTabs.includes(urlTab)) return urlTab;
+    if (savedTab && validTabs.includes(savedTab)) return savedTab;
+    return 'dashboard';
   });
 
-  const handleTabChange = (tab: string, empId?: string) => {
+  const handleTabChange = (tab: string, empId?: string, skipPushState = false) => {
     setActiveTab(tab);
     localStorage.setItem('staff_app_active_tab', tab);
     if (empId) {
       localStorage.setItem('staff_app_active_emp_id', empId);
     } else if (tab === 'employees') {
       localStorage.removeItem('staff_app_active_emp_id');
+    }
+
+    if (!skipPushState) {
+      const url = new URL(window.location.href);
+      url.searchParams.set('tab', tab);
+      if (empId) {
+        url.searchParams.set('empId', empId);
+      } else {
+        url.searchParams.delete('empId');
+      }
+      window.history.pushState({ tab, empId, timestamp: Date.now() }, '', url.toString());
     }
   };
 
@@ -62,6 +78,38 @@ export const App: React.FC = () => {
     };
 
     checkSession();
+  }, []);
+
+  useEffect(() => {
+    // Initialize browser history entry if missing
+    const params = new URLSearchParams(window.location.search);
+    if (!params.has('tab')) {
+      const url = new URL(window.location.href);
+      url.searchParams.set('tab', activeTab);
+      window.history.replaceState({ tab: activeTab, timestamp: Date.now() }, '', url.toString());
+    } else {
+      window.history.replaceState({ tab: activeTab, timestamp: Date.now() }, '', window.location.href);
+    }
+
+    const handlePopState = (e: PopStateEvent) => {
+      const state = e.state;
+      let targetTab = 'dashboard';
+      if (state && state.tab) {
+        targetTab = state.tab;
+      } else {
+        const searchParams = new URLSearchParams(window.location.search);
+        const urlTab = searchParams.get('tab');
+        const validTabs = ['employees', 'rooms', 'visitors', 'tickets', 'issues', 'maintenance', 'notifications', 'warehouse', 'shared-assets', 'users', 'inventory', 'kbs'];
+        if (urlTab && validTabs.includes(urlTab)) {
+          targetTab = urlTab;
+        }
+      }
+      setActiveTab(targetTab);
+      localStorage.setItem('staff_app_active_tab', targetTab);
+    };
+
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
   }, []);
 
   const handleLogout = async () => {

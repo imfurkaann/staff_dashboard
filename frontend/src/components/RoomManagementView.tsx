@@ -153,9 +153,15 @@ export const RoomManagementView: React.FC<RoomManagementViewProps> = ({ onNaviga
     setPendingReadyRoom(null);
   };
 
-  const openRoomDetail = async (roomId: string) => {
+  const openRoomDetail = async (roomId: string, skipPushState = false) => {
     setDetailLoadingId(roomId);
     setError(null);
+    if (!skipPushState) {
+      const url = new URL(window.location.href);
+      url.searchParams.set('tab', 'rooms');
+      url.searchParams.set('roomId', roomId);
+      window.history.pushState({ tab: 'rooms', view: 'room-detail', roomId, timestamp: Date.now() }, '', url.toString());
+    }
     try {
       setActiveRoomDetail(await roomApi.getRoomById(roomId));
     } catch (err: any) {
@@ -164,6 +170,29 @@ export const RoomManagementView: React.FC<RoomManagementViewProps> = ({ onNaviga
       setDetailLoadingId(null);
     }
   };
+
+  const closeRoomDetail = () => {
+    setActiveRoomDetail(null);
+    const url = new URL(window.location.href);
+    url.searchParams.set('tab', 'rooms');
+    url.searchParams.delete('roomId');
+    if (window.history.state?.view === 'room-detail') {
+      window.history.back();
+    } else {
+      window.history.replaceState({ tab: 'rooms', timestamp: Date.now() }, '', url.toString());
+    }
+  };
+
+  useEffect(() => {
+    const handlePopState = (e: PopStateEvent) => {
+      const state = e.state;
+      if (!state || state.view !== 'room-detail') {
+        setActiveRoomDetail(null);
+      }
+    };
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
 
   const openCreateModal = (type: 'room' | 'block') => {
     setCreateError(null);
@@ -315,7 +344,7 @@ export const RoomManagementView: React.FC<RoomManagementViewProps> = ({ onNaviga
       <RoomDetailView
         room={activeRoomDetail}
         currentUser={currentUser}
-        onBack={() => setActiveRoomDetail(null)}
+        onBack={closeRoomDetail}
         onRoomUpdated={(updated) => {
           setActiveRoomDetail(updated);
           setRooms((prev) => prev.map((r) => (r.id === updated.id ? updated : r)));

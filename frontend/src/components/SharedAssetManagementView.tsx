@@ -673,8 +673,42 @@ export const SharedAssetManagementView: React.FC = () => {
 
   const [viewMode, setViewMode] = useState<'list' | 'history'>('list');
 
+  const switchViewMode = (nextMode: 'list' | 'history', skipPushState = false) => {
+    setViewMode(nextMode);
+    if (!skipPushState) {
+      const url = new URL(window.location.href);
+      url.searchParams.set('tab', 'shared-assets');
+      if (nextMode === 'history') {
+        url.searchParams.set('subView', 'history');
+        window.history.pushState({ tab: 'shared-assets', view: 'asset-history', timestamp: Date.now() }, '', url.toString());
+      } else {
+        url.searchParams.delete('subView');
+        window.history.pushState({ tab: 'shared-assets', view: 'list', timestamp: Date.now() }, '', url.toString());
+      }
+    }
+  };
+
+  useEffect(() => {
+    const handlePopState = (e: PopStateEvent) => {
+      const state = e.state;
+      if (!state || state.view !== 'asset-history') {
+        setViewMode('list');
+      } else {
+        setViewMode('history');
+      }
+    };
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
+
   if (viewMode === 'history') {
-    return <SharedAssetHistoryView assets={overview?.assets || []} onBack={() => setViewMode('list')} />;
+    return <SharedAssetHistoryView assets={overview?.assets || []} onBack={() => {
+      if (window.history.state?.view === 'asset-history') {
+        window.history.back();
+      } else {
+        switchViewMode('list');
+      }
+    }} />;
   }
 
   return (
@@ -713,7 +747,7 @@ export const SharedAssetManagementView: React.FC = () => {
         </div>
 
         <div className="flex items-center gap-2 shrink-0">
-          <button type="button" onClick={() => setViewMode('history')} className={secondaryButton}>
+          <button type="button" onClick={() => switchViewMode('history')} className={secondaryButton}>
             <History className="h-3.5 w-3.5 text-blue-700" /> Tüm İşlem Geçmişi Raporu
           </button>
           <button type="button" onClick={() => openCheckOut()} className={primaryButton}>

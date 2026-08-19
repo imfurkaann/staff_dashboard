@@ -37,7 +37,21 @@ export const StaffPortalView: React.FC<StaffPortalViewProps> = ({ currentUser: _
   const [data, setData] = useState<StaffPortalData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<'room' | 'notifications' | 'inventories' | 'sharedAssets' | 'tickets'>('room');
+  const [activeTab, setActiveTab] = useState<'room' | 'notifications' | 'inventories' | 'sharedAssets' | 'tickets'>(() => {
+    const params = new URLSearchParams(window.location.search);
+    const pTab = params.get('portalTab') as any;
+    if (['room', 'notifications', 'inventories', 'sharedAssets', 'tickets'].includes(pTab)) return pTab;
+    return 'room';
+  });
+
+  const changePortalTab = (tab: 'room' | 'notifications' | 'inventories' | 'sharedAssets' | 'tickets', skipPushState = false) => {
+    setActiveTab(tab);
+    if (!skipPushState) {
+      const url = new URL(window.location.href);
+      url.searchParams.set('portalTab', tab);
+      window.history.pushState({ portalTab: tab, timestamp: Date.now() }, '', url.toString());
+    }
+  };
 
   // Shared assets availability state
   const [sharedAssets, setSharedAssets] = useState<SharedAsset[]>([]);
@@ -50,6 +64,49 @@ export const StaffPortalView: React.FC<StaffPortalViewProps> = ({ currentUser: _
   const [myTicketsLoading, setMyTicketsLoading] = useState<boolean>(false);
   const [myTicketsError, setMyTicketsError] = useState<string | null>(null);
   const [isTicketModalOpen, setIsTicketModalOpen] = useState<boolean>(false);
+
+  const openTicketModal = (skipPushState = false) => {
+    setIsTicketModalOpen(true);
+    if (!skipPushState) {
+      const url = new URL(window.location.href);
+      url.searchParams.set('portalModal', 'ticket');
+      window.history.pushState({ portalTab: activeTab, portalModal: 'ticket', timestamp: Date.now() }, '', url.toString());
+    }
+  };
+
+  const closeTicketModal = () => {
+    setIsTicketModalOpen(false);
+    if (window.history.state?.portalModal === 'ticket') {
+      window.history.back();
+    }
+  };
+
+  useEffect(() => {
+    const handlePopState = (e: PopStateEvent) => {
+      const state = e.state;
+      if (state && state.portalModal === 'ticket') {
+        setIsTicketModalOpen(true);
+      } else {
+        setIsTicketModalOpen(false);
+      }
+
+      if (state && state.portalTab) {
+        setActiveTab(state.portalTab);
+      } else {
+        const params = new URLSearchParams(window.location.search);
+        const pTab = params.get('portalTab') as any;
+        if (['room', 'notifications', 'inventories', 'sharedAssets', 'tickets'].includes(pTab)) {
+          setActiveTab(pTab);
+        } else {
+          setActiveTab('room');
+        }
+      }
+    };
+
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
+
   const [ticketSubmitting, setTicketSubmitting] = useState<boolean>(false);
   const [ticketForm, setTicketForm] = useState({
     category: 'GÜRÜLTÜ / RAHATSIZLIK',
@@ -967,7 +1024,7 @@ export const StaffPortalView: React.FC<StaffPortalViewProps> = ({ currentUser: _
                 </button>
                 <button
                   type="button"
-                  onClick={() => setIsTicketModalOpen(true)}
+                  onClick={() => openTicketModal()}
                   className="inline-flex h-8 items-center justify-center gap-1 rounded-xl bg-[#1e3a8a] px-3 text-xs font-extrabold text-white shadow-xs transition-all hover:bg-[#172554] cursor-pointer shrink-0"
                 >
                   <Plus className="w-3.5 h-3.5" />
@@ -993,7 +1050,7 @@ export const StaffPortalView: React.FC<StaffPortalViewProps> = ({ currentUser: _
                 </p>
                 <button
                   type="button"
-                  onClick={() => setIsTicketModalOpen(true)}
+                  onClick={() => openTicketModal()}
                   className="inline-flex items-center gap-1.5 px-4 py-2 bg-[#1e3a8a] text-white text-xs font-extrabold rounded-xl hover:bg-[#172554] transition shadow-xs cursor-pointer"
                 >
                   <Plus className="w-4 h-4" /> Yeni Talep Oluştur
@@ -1059,14 +1116,14 @@ export const StaffPortalView: React.FC<StaffPortalViewProps> = ({ currentUser: _
 
       {/* Modal: Mobile Staff Ticket Creation */}
       {isTicketModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 p-4" onClick={() => setIsTicketModalOpen(false)}>
-          <div className="w-full max-w-md rounded-3xl border border-slate-300 bg-white shadow-2xl overflow-hidden" onClick={(e) => e.stopPropagation()}>
-            <div className="flex items-center justify-between border-b border-slate-200 bg-slate-50 px-5 py-4">
-              <h3 className="font-black text-slate-900 text-sm flex items-center gap-2">
-                <MessageSquareWarning className="w-4 h-4 text-[#1e3a8a]" />
-                Yeni Talep / Şikayet İlet
-              </h3>
-              <button type="button" onClick={() => setIsTicketModalOpen(false)} className="p-1 rounded-xl text-slate-400 hover:bg-slate-200 hover:text-slate-700">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 p-4" onClick={closeTicketModal}>
+          <div className="w-full max-w-lg rounded-3xl border border-slate-300 bg-white shadow-2xl overflow-hidden" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between border-b border-slate-200 bg-slate-50 px-6 py-4">
+              <div>
+                <span className="font-mono font-black text-xs text-[#1e3a8a] bg-blue-50 px-2 py-0.5 rounded border border-blue-200">YENİ DESTEK TALEBİ</span>
+                <h3 className="font-black text-slate-900 text-base mt-1">İstek veya Şikayet Bildir</h3>
+              </div>
+              <button type="button" onClick={closeTicketModal} className="p-1 rounded-xl text-slate-400 hover:bg-slate-200 hover:text-slate-700">
                 <X className="w-5 h-5" />
               </button>
             </div>
