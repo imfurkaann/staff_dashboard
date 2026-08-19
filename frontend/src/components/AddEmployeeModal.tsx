@@ -69,7 +69,7 @@ export const AddEmployeeModal: React.FC<AddEmployeeModalProps> = ({
   const [photoUrl, setPhotoUrl] = useState<string | null>(null);
 
   // System User Account & Database Role Assignment State
-  const [createSystemUser, setCreateSystemUser] = useState(false);
+  const [createSystemUser, setCreateSystemUser] = useState(true);
   const [systemUsername, setSystemUsername] = useState('');
   const [systemEmail, setSystemEmail] = useState('');
   const [systemPassword, setSystemPassword] = useState('');
@@ -195,7 +195,7 @@ export const AddEmployeeModal: React.FC<AddEmployeeModalProps> = ({
         setAssignBed(false);
         setSelectedBedId('');
         setErrorPopUpMessage(null);
-        setCreateSystemUser(false);
+        setCreateSystemUser(true);
         setSystemUsername('');
         setSystemEmail('');
         setSystemPassword('');

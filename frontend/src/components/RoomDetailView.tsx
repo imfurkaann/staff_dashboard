@@ -35,6 +35,7 @@ import { Room, RoomBed, RoomInventory, RoomInventoryStatus, RoomMaintenance, Roo
 import { stockApi, StockItem } from '../api/stockApi';
 import { MaintenanceDetailModal } from './MaintenanceDetailModal';
 import { AddMaintenanceModal } from './AddMaintenanceModal';
+import { CompleteCleaningModal } from './CompleteCleaningModal';
 import { getInventoryStatusLabel } from '../utils/inventoryStatusLabels';
 import { User } from '../api/authApi';
 import { can } from '../security/accessControl';
@@ -63,6 +64,7 @@ export const RoomDetailView: React.FC<RoomDetailViewProps> = ({
   const canUpdateMaintenance = can(currentUser.role, 'MAINTENANCE_UPDATE');
   const canFullyUpdateMaintenance = can(currentUser.role, 'MAINTENANCE_FULL_UPDATE');
   const canManageInventory = can(currentUser.role, 'ROOM_INVENTORY_MANAGE');
+  const canDeleteMaintenance = can(currentUser.role, 'MAINTENANCE_DELETE');
   const [currentRoom, setCurrentRoom] = useState<Room>(room);
   const [activeTab, setActiveTab] = useState<RoomTabType>(() => {
     if (currentUser.role === 'TECHNICIAN') return 'maintenance';
@@ -77,6 +79,8 @@ export const RoomDetailView: React.FC<RoomDetailViewProps> = ({
 
   // Cleaning Log Modal & Action State
   const [showCleaningModal, setShowCleaningModal] = useState(false);
+  const [showCompleteCleaningModal, setShowCompleteCleaningModal] = useState(false);
+  const [cleaningLogToMarkCleaned, setCleaningLogToMarkCleaned] = useState<RoomCleaningLog | null>(null);
   const [cleaningSubmitting, setCleaningSubmitting] = useState(false);
   const [cleaningError, setCleaningError] = useState<string | null>(null);
   const [updatingCleaningId, setUpdatingCleaningId] = useState<string | null>(null);
@@ -84,7 +88,8 @@ export const RoomDetailView: React.FC<RoomDetailViewProps> = ({
   const [cleaningToEdit, setCleaningToEdit] = useState<RoomCleaningLog | null>(null);
   const [selectedCleaningNote, setSelectedCleaningNote] = useState<{ title: string; content: string } | null>(null);
   const [cleaningForm, setCleaningForm] = useState({
-    requestedBy: 'Lojman Yönetimi',
+    requestedBy: '',
+    cleanedBy: '',
     notes: '',
   });
 
@@ -96,6 +101,8 @@ export const RoomDetailView: React.FC<RoomDetailViewProps> = ({
   const [updatingMaintenanceId, setUpdatingMaintenanceId] = useState<string | null>(null);
   const [maintenanceToEdit, setMaintenanceToEdit] = useState<RoomMaintenance | null>(null);
   const [editMaintenanceForm, setEditMaintenanceForm] = useState({ category: '', description: '', priority: 'MEDIUM', status: 'OPEN', location: '', assignedTo: '', resolutionNote: '' });
+  const [maintenanceToDelete, setMaintenanceToDelete] = useState<RoomMaintenance | null>(null);
+  const [deleteMaintenanceSubmitting, setDeleteMaintenanceSubmitting] = useState(false);
 
   // Edit Room Modal State
   const [showEditRoomModal, setShowEditRoomModal] = useState(false);
@@ -274,16 +281,22 @@ export const RoomDetailView: React.FC<RoomDetailViewProps> = ({
 
   const openMaintenanceEdit = (maintenance: RoomMaintenance, targetStatus?: 'RESOLVED') => {
     setMaintenanceError(null);
-    setEditMaintenanceForm({ category: maintenance.category || maintenance.title, description: maintenance.description || '', priority: maintenance.priority || 'MEDIUM', status: targetStatus || maintenance.status || 'OPEN', location: maintenance.location || '', assignedTo: maintenance.assignedTo || '', resolutionNote: maintenance.resolutionNote || '' });
+    const isTechRole = currentUser.role === 'TECHNICIAN' || currentUser.role === 'TECHNICAL_MANAGER';
+    const defaultAssignedTo = maintenance.assignedTo || (isTechRole ? currentUser.fullName : '');
+    setEditMaintenanceForm({
+      category: maintenance.category || maintenance.title,
+      description: maintenance.description || '',
+      priority: maintenance.priority || 'MEDIUM',
+      status: targetStatus || maintenance.status || 'OPEN',
+      location: maintenance.location || '',
+      assignedTo: defaultAssignedTo,
+      resolutionNote: maintenance.resolutionNote || ''
+    });
     setMaintenanceToEdit(maintenance);
   };
 
   const handleEditMaintenance = async () => {
     if (!maintenanceToEdit || !editMaintenanceForm.category.trim() || !editMaintenanceForm.description.trim()) return;
-    if (['RESOLVED', 'CLOSED'].includes(editMaintenanceForm.status) && !editMaintenanceForm.resolutionNote.trim()) {
-      setMaintenanceError('Arızayı sonuçlandırmak için yapılan işlemi açıklayan çözüm notunu girin.');
-      return;
-    }
     setUpdatingMaintenanceId(maintenanceToEdit.id);
     setMaintenanceError(null);
     try {
@@ -301,6 +314,24 @@ export const RoomDetailView: React.FC<RoomDetailViewProps> = ({
   };
 
   const handleResolveMaintenance = (maintenance: RoomMaintenance) => openMaintenanceEdit(maintenance, 'RESOLVED');
+
+  const handleDeleteMaintenanceSubmit = async () => {
+    if (!maintenanceToDelete) return;
+    setDeleteMaintenanceSubmitting(true);
+    setMaintenanceError(null);
+    try {
+      await roomApi.deleteMaintenance(maintenanceToDelete.id);
+      const reloaded = await roomApi.getRoomById(currentRoom.id);
+      setCurrentRoom(reloaded);
+      if (onRoomUpdated) onRoomUpdated(reloaded);
+      setMaintenanceToDelete(null);
+    } catch (err: any) {
+      setMaintenanceError(err?.response?.data?.message || err?.message || 'Arıza kaydı silinirken bir hata oluştu.');
+      setMaintenanceToDelete(null);
+    } finally {
+      setDeleteMaintenanceSubmitting(false);
+    }
+  };
 
   const handleUndoResolveMaintenance = async (maintenance: RoomMaintenance) => {
     setUpdatingMaintenanceId(maintenance.id);
@@ -331,6 +362,21 @@ export const RoomDetailView: React.FC<RoomDetailViewProps> = ({
 
   // Status Change Handler
   const handleStatusChange = async (newStatus: RoomStatusType) => {
+    if (newStatus === 'READY') {
+      if (currentUser.role === 'HOUSEKEEPING') {
+        setRoomError(null);
+        try {
+          const updated = await roomApi.updateRoomStatus(currentRoom.id, 'READY', { cleanedBy: currentUser.fullName });
+          setCurrentRoom(updated);
+          if (onRoomUpdated) onRoomUpdated(updated);
+        } catch (err: any) {
+          setRoomError(err?.response?.data?.message || err?.message || 'Oda durumu güncellenemedi.');
+        }
+        return;
+      }
+      setShowCompleteCleaningModal(true);
+      return;
+    }
     setRoomError(null);
     try {
       const updated = await roomApi.updateRoomStatus(currentRoom.id, newStatus);
@@ -341,20 +387,20 @@ export const RoomDetailView: React.FC<RoomDetailViewProps> = ({
     }
   };
 
-  // Cleaning Log Handlers
   const handleCleaningSubmit = async () => {
     setCleaningSubmitting(true);
     setCleaningError(null);
     try {
+      const actualRequestedBy = cleaningForm.requestedBy.trim() || currentUser.fullName || 'Lojman Yönetimi';
       let updated: Room;
       if (cleaningToEdit) {
         updated = await roomApi.updateCleaningLog(cleaningToEdit.id, {
-          requestedBy: cleaningForm.requestedBy || 'Lojman Yönetimi',
+          requestedBy: actualRequestedBy,
           notes: cleaningForm.notes.trim() || undefined,
         });
       } else {
         updated = await roomApi.createCleaningLog(currentRoom.id, {
-          requestedBy: cleaningForm.requestedBy || 'Lojman Yönetimi',
+          requestedBy: actualRequestedBy,
           notes: cleaningForm.notes.trim() || undefined,
           status: 'NEEDS_CLEANING',
         });
@@ -364,7 +410,8 @@ export const RoomDetailView: React.FC<RoomDetailViewProps> = ({
       setShowCleaningModal(false);
       setCleaningToEdit(null);
       setCleaningForm({
-        requestedBy: 'Lojman Yönetimi',
+        requestedBy: '',
+        cleanedBy: '',
         notes: '',
       });
     } catch (err: any) {
@@ -374,21 +421,42 @@ export const RoomDetailView: React.FC<RoomDetailViewProps> = ({
     }
   };
 
-  const handleQuickMarkCleaned = async (log: RoomCleaningLog) => {
-    setUpdatingCleaningId(log.id);
-    try {
-      const updated = await roomApi.updateCleaningLog(log.id, {
+  const handleCompleteCleaningModalSubmit = async (data: { cleanedBy: string; notes?: string }) => {
+    if (cleaningLogToMarkCleaned) {
+      const updated = await roomApi.updateCleaningLog(cleaningLogToMarkCleaned.id, {
         status: 'CLEANED',
-        cleanedBy: currentUser.fullName || 'Temizlik Personeli',
-        notes: log.notes ? `${log.notes} (Temizlendi olarak işaretlendi)` : 'Oda temizlendi ve hazır hale getirildi.',
+        cleanedBy: data.cleanedBy,
+        notes: data.notes,
       });
       setCurrentRoom(updated);
       if (onRoomUpdated) onRoomUpdated(updated);
-    } catch (err: any) {
-      setRoomError(err.response?.data?.message || 'Temizlik durumu güncellenirken hata oluştu.');
-    } finally {
-      setUpdatingCleaningId(null);
+      setCleaningLogToMarkCleaned(null);
+    } else if (showCompleteCleaningModal) {
+      const updated = await roomApi.updateRoomStatus(currentRoom.id, 'READY', data);
+      setCurrentRoom(updated);
+      if (onRoomUpdated) onRoomUpdated(updated);
+      setShowCompleteCleaningModal(false);
     }
+  };
+
+  const handleQuickMarkCleaned = async (log: RoomCleaningLog) => {
+    if (currentUser.role === 'HOUSEKEEPING') {
+      setUpdatingCleaningId(log.id);
+      try {
+        const updated = await roomApi.updateCleaningLog(log.id, {
+          status: 'CLEANED',
+          cleanedBy: currentUser.fullName,
+        });
+        setCurrentRoom(updated);
+        if (onRoomUpdated) onRoomUpdated(updated);
+      } catch (err: any) {
+        setRoomError(err.response?.data?.message || 'Temizlik durumu güncellenirken hata oluştu.');
+      } finally {
+        setUpdatingCleaningId(null);
+      }
+      return;
+    }
+    setCleaningLogToMarkCleaned(log);
   };
 
   const handleQuickStartCleaning = async (log: RoomCleaningLog) => {
@@ -1179,6 +1247,19 @@ export const RoomDetailView: React.FC<RoomDetailViewProps> = ({
                             <span className="max-w-0 opacity-0 group-hover:max-w-[80px] group-hover:opacity-100 group-hover:ml-1 transition-all duration-300 text-[11px] font-extrabold whitespace-nowrap overflow-hidden">Düzenle</span>
                           </button>}
 
+                          {canDeleteMaintenance && (
+                            <button
+                              type="button"
+                              disabled={updatingMaintenanceId === log.id}
+                              onClick={() => setMaintenanceToDelete(log)}
+                              className="group relative inline-flex items-center justify-center h-7 px-2 rounded-lg border transition-all duration-300 ease-out shadow-2xs hover:shadow-xs cursor-pointer overflow-hidden disabled:opacity-40 bg-rose-50 text-rose-700 hover:bg-rose-600 hover:text-white border-rose-200/80 hover:border-rose-600"
+                              title="Arıza Kaydını Sil"
+                            >
+                              <Trash2 className="w-3.5 h-3.5 shrink-0 group-hover:scale-110 transition-transform duration-300" />
+                              <span className="max-w-0 opacity-0 group-hover:max-w-[80px] group-hover:opacity-100 group-hover:ml-1 transition-all duration-300 text-[11px] font-extrabold whitespace-nowrap overflow-hidden">Sil</span>
+                            </button>
+                          )}
+
                         </div>}
                       </td>
                     </tr>
@@ -1210,7 +1291,8 @@ export const RoomDetailView: React.FC<RoomDetailViewProps> = ({
                 setCleaningError(null);
                 setCleaningToEdit(null);
                 setCleaningForm({
-                  requestedBy: 'Lojman Yönetimi',
+                  requestedBy: '',
+                  cleanedBy: '',
                   notes: '',
                 });
                 setShowCleaningModal(true);
@@ -1369,7 +1451,8 @@ export const RoomDetailView: React.FC<RoomDetailViewProps> = ({
                                 onClick={() => {
                                   setCleaningToEdit(log);
                                   setCleaningForm({
-                                    requestedBy: log.requestedBy || 'Lojman Yönetimi',
+                                    requestedBy: log.requestedBy || '',
+                                    cleanedBy: log.cleanedBy || '',
                                     notes: log.notes || '',
                                   });
                                   setCleaningError(null);
@@ -1575,10 +1658,10 @@ export const RoomDetailView: React.FC<RoomDetailViewProps> = ({
                 <div><label className="block text-xs font-bold text-slate-800 mb-1">Arıza Açıklaması <span className="text-red-500 font-black">*</span></label><textarea rows={4} value={editMaintenanceForm.description} onChange={(e) => setEditMaintenanceForm((prev) => ({ ...prev, description: e.target.value }))} className="w-full px-3.5 py-2.5 bg-white border border-slate-300 rounded-xl text-xs font-bold text-slate-900 focus:border-[#1e3a8a] focus:ring-1 focus:ring-[#1e3a8a] outline-none resize-none"/></div>
                 <div><label className="block text-xs font-bold text-slate-800 mb-1">Odadaki Konum <span className="text-slate-400 font-semibold text-[10px]">(İsteğe Bağlı)</span></label><input value={editMaintenanceForm.location} onChange={(e) => setEditMaintenanceForm((prev) => ({ ...prev, location: e.target.value }))} className="w-full px-3.5 py-2.5 bg-white border border-slate-300 rounded-xl text-xs font-bold text-slate-900 focus:border-[#1e3a8a] focus:ring-1 focus:ring-[#1e3a8a] outline-none" placeholder="Ör: Banyo girişi, Pencere kenarı, Yatak-A yanı..."/></div>
                 <div><label className="block text-xs font-bold text-slate-800 mb-1">Sorumlu / Çözümleyen</label><input maxLength={100} value={editMaintenanceForm.assignedTo} onChange={(e) => setEditMaintenanceForm((prev) => ({ ...prev, assignedTo: e.target.value }))} className="w-full px-3.5 py-2.5 bg-white border border-slate-300 rounded-xl text-xs font-bold text-slate-900 outline-none" placeholder="İşlemi yapan kişi veya ekip"/></div>
-                <div><label className="block text-xs font-bold text-slate-800 mb-1">Çözüm / Yapılan İşlem {['RESOLVED', 'CLOSED'].includes(editMaintenanceForm.status) && <span className="text-red-500 font-black">*</span>}</label><textarea rows={3} maxLength={1000} value={editMaintenanceForm.resolutionNote} onChange={(e) => setEditMaintenanceForm((prev) => ({ ...prev, resolutionNote: e.target.value }))} className="w-full px-3.5 py-2.5 bg-white border border-slate-300 rounded-xl text-xs font-bold text-slate-900 outline-none resize-none" placeholder="Yapılan kontrolü, onarımı ve sonucu eksiksiz yazın..."/></div>
+                <div><label className="block text-xs font-bold text-slate-800 mb-1">Çözüm / Yapılan İşlem <span className="text-slate-400 font-semibold text-[10px]">(İsteğe Bağlı)</span></label><textarea rows={3} maxLength={1000} value={editMaintenanceForm.resolutionNote} onChange={(e) => setEditMaintenanceForm((prev) => ({ ...prev, resolutionNote: e.target.value }))} className="w-full px-3.5 py-2.5 bg-white border border-slate-300 rounded-xl text-xs font-bold text-slate-900 outline-none resize-none" placeholder="Yapılan kontrolü, onarımı ve sonucu yazabilirsiniz (İsteğe bağlı)..."/></div>
               </div>
             </div>
-            <div className="p-6 pt-4 border-t border-slate-200 flex justify-end gap-3"><button onClick={() => setMaintenanceToEdit(null)} className="py-2.5 px-4 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl transition-all cursor-pointer">İptal</button><button onClick={handleEditMaintenance} disabled={updatingMaintenanceId === maintenanceToEdit.id || !editMaintenanceForm.category || !editMaintenanceForm.description.trim() || (['RESOLVED', 'CLOSED'].includes(editMaintenanceForm.status) && !editMaintenanceForm.resolutionNote.trim())} className="py-2.5 px-6 bg-[#1e3a8a] hover:bg-[#1e293b] text-white text-xs font-bold rounded-xl shadow-md shadow-blue-950/20 transition-all flex items-center gap-2 disabled:opacity-50 cursor-pointer">{updatingMaintenanceId === maintenanceToEdit.id ? <><Loader2 className="w-4 h-4 animate-spin"/><span>Kaydediliyor...</span></> : <><Check className="w-4 h-4"/><span>Değişiklikleri Kaydet</span></>}</button></div>
+            <div className="p-6 pt-4 border-t border-slate-200 flex justify-end gap-3"><button onClick={() => setMaintenanceToEdit(null)} className="py-2.5 px-4 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl transition-all cursor-pointer">İptal</button><button onClick={handleEditMaintenance} disabled={updatingMaintenanceId === maintenanceToEdit.id || !editMaintenanceForm.category || !editMaintenanceForm.description.trim()} className="py-2.5 px-6 bg-[#1e3a8a] hover:bg-[#1e293b] text-white text-xs font-bold rounded-xl shadow-md shadow-blue-950/20 transition-all flex items-center gap-2 disabled:opacity-50 cursor-pointer">{updatingMaintenanceId === maintenanceToEdit.id ? <><Loader2 className="w-4 h-4 animate-spin"/><span>Kaydediliyor...</span></> : <><Check className="w-4 h-4"/><span>Değişiklikleri Kaydet</span></>}</button></div>
           </div>
         </div>
       )}
@@ -1650,7 +1733,9 @@ export const RoomDetailView: React.FC<RoomDetailViewProps> = ({
                     onChange={(e) => setCleaningForm((prev) => ({ ...prev, requestedBy: e.target.value }))}
                     className="w-full px-3.5 py-2.5 bg-white border border-slate-300 rounded-xl text-xs font-bold text-slate-900 focus:border-[#1e3a8a] focus:ring-1 focus:ring-[#1e3a8a] outline-none cursor-pointer"
                   >
-                    <option value="Lojman Yönetimi">🏢 Lojman Yönetimi</option>
+                    <option value="">
+                      👤 {currentUser.fullName || 'Lojman Yönetimi'}
+                    </option>
                     {roomResidents.length > 0 && (
                       <optgroup label="Odada İkamet Eden Sakinler">
                         {roomResidents.map((res) => (
@@ -2010,8 +2095,69 @@ export const RoomDetailView: React.FC<RoomDetailViewProps> = ({
             handleUndoResolveMaintenance(logToChange as any);
           }
         } : undefined}
+        onDelete={canDeleteMaintenance ? (logToDelete) => {
+          setSelectedMaintenanceDetail(null);
+          setMaintenanceToDelete(logToDelete as any);
+        } : undefined}
         currentUserRole={currentUser.role}
         currentUserFullName={currentUser.fullName}
+      />
+
+      {/* DELETE MAINTENANCE CONFIRMATION MODAL */}
+      {maintenanceToDelete && (
+        <div
+          onClick={() => setMaintenanceToDelete(null)}
+          className="fixed inset-0 z-[350] bg-slate-950/70 backdrop-blur-sm flex items-center justify-center p-4 animate-fadeIn"
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="bg-white border border-slate-300 rounded-3xl p-6 max-w-sm w-full shadow-2xl space-y-4"
+          >
+            <div className="flex items-start gap-3.5">
+              <div className="w-11 h-11 rounded-2xl bg-rose-100 text-rose-700 flex items-center justify-center shrink-0 border border-rose-200 shadow-2xs">
+                <Trash2 className="w-5.5 h-5.5" />
+              </div>
+              <div className="space-y-1">
+                <h3 className="text-sm font-extrabold text-slate-900">
+                  Arıza Kaydını Silmek İstediğinize Emin Misiniz?
+                </h3>
+                <p className="text-xs font-semibold text-slate-600">
+                  <strong>{maintenanceToDelete.title || maintenanceToDelete.category || 'Arıza Kaydı'}</strong> kaydı kalıcı olarak silinecektir.
+                </p>
+              </div>
+            </div>
+
+            <div className="pt-2 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setMaintenanceToDelete(null)}
+                className="py-2.5 px-4 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl cursor-pointer text-xs"
+              >
+                Vazgeç
+              </button>
+              <button
+                type="button"
+                disabled={deleteMaintenanceSubmitting}
+                onClick={handleDeleteMaintenanceSubmit}
+                className="py-2.5 px-5 bg-rose-700 hover:bg-rose-800 text-white font-bold rounded-xl cursor-pointer shadow-md text-xs disabled:bg-rose-400"
+              >
+                {deleteMaintenanceSubmitting ? 'Siliniyor...' : 'Evet, Kaydı Sil'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* TEMİZLİĞİ TAMAMLA & HAZIR YAP MODALI */}
+      <CompleteCleaningModal
+        isOpen={showCompleteCleaningModal || Boolean(cleaningLogToMarkCleaned)}
+        roomTitle={`Oda ${currentRoom.roomNumber} (${currentRoom.block.name})`}
+        currentUserFullName={currentUser.fullName}
+        onClose={() => {
+          setShowCompleteCleaningModal(false);
+          setCleaningLogToMarkCleaned(null);
+        }}
+        onSubmit={handleCompleteCleaningModalSubmit}
       />
     </div>
   );

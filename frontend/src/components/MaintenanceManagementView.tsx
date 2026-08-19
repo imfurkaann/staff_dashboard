@@ -15,6 +15,7 @@ import {
   RefreshCw,
   RotateCcw,
   Search,
+  Trash2,
   User,
   Wrench,
   X,
@@ -118,7 +119,9 @@ export const MaintenanceManagementView: React.FC<MaintenanceManagementViewProps>
   const canCreate = can(currentUser.role, 'MAINTENANCE_CREATE');
   const canExport = can(currentUser.role, 'MAINTENANCE_EXPORT');
   const canManageServiceDetails = can(currentUser.role, 'MAINTENANCE_FULL_UPDATE');
+  const canDelete = can(currentUser.role, 'MAINTENANCE_DELETE');
   const canRetireInventory = currentUser.role === 'ADMIN' || currentUser.role === 'HOUSING_MANAGER';
+  const [deletingLog, setDeletingLog] = useState<MaintenanceLog | null>(null);
 
   // Load blocks on mount
   useEffect(() => {
@@ -223,6 +226,22 @@ export const MaintenanceManagementView: React.FC<MaintenanceManagementViewProps>
       await loadData(false);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'İşlem gerçekleştirilemedi.');
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const handleDeleteLogSubmit = async () => {
+    if (!deletingLog) return;
+    setBusyId(deletingLog.id);
+    setError(null);
+    try {
+      await maintenanceApi.deleteMaintenance(deletingLog.id);
+      setDeletingLog(null);
+      await loadData(false);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'Arıza kaydı silinemedi.');
+      setDeletingLog(null);
     } finally {
       setBusyId(null);
     }
@@ -698,6 +717,22 @@ export const MaintenanceManagementView: React.FC<MaintenanceManagementViewProps>
                               <span className={labelBase}>Düzenle</span>
                             </button>
                           )}
+
+                          {canDelete && (
+                            <button
+                              type="button"
+                              disabled={busyId === log.id}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setDeletingLog(log);
+                              }}
+                              className={`${buttonBase} bg-rose-50 text-rose-700 hover:bg-rose-600 hover:text-white border-rose-200/80 hover:border-rose-600`}
+                              title="Arıza Kaydını Sil"
+                            >
+                              <Trash2 className="w-3.5 h-3.5 shrink-0 group-hover:scale-110 transition-transform duration-300" />
+                              <span className={labelBase}>Sil</span>
+                            </button>
+                          )}
                         </div>
                       </td>
                     </tr>
@@ -813,6 +848,10 @@ export const MaintenanceManagementView: React.FC<MaintenanceManagementViewProps>
           if (nextStatus === 'RESOLVED' || nextStatus === 'CLOSED') setEditingLog({ ...log, status: nextStatus, assignedTo: currentUser.role === 'TECHNICIAN' ? currentUser.fullName : (log.assignedTo || currentUser.fullName) });
           else handleQuickStatusChange(log, nextStatus);
         }) : undefined}
+        onDelete={canDelete ? (logToDelete) => {
+          setDetailTarget(null);
+          setDeletingLog(logToDelete);
+        } : undefined}
         currentUserFullName={currentUser.fullName}
         currentUserRole={currentUser.role}
       />
@@ -839,6 +878,51 @@ export const MaintenanceManagementView: React.FC<MaintenanceManagementViewProps>
         onGenerateReport={handleGenerateReport}
         isExporting={isExporting}
       />
+
+      {/* Delete Confirmation Modal */}
+      {deletingLog && (
+        <div
+          onClick={() => setDeletingLog(null)}
+          className="fixed inset-0 z-[350] bg-slate-950/70 backdrop-blur-sm flex items-center justify-center p-4 animate-fadeIn"
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="bg-white border border-slate-300 rounded-3xl p-6 max-w-sm w-full shadow-2xl space-y-4"
+          >
+            <div className="flex items-start gap-3.5">
+              <div className="w-11 h-11 rounded-2xl bg-rose-100 text-rose-700 flex items-center justify-center shrink-0 border border-rose-200 shadow-2xs">
+                <Trash2 className="w-5.5 h-5.5" />
+              </div>
+              <div className="space-y-1">
+                <h3 className="text-sm font-extrabold text-slate-900">
+                  Arıza Kaydını Silmek İstediğinize Emin Misiniz?
+                </h3>
+                <p className="text-xs font-semibold text-slate-600">
+                  <strong>{deletingLog.title || deletingLog.category || 'Arıza Kaydı'}</strong> kaydı kalıcı olarak silinecektir.
+                </p>
+              </div>
+            </div>
+
+            <div className="pt-2 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setDeletingLog(null)}
+                className="py-2.5 px-4 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl cursor-pointer text-xs"
+              >
+                Vazgeç
+              </button>
+              <button
+                type="button"
+                disabled={busyId === deletingLog.id}
+                onClick={handleDeleteLogSubmit}
+                className="py-2.5 px-5 bg-rose-700 hover:bg-rose-800 text-white font-bold rounded-xl cursor-pointer shadow-md text-xs disabled:bg-rose-400"
+              >
+                {busyId === deletingLog.id ? 'Siliniyor...' : 'Evet, Kaydı Sil'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

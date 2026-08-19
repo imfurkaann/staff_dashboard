@@ -5,11 +5,10 @@ import { WebSocketServer, WebSocket } from 'ws';
 import prisma from '../db/prisma';
 import { config } from '../config';
 import { AuthService } from '../services/authService';
-import { hasPermission, permissions } from '../security/permissions';
 
-type TicketEvent = 'TICKET_CREATED' | 'TICKET_UPDATED';
-type TicketPayload = { createdById?: string | null; employeeId?: string | null } & Record<string, unknown>;
-type TicketSocket = WebSocket & { userId: string; employeeId?: string; canViewAll: boolean; isAlive: boolean };
+type SharedAssetEvent = 'SHARED_ASSET_UPDATED' | 'SHARED_ASSET_CHECKOUT' | 'SHARED_ASSET_CHECKIN';
+type SharedAssetPayload = { assetId?: string; status?: string; borrowerName?: string } & Record<string, unknown>;
+type SharedAssetSocket = WebSocket & { userId: string; employeeId?: string; isAlive: boolean };
 
 let wss: WebSocketServer | null = null;
 let heartbeatInterval: NodeJS.Timeout | null = null;
@@ -26,7 +25,7 @@ function parseCookies(header: string | undefined): Record<string, string> {
   }, {});
 }
 
-export function isAllowedTicketSocketOrigin(origin: string | undefined): boolean {
+export function isAllowedSharedAssetSocketOrigin(origin: string | undefined): boolean {
   if (!origin) return config.nodeEnv !== 'production';
   if (config.cors.allowedOrigins.includes(origin)) return true;
   return config.nodeEnv === 'development' && /^http:\/\/(localhost|127\.0\.0\.1|192\.168\.\d+\.\d+|172\.(1[6-9]|2\d|3[01])\.\d+\.\d+|10\.\d+\.\d+\.\d+):\d+$/.test(origin);
@@ -47,11 +46,9 @@ async function authenticateUpgrade(request: IncomingMessage) {
       },
     });
     if (!user?.isActive || user.mustChangePassword || decoded.pwd !== AuthService.passwordVersion(user.passwordHash)) return null;
-    if (!hasPermission(user.role, permissions.TICKET_VIEW) && !hasPermission(user.role, permissions.TICKET_CREATE)) return null;
     return {
       userId: user.id,
       employeeId: user.employee?.id,
-      canViewAll: hasPermission(user.role, permissions.TICKET_VIEW),
     };
   } catch {
     return null;
@@ -64,32 +61,32 @@ function rejectUpgrade(socket: Duplex, status: 401 | 403 | 404) {
   socket.destroy();
 }
 
-export function initTicketWebSocket(server: HttpServer) {
+export function initSharedAssetWebSocket(server: HttpServer) {
   wss = new WebSocketServer({ noServer: true, maxPayload: 1024 });
 
   server.on('upgrade', async (request, socket, head) => {
     const pathname = new URL(request.url || '/', 'http://localhost').pathname;
-    if (pathname !== '/ws/tickets') return;
-    if (!isAllowedTicketSocketOrigin(request.headers.origin)) return rejectUpgrade(socket, 403);
+    if (pathname !== '/ws/shared-assets') return;
+    if (!isAllowedSharedAssetSocketOrigin(request.headers.origin)) return rejectUpgrade(socket, 403);
 
     const identity = await authenticateUpgrade(request);
     if (!identity || socket.destroyed) return rejectUpgrade(socket, 401);
 
     wss?.handleUpgrade(request, socket, head, (webSocket) => {
-      const ticketSocket = webSocket as TicketSocket;
-      Object.assign(ticketSocket, identity, { isAlive: true });
-      wss?.emit('connection', ticketSocket, request);
+      const assetSocket = webSocket as SharedAssetSocket;
+      Object.assign(assetSocket, identity, { isAlive: true });
+      wss?.emit('connection', assetSocket, request);
     });
   });
 
-  wss.on('connection', (ws: TicketSocket) => {
+  wss.on('connection', (ws: SharedAssetSocket) => {
     ws.on('pong', () => { ws.isAlive = true; });
     ws.on('error', () => { ws.terminate(); });
   });
 
   heartbeatInterval = setInterval(() => {
     wss?.clients.forEach((client) => {
-      const ws = client as TicketSocket;
+      const ws = client as SharedAssetSocket;
       if (!ws.isAlive) return ws.terminate();
       ws.isAlive = false;
       ws.ping();
@@ -105,18 +102,11 @@ export function initTicketWebSocket(server: HttpServer) {
   });
 }
 
-export function canReceiveTicketEvent(
-  identity: { userId: string; employeeId?: string; canViewAll: boolean },
-  payload: TicketPayload
-): boolean {
-  return identity.canViewAll || payload.createdById === identity.userId || (!!identity.employeeId && payload.employeeId === identity.employeeId);
-}
-
-export function broadcastTicketEvent(event: TicketEvent, payload: TicketPayload) {
+export function broadcastSharedAssetEvent(event: SharedAssetEvent, payload: SharedAssetPayload = {}) {
   if (!wss) return;
   const message = JSON.stringify({ type: event, data: payload, timestamp: new Date().toISOString() });
   wss.clients.forEach((client) => {
-    const ws = client as TicketSocket;
-    if (ws.readyState === WebSocket.OPEN && canReceiveTicketEvent(ws, payload)) ws.send(message);
+    const ws = client as SharedAssetSocket;
+    if (ws.readyState === WebSocket.OPEN) ws.send(message);
   });
 }

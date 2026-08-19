@@ -4,6 +4,7 @@ import { AppError } from '../middleware/errorHandler';
 import { assertDateRange, parseIstanbulDateBoundary } from '../utils/dateTime';
 import { boundedText, normalizeIdentifier, normalizeInventoryItemName, normalizeUpper } from '../utils/normalization';
 import { releasePersonnelStock, releaseRoomStock, reservePersonnelStock, reserveRoomStock } from '../utils/stockBalance';
+import { broadcastSharedAssetEvent } from '../websocket/sharedAssetSocket';
 
 const categories = new Set([
   'TEMİZLİK & BAKIM MAKİNELERİ', 'EL ALETLERİ & TAMİR', 'BAHÇE & PEYZAJ',
@@ -23,8 +24,13 @@ const categoryPrefixes: Record<string, string> = {
 
 const assetInclude = {
   stockItem: { select: { id: true, itemCode: true, itemName: true, totalStock: true, usedStock: true, usedInRooms: true, isActive: true, physicalStatus: true } },
-  currentEmployee: { select: { id: true, firstName: true, lastName: true, registrationNo: true, department: true } },
-  currentRoom: { select: { id: true, roomNumber: true, floor: true, block: { select: { name: true } } } },
+  currentEmployee: {
+    select: {
+      id: true, firstName: true, lastName: true, registrationNo: true, department: true,
+      beds: { select: { room: { select: { roomNumber: true, floor: true, block: { select: { name: true } } } } } },
+    },
+  },
+  currentRoom: { select: { id: true, roomNumber: true, floor: true, roomType: true, block: { select: { name: true } } } },
   logs: { orderBy: { createdAt: 'desc' as const }, take: 20, include: { createdBy: { select: { id: true, fullName: true } } } },
 };
 
@@ -82,7 +88,7 @@ export class SharedAssetService {
           status: true, warrantyEndDate: true, createdAt: true, updatedAt: true,
         }, orderBy: [{ status: 'asc' }, { assetName: 'asc' }], take: 5000 }),
       canManage ? prisma.employee.findMany({
-        where: { isDeleted: false, status: { not: 'CHECKED_OUT' } },
+        where: { isDeleted: false, status: 'RESIDENT' },
         select: { id: true, firstName: true, lastName: true, registrationNo: true, department: true },
         orderBy: [{ firstName: 'asc' }, { lastName: 'asc' }],
       }) : Promise.resolve([]),
@@ -193,7 +199,7 @@ export class SharedAssetService {
     const expectedReturnDate = dateOnly(data.expectedReturnDate, 'Beklenen iade tarihi');
     if (expectedReturnDate && expectedReturnDate < new Date()) throw new AppError('Beklenen iade tarihi geçmiş bir tarih olamaz.', 400);
     try {
-      return await prisma.$transaction(async (tx) => {
+      const res = await prisma.$transaction(async (tx) => {
         const replay = await idempotentLog(tx, data.requestKey, assetId, 'CHECK_OUT', data.createdById);
         if (replay) return replay;
         await tx.$queryRaw`SELECT id FROM "SharedAsset" WHERE id = ${assetId} FOR UPDATE`;
@@ -207,12 +213,12 @@ export class SharedAssetService {
         let personnelInventoryId: string | null = null;
         let roomInventoryId: string | null = null;
         let borrowerName: string;
+        let physicalLocation = asset.locationNote || 'ANA DEPO';
         const identity = asset.serialNo || asset.assetCode;
         if (holderType === 'EMPLOYEE') {
           if (!data.employeeId) throw new AppError('Personel zimmeti için personel seçilmelidir.', 400);
-          const employee = await tx.employee.findFirst({ where: { id: data.employeeId, isDeleted: false, status: { not: 'CHECKED_OUT' } } });
-          if (!employee) throw new AppError('Aktif personel bulunamadı.', 404);
-          await reservePersonnelStock(tx, asset.stockItem.id);
+          const employee = await tx.employee.findFirst({ where: { id: data.employeeId, isDeleted: false, status: 'RESIDENT' } });
+          if (!employee) throw new AppError('Yalnızca odada konaklayan aktif personellere ortak eşya zimmetlenebilir.', 404);
           const inventory = await tx.inventoryItem.create({ data: {
             employeeId: employee.id, stockItemId: asset.stockItem.id, itemName: asset.assetName, itemCode: asset.assetCode,
             category: 'LOJMAN_ZİMMETİ', status: 'TESLİM_EDİLDİ', serialNo: identity, notes,
@@ -220,16 +226,10 @@ export class SharedAssetService {
           } });
           employeeId = employee.id; personnelInventoryId = inventory.id;
           borrowerName = `${employee.firstName} ${employee.lastName}${employee.department ? ` (${employee.department})` : ''}`;
-          await tx.stockMovement.create({ data: {
-            stockItemId: asset.stockItem.id, sharedAssetId: asset.id, employeeId, personnelInventoryId,
-            type: 'PERSONNEL_ASSIGNMENT', quantity: -1, itemNameSnapshot: asset.assetName, serialNo: identity,
-            reason: 'ORTAK EŞYA PERSONEL ZİMMETİ', notes, createdById: data.createdById || null,
-          } });
         } else if (holderType === 'ROOM') {
           if (!data.roomId) throw new AppError('Oda zimmeti için oda seçilmelidir.', 400);
           const room = await tx.room.findUnique({ where: { id: data.roomId }, include: { block: true } });
           if (!room) throw new AppError('Oda bulunamadı.', 404);
-          await reserveRoomStock(tx, asset.stockItem.id, 1);
           let inventory = await tx.roomInventory.create({ data: {
             roomId: room.id, stockItemId: asset.stockItem.id, itemName: asset.assetName, brand: asset.brandModel,
             serialNo: identity, quantity: 1, status: 'HEALTHY', notes,
@@ -237,26 +237,22 @@ export class SharedAssetService {
           inventory = await tx.roomInventory.update({ where: { id: inventory.id }, data: { assetTag: `${asset.assetCode}-${inventory.id.replace(/-/g, '').slice(0, 10).toUpperCase()}` } });
           roomId = room.id; roomInventoryId = inventory.id;
           borrowerName = `${room.block.name} / Oda ${room.roomNumber}`;
-          await tx.stockMovement.create({ data: {
-            stockItemId: asset.stockItem.id, sharedAssetId: asset.id, roomId, roomInventoryId,
-            type: 'ROOM_ASSIGNMENT', quantity: -1, itemNameSnapshot: asset.assetName,
-            roomLabelSnapshot: borrowerName, brand: asset.brandModel, serialNo: identity,
-            reason: 'ORTAK EŞYA ODA ZİMMETİ', notes, createdById: data.createdById || null,
-          } });
+          physicalLocation = borrowerName;
         } else {
-          borrowerName = boundedText(data.customBorrowerName, 'Teslim alan kişi/kurum', 120, { required: true, casing: 'upper' })!;
-          await reservePersonnelStock(tx, asset.stockItem.id);
-          await tx.stockMovement.create({ data: {
-            stockItemId: asset.stockItem.id, sharedAssetId: asset.id, type: 'PERSONNEL_ASSIGNMENT', quantity: -1,
-            itemNameSnapshot: asset.assetName, serialNo: identity, reason: 'ORTAK EŞYA HARİCİ ZİMMETİ', notes,
-            createdById: data.createdById || null,
-          } });
+          borrowerName = boundedText(data.customBorrowerName, 'Teslim alan kişi', 120, { required: true, casing: 'upper' })!;
         }
+
+        await tx.stockMovement.create({ data: {
+          stockItemId: asset.stockItem.id, sharedAssetId: asset.id, employeeId, roomId,
+          type: 'PERSONNEL_ASSIGNMENT', quantity: -1, itemNameSnapshot: asset.assetName, serialNo: identity,
+          reason: 'ORTAK EŞYA KULLANIM ZİMMETİ', notes, createdById: data.createdById || null,
+        } });
+
         const borrowedAt = new Date();
         const changed = await tx.sharedAsset.updateMany({ where: { id: asset.id, status: 'AVAILABLE', updatedAt: asset.updatedAt }, data: {
           status: 'LOANED', currentHolderType: holderType, currentEmployeeId: employeeId, currentRoomId: roomId,
           currentPersonnelInventoryId: personnelInventoryId, currentRoomInventoryId: roomInventoryId,
-          borrowedAt, expectedReturnDate,
+          borrowedAt, expectedReturnDate, locationNote: physicalLocation,
         } });
         if (changed.count !== 1) throw new AppError('Ortak eşya başka bir işlemde değişti. Listeyi yenileyin.', 409);
         await tx.stockItem.update({ where: { id: asset.stockItem.id }, data: { physicalStatus: 'KULLANIMDA' } });
@@ -267,6 +263,8 @@ export class SharedAssetService {
         } });
         return tx.sharedAsset.findUniqueOrThrow({ where: { id: asset.id }, include: assetInclude });
       }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+      broadcastSharedAssetEvent('SHARED_ASSET_UPDATED', { assetId: res.id, status: res.status });
+      return res;
     } catch (error: any) {
       if (error instanceof AppError) throw error;
       if (error?.code === 'P2002') throw new AppError('Eşya kodu/seri numarası veya işlem anahtarı başka bir aktif kayıtta kullanılıyor.', 409);
@@ -280,9 +278,9 @@ export class SharedAssetService {
   }) {
     const targetStatus = data.newStatus || 'AVAILABLE';
     if (!['AVAILABLE', 'MAINTENANCE'].includes(targetStatus)) throw new AppError('Teslim alma sonucu yalnızca depoda veya bakımda olabilir.', 400);
-    const notes = boundedText(data.notes, 'Teslim açıklaması', 1000, { required: true, casing: 'upper' })!;
+    const notes = boundedText(data.notes, 'Teslim açıklaması', 1000, { casing: 'upper' });
     const locationNote = boundedText(data.locationNote, 'Teslim konumu', 200, { casing: 'upper' });
-    return prisma.$transaction(async (tx) => {
+    const res = await prisma.$transaction(async (tx) => {
       const replay = await idempotentLog(tx, data.requestKey, assetId, 'CHECK_IN', data.createdById);
       if (replay) return replay;
       await tx.$queryRaw`SELECT id FROM "SharedAsset" WHERE id = ${assetId} FOR UPDATE`;
@@ -293,58 +291,35 @@ export class SharedAssetService {
       if (asset.status !== 'LOANED' || !asset.stockItem) throw new AppError('Yalnızca aktif zimmetli ortak eşya teslim alınabilir.', 409);
       const borrowerName = activeBorrowerName(asset);
       const returnedAt = new Date();
+      const returnLocation = locationNote || 'ANA DEPO';
+
       if (asset.currentPersonnelInventoryId) {
-        const inventory = await tx.inventoryItem.findUnique({ where: { id: asset.currentPersonnelInventoryId } });
-        if (!inventory || inventory.returnedDate) throw new AppError('Personel zimmeti ile ortak eşya kaydı uyuşmuyor.', 409);
-        await releasePersonnelStock(tx, asset.stockItem.id);
-        const changed = await tx.inventoryItem.updateMany({ where: { id: inventory.id, returnedDate: null, isDeleted: false, updatedAt: inventory.updatedAt }, data: {
-          returnedDate: returnedAt, returnedById: data.createdById || null, status: 'TAM_İADE_ALINDI', notes,
-        } });
-        if (changed.count !== 1) throw new AppError('Personel zimmeti başka bir işlemde kapatıldı.', 409);
-        await tx.stockMovement.create({ data: {
-          stockItemId: asset.stockItem.id, sharedAssetId: asset.id, employeeId: asset.currentEmployeeId,
-          personnelInventoryId: inventory.id, type: 'PERSONNEL_RETURN', quantity: 1,
-          itemNameSnapshot: asset.assetName, serialNo: asset.serialNo || asset.assetCode,
-          reason: 'ORTAK EŞYA TESLİM ALMA', notes, createdById: data.createdById || null,
-        } });
-      } else if (asset.currentRoomInventoryId) {
-        const inventory = await tx.roomInventory.findUnique({ where: { id: asset.currentRoomInventoryId } });
-        if (!inventory || inventory.returnedAt) throw new AppError('Oda zimmeti ile ortak eşya kaydı uyuşmuyor.', 409);
-        await releaseRoomStock(tx, asset.stockItem.id, 1);
-        const changed = await tx.roomInventory.updateMany({ where: { id: inventory.id, returnedAt: null, updatedAt: inventory.updatedAt }, data: {
-          returnedAt, status: 'RETIRED', notes,
-        } });
-        if (changed.count !== 1) throw new AppError('Oda zimmeti başka bir işlemde kapatıldı.', 409);
-        await tx.stockMovement.create({ data: {
-          stockItemId: asset.stockItem.id, sharedAssetId: asset.id, roomId: asset.currentRoomId,
-          roomInventoryId: inventory.id, type: 'ROOM_RETURN', quantity: 1,
-          itemNameSnapshot: asset.assetName, serialNo: asset.serialNo || asset.assetCode,
-          reason: 'ORTAK EŞYA TESLİM ALMA', notes, createdById: data.createdById || null,
-        } });
-      } else if (asset.currentHolderType === 'OTHER') {
-        await releasePersonnelStock(tx, asset.stockItem.id);
-        await tx.stockMovement.create({ data: {
-          stockItemId: asset.stockItem.id, sharedAssetId: asset.id, type: 'PERSONNEL_RETURN', quantity: 1,
-          itemNameSnapshot: asset.assetName, serialNo: asset.serialNo || asset.assetCode,
-          reason: 'ORTAK EŞYA HARİCİ İADE', notes, createdById: data.createdById || null,
-        } });
-      } else throw new AppError('Aktif zimmet bağlantısı bulunamadı. İşlem durduruldu.', 409);
+        await tx.inventoryItem.updateMany({ where: { id: asset.currentPersonnelInventoryId, returnedDate: null }, data: { returnedDate: returnedAt, returnedById: data.createdById || null, status: 'TAM_İADE_ALINDI', notes } });
+      }
+
+      await tx.stockMovement.create({ data: {
+        stockItemId: asset.stockItem.id, sharedAssetId: asset.id, employeeId: asset.currentEmployeeId,
+        roomId: asset.currentRoomId, type: 'PERSONNEL_RETURN', quantity: 1,
+        itemNameSnapshot: asset.assetName, serialNo: asset.serialNo || asset.assetCode,
+        reason: 'ORTAK EŞYA İADE ALMA', notes, createdById: data.createdById || null,
+      } });
 
       const changed = await tx.sharedAsset.updateMany({ where: { id: asset.id, status: 'LOANED', updatedAt: asset.updatedAt }, data: {
         status: targetStatus, currentHolderType: null, currentEmployeeId: null, currentRoomId: null,
         currentPersonnelInventoryId: null, currentRoomInventoryId: null, borrowedAt: null, expectedReturnDate: null,
-        locationNote: locationNote || asset.locationNote || 'ANA DEPO',
+        locationNote: returnLocation,
       } });
       if (changed.count !== 1) throw new AppError('Ortak eşya başka bir işlemde değişti. Listeyi yenileyin.', 409);
       await tx.stockItem.update({ where: { id: asset.stockItem.id }, data: { physicalStatus: targetStatus === 'MAINTENANCE' ? 'BAKIMDA' : 'KULLANILABİLİR' } });
       const activeLog = await tx.sharedAssetLog.findFirst({ where: { assetId, action: 'CHECK_OUT', returnedAt: null }, orderBy: { createdAt: 'desc' } });
-      if (!activeLog) throw new AppError('Aktif zimmet geçmişi bulunamadı. İşlem durduruldu.', 409);
-      await tx.sharedAssetLog.update({ where: { id: activeLog.id }, data: { returnedAt } });
+      if (activeLog) {
+        await tx.sharedAssetLog.update({ where: { id: activeLog.id }, data: { returnedAt } });
+      }
       await tx.sharedAssetLog.create({ data: {
         requestKey: data.requestKey || null, assetId, action: 'CHECK_IN', assetCodeSnapshot: asset.assetCode,
         assetNameSnapshot: asset.assetName, holderType: asset.currentHolderType, statusFrom: 'LOANED', statusTo: targetStatus,
         borrowerName, employeeId: asset.currentEmployeeId, roomId: asset.currentRoomId,
-        borrowedAt: asset.borrowedAt || activeLog.borrowedAt, returnedAt, expectedReturnDate: asset.expectedReturnDate,
+        borrowedAt: asset.borrowedAt || (activeLog ? activeLog.borrowedAt : returnedAt), returnedAt, expectedReturnDate: asset.expectedReturnDate,
         notes, createdById: data.createdById || null,
       } });
       return tx.sharedAsset.findUniqueOrThrow({ where: { id: asset.id }, include: assetInclude });
@@ -354,6 +329,8 @@ export class SharedAssetService {
       if (error?.code === 'P2002') throw new AppError('Bu teslim alma isteği daha önce işlendi.', 409);
       throw error;
     });
+    broadcastSharedAssetEvent('SHARED_ASSET_UPDATED', { assetId: res.id, status: res.status });
+    return res;
   }
 
   public static async updateAssetStatus(assetId: string, data: {
@@ -362,7 +339,7 @@ export class SharedAssetService {
     if (!['AVAILABLE', 'MAINTENANCE', 'RETIRED'].includes(data.status)) throw new AppError('Durum ekranından zimmetli durumuna geçilemez; zimmet işlemini kullanın.', 400);
     const notes = boundedText(data.notes, 'Durum değişikliği gerekçesi', 1000, { required: data.status === 'RETIRED', casing: 'upper' });
     const locationNote = boundedText(data.locationNote, 'Konum', 200, { casing: 'upper' });
-    return prisma.$transaction(async (tx) => {
+    const res = await prisma.$transaction(async (tx) => {
       const replay = await idempotentLog(tx, data.requestKey, assetId, 'STATUS_CHANGE', data.createdById);
       if (replay) return replay;
       const asset = await tx.sharedAsset.findUnique({ where: { id: assetId } });
@@ -396,6 +373,8 @@ export class SharedAssetService {
       } });
       return tx.sharedAsset.findUniqueOrThrow({ where: { id: asset.id }, include: assetInclude });
     }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+    broadcastSharedAssetEvent('SHARED_ASSET_UPDATED', { assetId: res.id, status: res.status });
+    return res;
   }
 
   public static async addMaintenanceLog(assetId: string, data: {
@@ -407,7 +386,7 @@ export class SharedAssetService {
     const notes = boundedText(data.notes, 'Bakım/arıza açıklaması', 1000, { required: true, minLength: 5, casing: 'upper' })!;
     const starts = ['MAINTENANCE_START', 'FAULT_REPORTED'].includes(data.action);
     const targetStatus: SharedAssetStatus = starts ? 'MAINTENANCE' : 'AVAILABLE';
-    return prisma.$transaction(async (tx) => {
+    const res = await prisma.$transaction(async (tx) => {
       const replay = await idempotentLog(tx, data.requestKey, assetId, data.action, data.createdById);
       if (replay) return replay;
       const asset = await tx.sharedAsset.findUnique({ where: { id: assetId } });
@@ -427,5 +406,29 @@ export class SharedAssetService {
       } });
       return tx.sharedAsset.findUniqueOrThrow({ where: { id: asset.id }, include: assetInclude });
     }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+    broadcastSharedAssetEvent('SHARED_ASSET_UPDATED', { assetId: res.id, status: res.status });
+    return res;
+  }
+
+  public static async deleteLog(logId: string) {
+    const log = await prisma.sharedAssetLog.findUnique({ where: { id: logId } });
+    if (!log) throw new AppError('İşlem kaydı bulunamadı.', 404);
+    const res = await prisma.sharedAssetLog.delete({ where: { id: logId } });
+    broadcastSharedAssetEvent('SHARED_ASSET_UPDATED', { assetId: log.assetId });
+    return res;
+  }
+
+  public static async updateLog(logId: string, data: { borrowerName?: string; notes?: string }) {
+    const log = await prisma.sharedAssetLog.findUnique({ where: { id: logId } });
+    if (!log) throw new AppError('İşlem kaydı bulunamadı.', 404);
+    const res = await prisma.sharedAssetLog.update({
+      where: { id: logId },
+      data: {
+        ...(data.borrowerName !== undefined && { borrowerName: boundedText(data.borrowerName, 'Teslim alan kişi', 120, { casing: 'upper' }) }),
+        ...(data.notes !== undefined && { notes: boundedText(data.notes, 'Açıklama', 1000, { casing: 'upper' }) }),
+      },
+    });
+    broadcastSharedAssetEvent('SHARED_ASSET_UPDATED', { assetId: log.assetId });
+    return res;
   }
 }

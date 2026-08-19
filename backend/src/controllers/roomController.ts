@@ -94,7 +94,7 @@ export const roomController = {
   updateStatus: async (req: Request, res: Response, next: NextFunction) => {
     try {
       const { id } = req.params;
-      const { status } = req.body;
+      const { status, cleanedBy, notes } = req.body;
 
       if (!isUuid(id)) return res.status(400).json({ success: false, message: 'Geçersiz oda kimliği.' });
       if (!status || !Object.values(RoomStatus).includes(status)) {
@@ -109,9 +109,14 @@ export const roomController = {
       }
 
       const authReq = req as AuthenticatedRequest;
-      const userFullName = authReq.user?.fullName || 'Lojman Yönetimi';
+      const effectiveCleanedBy = (typeof cleanedBy === 'string' && cleanedBy.trim()) ? cleanedBy.trim() : (authReq.user?.fullName || 'Lojman Yönetimi');
 
-      const updatedRoom = await roomService.updateRoomStatus(id, status as RoomStatus, userFullName);
+      const updatedRoom = await roomService.updateRoomStatus(
+        id,
+        status as RoomStatus,
+        effectiveCleanedBy,
+        typeof notes === 'string' ? notes.trim() : undefined
+      );
       res.status(200).json({ success: true, data: updatedRoom, message: 'Oda durumu güncellendi.' });
     } catch (error) {
       next(error);
@@ -281,18 +286,36 @@ export const roomController = {
     }
   },
 
+  deleteMaintenance: async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+    try {
+      const { maintenanceId } = req.params;
+      if (!isUuid(maintenanceId)) return res.status(400).json({ success: false, message: 'Geçersiz arıza kaydı kimliği.' });
+
+      await maintenanceService.deleteMaintenance(maintenanceId, req.user?.id);
+
+      res.status(200).json({
+        success: true,
+        message: 'Arıza kaydı başarıyla silindi.',
+      });
+    } catch (error) {
+      next(error);
+    }
+  },
+
   createCleaningLog: async (req: Request, res: Response, next: NextFunction) => {
     try {
       const { id } = req.params;
-      const { notes, status } = req.body;
+      const { notes, status, requestedBy, cleanedBy } = req.body;
       if (!isUuid(id)) return res.status(400).json({ success: false, message: 'Geçersiz oda kimliği.' });
 
       const authReq = req as AuthenticatedRequest;
       const userFullName = authReq.user?.fullName || 'Lojman Yönetimi';
+      const effectiveCleanedBy = (typeof cleanedBy === 'string' && cleanedBy.trim()) ? cleanString(cleanedBy, 100) : (status === 'CLEANED' ? userFullName : undefined);
+      const effectiveRequestedBy = (typeof requestedBy === 'string' && requestedBy.trim()) ? cleanString(requestedBy, 100) : userFullName;
 
       const updatedRoom = await roomService.createCleaningLog(id, {
-        requestedBy: userFullName,
-        cleanedBy: status === 'CLEANED' ? userFullName : undefined,
+        requestedBy: effectiveRequestedBy,
+        cleanedBy: effectiveCleanedBy,
         notes: cleanString(notes, 1000) || undefined,
         status: status ? cleanString(status, 30) : undefined,
       });
@@ -303,15 +326,17 @@ export const roomController = {
   updateCleaningLog: async (req: Request, res: Response, next: NextFunction) => {
     try {
       const { cleaningId } = req.params;
-      const { status, notes } = req.body;
+      const { status, notes, requestedBy, cleanedBy } = req.body;
       if (!isUuid(cleaningId)) return res.status(400).json({ success: false, message: 'Geçersiz temizlik kaydı kimliği.' });
 
       const authReq = req as AuthenticatedRequest;
       const userFullName = authReq.user?.fullName || 'Lojman Yönetimi';
+      const effectiveCleanedBy = (typeof cleanedBy === 'string' && cleanedBy.trim()) ? cleanString(cleanedBy, 100) : (status === 'CLEANED' ? userFullName : undefined);
 
       const updatedRoom = await roomService.updateCleaningLog(cleaningId, {
         status: status ? cleanString(status, 30) : undefined,
-        cleanedBy: status === 'CLEANED' ? userFullName : undefined,
+        requestedBy: (typeof requestedBy === 'string' && requestedBy.trim()) ? cleanString(requestedBy, 100) : undefined,
+        cleanedBy: effectiveCleanedBy,
         notes: notes !== undefined ? (cleanString(notes, 1000) || undefined) : undefined,
       });
       res.status(200).json({ success: true, data: updatedRoom, message: 'Temizlik kaydı güncellendi.' });

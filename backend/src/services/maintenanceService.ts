@@ -13,6 +13,52 @@ const inventoryFaultStatuses = new Set<RoomInventoryStatus>([
   'REPLACEMENT_REQUIRED',
 ]);
 
+async function executeTransactionWithRetry<T>(
+  fn: (tx: Prisma.TransactionClient) => Promise<T>,
+  maxRetries = 3
+): Promise<T> {
+  let attempt = 0;
+  while (true) {
+    try {
+      return await prisma.$transaction(fn, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+    } catch (error: any) {
+      attempt++;
+      const isSerializationError =
+        error?.code === 'P2034' ||
+        (typeof error?.message === 'string' &&
+          (error.message.includes('serialization failure') ||
+           error.message.includes('deadlock detected') ||
+           error.message.includes('Transaction failed due to a write conflict')));
+      if (isSerializationError && attempt < maxRetries) {
+        await new Promise((resolve) => setTimeout(resolve, attempt * 150));
+        continue;
+      }
+      throw error;
+    }
+  }
+}
+
+async function syncRoomStatusForMaintenance(tx: Prisma.TransactionClient, roomId: string) {
+  const room = await tx.room.findUnique({ where: { id: roomId }, select: { id: true, status: true } });
+  if (!room) return;
+  const remainingActiveHighFaults = await tx.maintenanceLog.count({
+    where: {
+      roomId,
+      status: { in: ['OPEN', 'IN_PROGRESS'] },
+      priority: { in: ['HIGH', 'URGENT'] },
+    },
+  });
+  if (remainingActiveHighFaults > 0) {
+    if (room.status !== 'OUT_OF_ORDER') {
+      await tx.room.update({ where: { id: roomId }, data: { status: 'OUT_OF_ORDER' } });
+    }
+  } else {
+    if (room.status === 'OUT_OF_ORDER') {
+      await tx.room.update({ where: { id: roomId }, data: { status: 'READY' } });
+    }
+  }
+}
+
 const maintenanceInclude = {
   room: {
     select: {
@@ -236,7 +282,7 @@ export const maintenanceService = {
     }
 
     try {
-      return await prisma.$transaction(async (tx) => {
+      return await executeTransactionWithRetry(async (tx) => {
         if (requestKey) {
           const existingRequest = await tx.maintenanceLog.findUnique({ where: { requestKey }, include: maintenanceInclude });
           if (existingRequest) {
@@ -278,9 +324,7 @@ export const maintenanceService = {
             performedBy: (reportedBy?.trim() || 'Lojman Yönetimi').toLocaleUpperCase('tr-TR'),
             performedById: createdById || null,
           } });
-          if (priority === 'HIGH' || priority === 'URGENT') {
-            await tx.room.update({ where: { id: roomId }, data: { status: 'OUT_OF_ORDER' } });
-          }
+          await syncRoomStatusForMaintenance(tx, roomId);
           return tx.maintenanceLog.findUniqueOrThrow({ where: { id: maintenance.id }, include: maintenanceInclude });
         }
 
@@ -363,12 +407,10 @@ export const maintenanceService = {
           },
         });
 
-        if (priority === 'HIGH' || priority === 'URGENT') {
-          await tx.room.update({ where: { id: roomId }, data: { status: 'OUT_OF_ORDER' } });
-        }
+        await syncRoomStatusForMaintenance(tx, roomId);
 
         return tx.maintenanceLog.findUniqueOrThrow({ where: { id: maintenance.id }, include: maintenanceInclude });
-      }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+      });
     } catch (error: any) {
       if (error && typeof error === 'object' && 'code' in error && error.code === 'P2002') {
         if (requestKey) {
@@ -401,9 +443,6 @@ export const maintenanceService = {
     if (data.status) assertMaintenanceTransition(existing.status, data.status, Boolean(data.canFullUpdate));
     if (data.inventoryStatus && existing.type !== 'ROOM_INVENTORY') throw new AppError('Genel oda arızasında demirbaş durumu değiştirilemez.', 400);
     if (data.inventoryStatus === 'LOST' || data.inventoryStatus === 'RETIRED') throw new AppError('Kayıp/hurda işlemleri mevcut arıza güncellemesinden yapılamaz; kontrollü stok süreci kullanılmalıdır.', 400);
-    if ((data.status === 'RESOLVED' || data.status === 'CLOSED') && !(data.resolutionNote?.trim() || existing.resolutionNote?.trim())) {
-      throw new AppError('Arıza kapatılırken yapılan işlemi açıklayan çözüm notu zorunludur.', 400);
-    }
     if (data.resolutionNote !== undefined && existing.resolutionNote?.trim() && !data.resolutionNote?.trim()) {
       throw new AppError('Kaydedilmiş çözüm notu silinemez; gerekiyorsa yeni ve açıklayıcı bir notla güncellenebilir.', 409);
     }
@@ -464,13 +503,24 @@ export const maintenanceService = {
     }
 
     try {
-      return await prisma.$transaction(async (tx) => {
+      return await executeTransactionWithRetry(async (tx) => {
       const changed = await tx.maintenanceLog.updateMany({ where: { id, updatedAt: existing.updatedAt }, data: updateData as Prisma.MaintenanceLogUpdateManyMutationInput });
       if (changed.count !== 1) throw new AppError('Arıza kaydı başka bir kullanıcı tarafından güncellendi. Güncel veriyi yenileyip tekrar deneyin.', 409);
       let nextInventoryStatus = data.inventoryStatus;
       if (existing.type === 'ROOM_INVENTORY' && existing.roomInventory && !existing.roomInventory.returnedAt) {
         if ((data.status === 'RESOLVED' || data.status === 'CLOSED') && !nextInventoryStatus) nextInventoryStatus = 'HEALTHY';
-        if (data.status === 'OPEN' && (existing.status === 'RESOLVED' || existing.status === 'CLOSED') && !nextInventoryStatus) nextInventoryStatus = 'MAINTENANCE_REQUIRED';
+        if (data.status === 'OPEN' && (existing.status === 'RESOLVED' || existing.status === 'CLOSED') && !nextInventoryStatus) {
+          const priorEvent = await tx.maintenanceEvent.findFirst({
+            where: {
+              maintenanceId: id,
+              inventoryStatus: { not: null },
+              toStatus: { in: ['OPEN', 'IN_PROGRESS'] },
+            },
+            orderBy: { createdAt: 'desc' },
+            select: { inventoryStatus: true },
+          });
+          nextInventoryStatus = priorEvent?.inventoryStatus || (existing.inventoryStatus as RoomInventoryStatus) || 'MAINTENANCE_REQUIRED';
+        }
         if (nextInventoryStatus && nextInventoryStatus !== existing.roomInventory.status) {
           const inventoryChanged = await tx.roomInventory.updateMany({
             where: { id: existing.roomInventory.id, returnedAt: null, updatedAt: existing.roomInventory.updatedAt },
@@ -509,16 +559,82 @@ export const maintenanceService = {
         performedBy: data.performedBy.trim().toLocaleUpperCase('tr-TR'),
         performedById: data.performedById || null,
       } });
-      const effectivePriority = data.priority || existing.priority;
-      if (['OPEN', 'IN_PROGRESS'].includes(nextMaintenanceStatus) && ['HIGH', 'URGENT'].includes(effectivePriority)) {
-        await tx.room.update({ where: { id: existing.roomId }, data: { status: 'OUT_OF_ORDER' } });
-      }
+      await syncRoomStatusForMaintenance(tx, existing.roomId);
       return tx.maintenanceLog.findUniqueOrThrow({ where: { id }, include: maintenanceInclude });
-      }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+      });
     } catch (error: any) {
       if (error instanceof AppError) throw error;
       if (error?.code === 'P2002') throw new AppError('Bu demirbaş için başka bir aktif arıza kaydı bulunuyor.', 409);
       if (error?.code === 'P2034') throw new AppError('Arıza, oda veya demirbaş aynı anda değiştirildi. Lütfen işlemi yeniden deneyin.', 409);
+      throw error;
+    }
+  },
+
+  /**
+   * Delete a maintenance record
+   */
+  async deleteMaintenance(id: string, _actorUserId?: string) {
+    const existing = await prisma.maintenanceLog.findUnique({
+      where: { id },
+      include: { roomInventory: true, room: true },
+    });
+    if (!existing) {
+      throw new AppError('Arıza kaydı bulunamadı.', 404);
+    }
+
+    try {
+      return await executeTransactionWithRetry(async (tx) => {
+        // 1. If linked to a RoomInventory, check if inventory status needs to revert to HEALTHY or restore LOST stock
+        if (existing.type === 'ROOM_INVENTORY' && existing.roomInventoryId && existing.roomInventory) {
+          const otherActiveFaults = await tx.maintenanceLog.findFirst({
+            where: {
+              roomInventoryId: existing.roomInventoryId,
+              id: { not: id },
+              status: { in: ['OPEN', 'IN_PROGRESS'] },
+            },
+            select: { id: true },
+          });
+
+          const isLostFault = existing.inventoryStatus === 'LOST' || existing.roomInventory.status === 'LOST';
+
+          if (isLostFault && existing.roomInventory.returnedAt) {
+            // Restore LOST stock: add back totalStock and usedInRooms, clear returnedAt, set HEALTHY
+            await tx.stockItem.update({
+              where: { id: existing.roomInventory.stockItemId },
+              data: {
+                totalStock: { increment: existing.roomInventory.quantity },
+                usedInRooms: { increment: existing.roomInventory.quantity },
+              },
+            });
+            await tx.roomInventory.update({
+              where: { id: existing.roomInventoryId },
+              data: { status: 'HEALTHY', returnedAt: null },
+            });
+          } else if (!otherActiveFaults && !existing.roomInventory.returnedAt && existing.roomInventory.status !== 'HEALTHY') {
+            await tx.roomInventory.update({
+              where: { id: existing.roomInventoryId },
+              data: { status: 'HEALTHY' },
+            });
+          }
+        }
+
+        // 2. Delete linked maintenance events
+        await tx.maintenanceEvent.deleteMany({ where: { maintenanceId: id } });
+
+        // 3. Delete linked stock movements
+        await tx.stockMovement.deleteMany({ where: { maintenanceId: id } });
+
+        // 4. Delete the maintenance log
+        await tx.maintenanceLog.delete({ where: { id } });
+
+        // 5. Sync room status
+        await syncRoomStatusForMaintenance(tx, existing.roomId);
+
+        return { deleted: true };
+      });
+    } catch (error: any) {
+      if (error instanceof AppError) throw error;
+      if (error?.code === 'P2034') throw new AppError('Arıza kaydı aynı anda başka bir işlem tarafından değiştirildi.', 409);
       throw error;
     }
   },

@@ -55,7 +55,7 @@ interface EmployeeDetailViewProps {
   currentUser?: UserEntity | null;
 }
 
-type TabType = 'general' | 'inventory' | 'complaints' | 'transfers' | 'visitors' | 'occupancyHistory';
+type TabType = 'general' | 'inventory' | 'complaints' | 'visitors' | 'occupancyHistory';
 
 export function formatPhone(phone?: string | null): string {
   if (!phone) return 'Belirtilmedi';
@@ -124,7 +124,7 @@ export const EmployeeDetailView: React.FC<EmployeeDetailViewProps> = ({
 
   const [activeTab, setActiveTab] = useState<TabType>(() => {
     const saved = localStorage.getItem('staff_app_emp_detail_tab');
-    if (saved && ['general', 'inventory', 'complaints', 'transfers', 'visitors', 'occupancyHistory'].includes(saved)) {
+    if (saved && ['general', 'inventory', 'complaints', 'visitors', 'occupancyHistory'].includes(saved)) {
       return saved as TabType;
     }
     return 'general';
@@ -135,7 +135,7 @@ export const EmployeeDetailView: React.FC<EmployeeDetailViewProps> = ({
     localStorage.setItem('staff_app_emp_detail_tab', tab);
   };
   useEffect(() => {
-    const sensitiveTabs: TabType[] = ['inventory', 'complaints', 'transfers', 'occupancyHistory'];
+    const sensitiveTabs: TabType[] = ['inventory', 'complaints', 'occupancyHistory'];
     if ((sensitiveTabs.includes(activeTab) && !canViewSensitive) || (activeTab === 'visitors' && !canViewVisitors)) {
       setActiveTab('general');
       localStorage.setItem('staff_app_emp_detail_tab', 'general');
@@ -276,13 +276,17 @@ export const EmployeeDetailView: React.FC<EmployeeDetailViewProps> = ({
     hasDbComplaints ? dbComplaints : []
   );
 
-  // Keep state in sync with employee prop changes
+  // Keep currentEmp in sync with employee prop changes
   useEffect(() => {
     setCurrentEmp(employee);
     setActiveTab('general');
-    if (Array.isArray(employee.inventories)) {
+  }, [employee?.id]);
+
+  // Keep sub-states in sync whenever currentEmp changes (e.g. after API refresh)
+  useEffect(() => {
+    if (Array.isArray(currentEmp.inventories)) {
       setDeliveredInventories(
-        employee.inventories.filter((i: any) => i.category !== 'ŞAHSİ_EŞYA').map((i: any) => ({
+        currentEmp.inventories.filter((i: any) => i.category !== 'ŞAHSİ_EŞYA').map((i: any) => ({
           id: i.id,
           itemName: i.itemName,
           itemCode: i.itemCode || 'ZMM-101',
@@ -292,7 +296,7 @@ export const EmployeeDetailView: React.FC<EmployeeDetailViewProps> = ({
         }))
       );
       setPersonalBelongings(
-        employee.inventories.filter((i: any) => i.category === 'ŞAHSİ_EŞYA').map((i: any) => ({
+        currentEmp.inventories.filter((i: any) => i.category === 'ŞAHSİ_EŞYA').map((i: any) => ({
           id: i.id,
           itemName: i.itemName,
           serialNo: i.serialNo || i.itemCode || 'Belirtilmedi',
@@ -303,9 +307,9 @@ export const EmployeeDetailView: React.FC<EmployeeDetailViewProps> = ({
         }))
       );
     }
-    if (Array.isArray(employee.disciplinaryNotes)) {
+    if (Array.isArray(currentEmp.disciplinaryNotes)) {
       setComplaints(
-        employee.disciplinaryNotes.map((d: any) => ({
+        currentEmp.disciplinaryNotes.map((d: any) => ({
           id: d.id,
           date: formatDateTime(d.createdAt),
           title: d.title,
@@ -315,24 +319,8 @@ export const EmployeeDetailView: React.FC<EmployeeDetailViewProps> = ({
         }))
       );
     }
-  }, [employee?.id]);
+  }, [currentEmp]);
 
-  // Room Transfer History
-  const transfers = (currentEmp.occupancies || []).map((stay: any, index: number, all: any[]) => {
-    const previous = all[index + 1];
-    const location = (record: any) => record?.bed?.room
-      ? `${record.bed.room.block?.name || '-'} • Oda ${record.bed.room.roomNumber}`
-      : '-';
-    return {
-      id: stay.id,
-      date: formatDateTime(stay.checkInDate),
-      action: previous ? 'Oda Değişikliği' : 'Giriş Kaydı',
-      fromRoom: location(previous),
-      toRoom: location(stay),
-      toBed: stay.bed?.bedLabel || '-',
-      reason: stay.transferReason || (previous ? 'Oda / yatak ataması değiştirildi' : 'İlk konaklama kaydı'),
-    };
-  });
 
   const currentBed = currentEmp.beds && currentEmp.beds.length > 0 ? currentEmp.beds[0] : null;
 
@@ -374,13 +362,24 @@ export const EmployeeDetailView: React.FC<EmployeeDetailViewProps> = ({
           photoUrl: newPersonalPhotoUrl || undefined,
           notes: newPersonalNotes.trim() || undefined,
         });
+        await refreshEmployeeData();
+      } else {
+        const newItem = {
+          id: `pr-${Date.now()}`,
+          itemName: newPersonalName.trim(),
+          serialNo: newPersonalSerial.trim() || 'Belirtilmedi',
+          declaredDate: formatDateTime(new Date().toISOString()),
+          exitDate: null,
+          approvalStatus: 'Güvenlik Onaylı - Çıkış İzinli',
+          notes: newPersonalNotes.trim() || 'Personel lojmana girerken kendi yanında getirdi.',
+        };
+        setPersonalBelongings(prev => [newItem, ...prev]);
       }
     } catch (err) {
       setOperationError('Şahsi eşya kaydedilemedi. Lütfen tekrar deneyin.');
       return;
     }
 
-    await refreshEmployeeData();
     setNewPersonalName('');
     setNewPersonalSerial('');
     setNewPersonalNotes('');
@@ -400,13 +399,23 @@ export const EmployeeDetailView: React.FC<EmployeeDetailViewProps> = ({
           stockItemId: selectedStockItemId || undefined,
           serialNo: newLojmanSerial.trim() || undefined,
         });
+        await refreshEmployeeData();
+      } else {
+        const newItem = {
+          id: `inv-${Date.now()}`,
+          itemName: newLojmanName.trim(),
+          itemCode: newLojmanSerial.trim() || 'ZMM-101',
+          assignedDate: formatDateTime(new Date().toISOString()),
+          returnedDate: null,
+          status: 'Teslim Edildi',
+        };
+        setDeliveredInventories(prev => [newItem, ...prev]);
       }
     } catch (err: any) {
       setOperationError(err?.response?.data?.message || err?.message || 'Zimmet kaydedilemedi. Lütfen tekrar deneyin.');
       return;
     }
 
-    await refreshEmployeeData();
     setNewLojmanName('');
     setNewLojmanSerial('');
     setSelectedStockItemId('');
@@ -645,13 +654,23 @@ export const EmployeeDetailView: React.FC<EmployeeDetailViewProps> = ({
           content: newComplaintContent.trim() || 'Açıklama girilmedi.',
           reportedBy: 'Lojman Amirliği',
         });
+        await refreshEmployeeData();
+      } else {
+        const newComplaint = {
+          id: `cmp-${Date.now()}`,
+          date: formatDateTime(new Date().toISOString()),
+          title: newComplaintTitle.trim(),
+          content: newComplaintContent.trim() || 'Açıklama girilmedi.',
+          status: 'Görüşüldü',
+          reportedBy: 'Lojman Amirliği',
+        };
+        setComplaints(prev => [newComplaint, ...prev]);
       }
     } catch (err) {
       setOperationError('Disiplin notu kaydedilemedi. Lütfen tekrar deneyin.');
       return;
     }
 
-    await refreshEmployeeData();
     setNewComplaintTitle('Madde 1: Oda İçi Gürültü / Huzursuzluk Çıkarma');
     setNewComplaintContent('');
     setIsAddComplaintModalOpen(false);
@@ -1809,16 +1828,6 @@ export const EmployeeDetailView: React.FC<EmployeeDetailViewProps> = ({
             <span>Şikayet & Disiplin Notları ({complaints.length})</span>
           </button>}
 
-          {canViewSensitive && <button
-            onClick={() => handleTabSwitch('transfers')}
-            className={`px-4 py-2.5 rounded-2xl text-xs font-extrabold flex items-center gap-2 transition-all cursor-pointer ${activeTab === 'transfers'
-              ? 'bg-[#1e3a8a] text-white shadow-md'
-              : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-              }`}
-          >
-            <ArrowRightLeft className="w-4 h-4" />
-            <span>Oda Değişimleri ({transfers.length})</span>
-          </button>}
 
           {canViewVisitors && <button
             onClick={() => handleTabSwitch('visitors')}
@@ -2380,60 +2389,6 @@ export const EmployeeDetailView: React.FC<EmployeeDetailViewProps> = ({
             </div>
           )}
 
-          {/* TAB 4: ODA DEĞİŞTİRME VE HAREKET GEÇMİŞİ */}
-          {canViewSensitive && activeTab === 'transfers' && (
-            <div className="space-y-4 animate-fadeIn">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h3 className="text-sm font-extrabold text-slate-900">Oda Değiştirme & Konaklama Geçmişi</h3>
-                </div>
-              </div>
-
-              <div className="border border-slate-300 rounded-2xl overflow-hidden shadow-sm bg-white">
-                <table className="w-full text-left border-collapse text-xs">
-                  <thead>
-                    <tr className="bg-slate-100/80 border-b border-slate-300 font-extrabold text-slate-800">
-                      <th className="py-2 px-3 border-r border-slate-200">İşlem Türü</th>
-                      <th className="py-2 px-3 border-r border-slate-200 w-1/6">Önceki Konum</th>
-                      <th className="py-2 px-3 border-r border-slate-200 w-1/5">Yeni Konum</th>
-                      <th className="py-2 px-3 border-r border-slate-200 w-32 text-center">Yatak</th>
-                      <th className="py-2 px-3 border-r border-slate-200 w-36">İşlem Tarihi</th>
-                      <th className="py-2 px-3">Açıklama / Neden</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-200">
-                    {transfers.map((transfer) => (
-                      <tr key={transfer.id} className="hover:bg-slate-50 transition-colors">
-                        <td className="py-2 px-3 font-extrabold text-slate-900 border-r border-slate-200">
-                          <div className="flex items-center gap-2">
-                            <ArrowRightLeft className="w-3.5 h-3.5 text-[#1e3a8a] shrink-0" />
-                            <span>{transfer.action}</span>
-                          </div>
-                        </td>
-                        <td className="py-2 px-3 font-semibold text-slate-600 border-r border-slate-200">
-                          {transfer.fromRoom || '-'}
-                        </td>
-                        <td className="py-2 px-3 font-bold text-[#1e3a8a] border-r border-slate-200">
-                          {transfer.toRoom}
-                        </td>
-                        <td className="py-2 px-3 font-extrabold text-slate-800 border-r border-slate-200 text-center">
-                          <span className="px-2 py-0.5 rounded-md bg-blue-50 text-blue-900 border border-blue-200 text-[11px]">
-                            {transfer.toBed || '-'}
-                          </span>
-                        </td>
-                        <td className="py-2 px-3 font-bold text-slate-600 border-r border-slate-200 whitespace-nowrap">
-                          {transfer.date}
-                        </td>
-                        <td className="py-2 px-3 font-semibold text-slate-700 leading-relaxed">
-                          {transfer.reason}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          )}
 
           {/* TAB 5: ZİYARETÇİ KAYITLARI */}
           {canViewVisitors && activeTab === 'visitors' && (

@@ -251,4 +251,18 @@ export const maintenanceController = {
       next(error);
     }
   },
+
+  deleteMaintenance: async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+    try {
+      const { id } = req.params;
+      validateMaintenanceId(id);
+      await maintenanceService.deleteMaintenance(id, req.user?.id);
+      res.status(200).json({
+        success: true,
+        message: 'Arıza kaydı başarıyla silindi.',
+      });
+    } catch (error) {
+      next(error);
+    }
+  },
 };

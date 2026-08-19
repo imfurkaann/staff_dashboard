@@ -85,8 +85,8 @@ export class EmployeeController {
     try {
       const body = requestBody(req.body) as unknown as CreateEmployeeDTO;
       const createdById = req.user?.id;
-      if (!hasPermission(req.user?.role, permissions.USER_MANAGE) && body.systemUser) {
-        throw new AppError('Yalnızca sistem yöneticisi yetkili hesap oluşturabilir.', 403);
+      if (body.systemUser?.role && body.systemUser.role !== 'STAFF' && !hasPermission(req.user?.role, permissions.USER_MANAGE)) {
+        throw new AppError('Yalnızca sistem yöneticisi yetkili üst düzey hesap oluşturabilir.', 403);
       }
       if (body.systemUser?.createAccount && body.systemUser?.role && body.systemUser.role !== 'STAFF') throw new AppError('Personel portal hesabı yalnızca STAFF rolüyle oluşturulabilir.', 400);
       const employee = await EmployeeService.createEmployee({

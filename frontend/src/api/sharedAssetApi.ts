@@ -48,6 +48,7 @@ export interface SharedAsset {
     id: string;
     roomNumber: string;
     floor: number;
+    roomType?: string | null;
     block: { name: string };
   } | null;
   borrowedAt?: string | null;
@@ -117,4 +118,7 @@ export const sharedAssetApi = {
     request<SharedAsset>(`/${id}/status`, { method: 'PATCH', body: JSON.stringify(payload), headers: key ? { 'X-Idempotency-Key': key } : undefined }),
   addMaintenanceLog: (id: string, payload: { action: 'MAINTENANCE_START' | 'MAINTENANCE_END' | 'FAULT_REPORTED' | 'REPAIR_COMPLETED'; notes: string }, key?: string) =>
     request<SharedAsset>(`/${id}/maintenance`, { method: 'POST', body: JSON.stringify(payload), headers: key ? { 'X-Idempotency-Key': key } : undefined }),
+  deleteLog: (logId: string) => request<void>(`/logs/${logId}`, { method: 'DELETE' }),
+  updateLog: (logId: string, payload: { borrowerName?: string; notes?: string }) =>
+    request<SharedAssetLog>(`/logs/${logId}`, { method: 'PATCH', body: JSON.stringify(payload) }),
 };

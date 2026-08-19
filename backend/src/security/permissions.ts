@@ -21,6 +21,7 @@ export const permissions = {
   MAINTENANCE_CREATE: 'MAINTENANCE_CREATE',
   MAINTENANCE_UPDATE: 'MAINTENANCE_UPDATE',
   MAINTENANCE_FULL_UPDATE: 'MAINTENANCE_FULL_UPDATE',
+  MAINTENANCE_DELETE: 'MAINTENANCE_DELETE',
   MAINTENANCE_EXPORT: 'MAINTENANCE_EXPORT',
   VISITOR_VIEW: 'VISITOR_VIEW',
   VISITOR_MANAGE: 'VISITOR_MANAGE',
@@ -52,7 +53,7 @@ export const rolePermissions: Record<AppRole, ReadonlySet<Permission>> = {
     permissions.DASHBOARD_VIEW, permissions.EMPLOYEE_VIEW, permissions.ROOM_VIEW, permissions.ROOM_MANAGE,
     permissions.ROOM_OCCUPANCY_EXPORT, permissions.ROOM_INVENTORY_MANAGE, permissions.CLEANING_MANAGE,
     permissions.MAINTENANCE_VIEW, permissions.MAINTENANCE_CREATE, permissions.MAINTENANCE_UPDATE,
-    permissions.MAINTENANCE_FULL_UPDATE, permissions.MAINTENANCE_EXPORT, permissions.VISITOR_VIEW, permissions.VISITOR_MANAGE,
+    permissions.MAINTENANCE_FULL_UPDATE, permissions.MAINTENANCE_DELETE, permissions.MAINTENANCE_EXPORT, permissions.VISITOR_VIEW, permissions.VISITOR_MANAGE,
     permissions.VISITOR_ARCHIVE, permissions.VISITOR_EXPORT, permissions.STOCK_VIEW, permissions.STOCK_MANAGE,
     permissions.STOCK_DEVICE_LIFECYCLE, permissions.SHARED_ASSET_VIEW, permissions.SHARED_ASSET_MANAGE,
     permissions.NOTIFICATION_VIEW, permissions.NOTIFICATION_MANAGE,
@@ -61,7 +62,7 @@ export const rolePermissions: Record<AppRole, ReadonlySet<Permission>> = {
   TECHNICAL_MANAGER: new Set([
     permissions.DASHBOARD_VIEW, permissions.ROOM_VIEW, permissions.ROOM_INVENTORY_MANAGE,
     permissions.MAINTENANCE_VIEW, permissions.MAINTENANCE_CREATE, permissions.MAINTENANCE_UPDATE,
-    permissions.MAINTENANCE_FULL_UPDATE, permissions.MAINTENANCE_EXPORT, permissions.STOCK_VIEW,
+    permissions.MAINTENANCE_FULL_UPDATE, permissions.MAINTENANCE_DELETE, permissions.MAINTENANCE_EXPORT, permissions.STOCK_VIEW,
     permissions.STOCK_DEVICE_LIFECYCLE, permissions.SHARED_ASSET_VIEW,
   ]),
   TECHNICIAN: new Set([
@@ -135,6 +136,7 @@ export const permissionLabels: Record<Permission, string> = {
   MAINTENANCE_CREATE: 'Arıza kaydı oluşturma',
   MAINTENANCE_UPDATE: 'Arıza sürecini güncelleme',
   MAINTENANCE_FULL_UPDATE: 'Arıza servis ve maliyet bilgilerini yönetme',
+  MAINTENANCE_DELETE: 'Arıza kaydını silme',
   MAINTENANCE_EXPORT: 'Arıza raporu dışa aktarma',
   VISITOR_VIEW: 'Ziyaretçi kayıtlarını görüntüleme',
   VISITOR_MANAGE: 'Ziyaretçi giriş/çıkışını yönetme',

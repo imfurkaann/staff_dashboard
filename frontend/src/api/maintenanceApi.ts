@@ -212,4 +212,15 @@ export const maintenanceApi = {
       throw maintenanceError(error, 'Arıza raporu indirilemedi.');
     }
   },
+
+  deleteMaintenance: async (id: string): Promise<void> => {
+    try {
+      await axios.delete(
+        `${appConfig.apiBaseUrl}/maintenance/${id}`,
+        { withCredentials: true }
+      );
+    } catch (error) {
+      throw maintenanceError(error, 'Arıza kaydı silinemedi.');
+    }
+  },
 };

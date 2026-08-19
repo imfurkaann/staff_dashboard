@@ -308,7 +308,7 @@ export const roomService = {
   /**
    * Update room status (READY, NEEDS_CLEANING, OUT_OF_ORDER)
    */
-  async updateRoomStatus(roomId: string, status: RoomStatus, userFullName: string = 'Lojman Yönetimi') {
+  async updateRoomStatus(roomId: string, status: RoomStatus, userFullName: string = 'Lojman Yönetimi', notes?: string) {
     if (!Object.values(RoomStatus).includes(status)) throw new AppError('Geçersiz oda durumu.', 400);
     try {
       await prisma.$transaction(async (tx) => {
@@ -324,15 +324,21 @@ export const roomService = {
           if (criticalFault) throw new AppError('Yüksek veya acil öncelikli arıza açıkken oda hazır durumuna alınamaz. Önce arızayı sonuçlandırın.', 409);
 
           const now = new Date();
+          const cleanNotes = notes?.trim() ? notes.trim().toLocaleUpperCase('tr-TR') : undefined;
           const closed = await tx.roomCleaningLog.updateMany({
             where: { roomId, isDeleted: false, status: { not: 'CLEANED' } },
-            data: { status: 'CLEANED', cleanedAt: now, cleanedBy: userFullName.toLocaleUpperCase('tr-TR') },
+            data: {
+              status: 'CLEANED',
+              cleanedAt: now,
+              cleanedBy: userFullName.toLocaleUpperCase('tr-TR'),
+              ...(cleanNotes ? { notes: cleanNotes } : {}),
+            },
           });
           if (closed.count === 0 && room.status === 'NEEDS_CLEANING') {
             await tx.roomCleaningLog.create({
               data: {
                 roomId, status: 'CLEANED', requestedBy: userFullName.toLocaleUpperCase('tr-TR'),
-                cleanedBy: userFullName.toLocaleUpperCase('tr-TR'), notes: 'ODA DURUMU HAZIR OLARAK GÜNCELLENDİ.',
+                cleanedBy: userFullName.toLocaleUpperCase('tr-TR'), notes: cleanNotes || null,
                 requestedAt: now, cleanedAt: now,
               },
             });
@@ -345,7 +351,7 @@ export const roomService = {
             await tx.roomCleaningLog.create({
               data: {
                 roomId, status: 'NEEDS_CLEANING', requestedBy: userFullName.toLocaleUpperCase('tr-TR'),
-                notes: 'ODA DURUMU TEMİZLİK BEKLİYOR OLARAK GÜNCELLENDİ.', requestedAt: new Date(),
+                notes: notes?.trim() ? notes.trim().toLocaleUpperCase('tr-TR') : null, requestedAt: new Date(),
               },
             });
           }

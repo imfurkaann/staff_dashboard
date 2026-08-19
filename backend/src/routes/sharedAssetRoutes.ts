@@ -15,5 +15,7 @@ router.post('/:id/check-out', authorizePermissions(permissions.SHARED_ASSET_MANA
 router.post('/:id/check-in', authorizePermissions(permissions.SHARED_ASSET_MANAGE), stockMutationRateLimiter, SharedAssetController.checkInAsset);
 router.patch('/:id/status', authorizePermissions(permissions.SHARED_ASSET_MANAGE), stockMutationRateLimiter, SharedAssetController.updateStatus);
 router.post('/:id/maintenance', authorizePermissions(permissions.SHARED_ASSET_MANAGE), stockMutationRateLimiter, SharedAssetController.addMaintenanceLog);
+router.delete('/logs/:logId', authorizePermissions(permissions.SHARED_ASSET_MANAGE), stockMutationRateLimiter, SharedAssetController.deleteLog);
+router.patch('/logs/:logId', authorizePermissions(permissions.SHARED_ASSET_MANAGE), stockMutationRateLimiter, SharedAssetController.updateLog);
 
 export default router;

@@ -25,4 +25,7 @@ router.post('/', authorizePermissions(permissions.MAINTENANCE_CREATE), roomMutat
 // PATCH /api/maintenance/:id - Update an existing maintenance record
 router.patch('/:id', authorizePermissions(permissions.MAINTENANCE_UPDATE), roomMutationRateLimiter, maintenanceController.updateMaintenance);
 
+// DELETE /api/maintenance/:id - Delete a maintenance record
+router.delete('/:id', authorizePermissions(permissions.MAINTENANCE_DELETE), roomMutationRateLimiter, maintenanceController.deleteMaintenance);
+
 export default router;

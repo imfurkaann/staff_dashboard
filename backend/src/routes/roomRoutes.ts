@@ -47,6 +47,9 @@ router.post('/:id/maintenance', authorizePermissions(permissions.MAINTENANCE_CRE
 // PATCH /api/rooms/maintenance/:maintenanceId - Update maintenance record
 router.patch('/maintenance/:maintenanceId', authorizePermissions(permissions.MAINTENANCE_UPDATE), roomMutationRateLimiter, roomController.updateMaintenance);
 
+// DELETE /api/rooms/maintenance/:maintenanceId - Delete maintenance record
+router.delete('/maintenance/:maintenanceId', authorizePermissions(permissions.MAINTENANCE_DELETE), roomMutationRateLimiter, roomController.deleteMaintenance);
+
 // POST /api/rooms/:id/cleaning - Create new cleaning log
 router.post('/:id/cleaning', authorizePermissions(permissions.CLEANING_MANAGE), roomMutationRateLimiter, roomController.createCleaningLog);
 

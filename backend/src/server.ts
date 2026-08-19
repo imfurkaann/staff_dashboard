@@ -79,6 +79,7 @@ app.use((_req, res) => res.status(404).json({ success: false, message: 'Endpoint
 app.use(errorHandler);
 
 import { initTicketWebSocket } from './websocket/ticketSocket';
+import { initSharedAssetWebSocket } from './websocket/sharedAssetSocket';
 
 // Start server
 const server = app.listen(config.port, () => {
@@ -86,6 +87,7 @@ const server = app.listen(config.port, () => {
 });
 
 initTicketWebSocket(server);
+initSharedAssetWebSocket(server);
 
 const shutdown = (signal: string) => {
   console.log(`${signal} alındı, sunucu güvenli şekilde kapatılıyor.`);

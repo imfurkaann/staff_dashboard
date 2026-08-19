@@ -181,8 +181,12 @@ export const roomApi = {
     return response.data.data;
   },
 
-  updateRoomStatus: async (roomId: string, status: RoomStatusType): Promise<Room> => {
-    const response = await api.patch<{ success: boolean; data: Room; message: string }>(`/${roomId}/status`, { status });
+  updateRoomStatus: async (roomId: string, status: RoomStatusType, options?: { cleanedBy?: string; notes?: string }): Promise<Room> => {
+    const response = await api.patch<{ success: boolean; data: Room; message: string }>(`/${roomId}/status`, {
+      status,
+      cleanedBy: options?.cleanedBy,
+      notes: options?.notes,
+    });
     return response.data.data;
   },
 
@@ -204,6 +208,10 @@ export const roomApi = {
   updateMaintenance: async (maintenanceId: string, payload: { title?: string; description?: string; priority?: string; status?: string; assignedTo?: string | null; category?: string | null; location?: string | null; resolutionNote?: string | null }): Promise<RoomMaintenance> => {
     const response = await api.patch<{ success: boolean; data: RoomMaintenance; message: string }>(`/maintenance/${maintenanceId}`, payload);
     return response.data.data;
+  },
+
+  deleteMaintenance: async (maintenanceId: string): Promise<void> => {
+    await api.delete(`/maintenance/${maintenanceId}`);
   },
 
   createCleaningLog: async (roomId: string, payload: { requestedBy?: string; cleanedBy?: string; notes?: string; status?: string }): Promise<Room> => {

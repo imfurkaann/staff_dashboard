@@ -127,13 +127,14 @@ export const AddMaintenanceModal: React.FC<AddMaintenanceModalProps> = ({
       setPriority(maintenance.priority || 'MEDIUM');
       setStatus(maintenance.status || 'OPEN');
       setCategory(maintenance.category || categories[0]);
-      setLocation(maintenance.location || '');
-      setAssignedTo(currentUserRole === 'TECHNICIAN' ? (maintenance.assignedTo || currentUserFullName) : (maintenance.assignedTo || ''));
+      const isTech = currentUserRole === 'TECHNICIAN' || currentUserRole === 'TECHNICAL_MANAGER';
+      setAssignedTo(isTech ? (maintenance.assignedTo || currentUserFullName) : (maintenance.assignedTo || ''));
       setResolutionNote(maintenance.resolutionNote || '');
       setServiceProvider(maintenance.serviceProvider || ''); setServiceReference(maintenance.serviceReference || '');
       setLaborCost(maintenance.laborCost || 0); setPartsCost(maintenance.partsCost || 0); setWarrantyCovered(Boolean(maintenance.warrantyCovered));
       setSentToServiceAt(maintenance.sentToServiceAt?.slice(0, 16) || ''); setReturnedFromServiceAt(maintenance.returnedFromServiceAt?.slice(0, 16) || '');
     } else {
+      const isTech = currentUserRole === 'TECHNICIAN' || currentUserRole === 'TECHNICAL_MANAGER';
       setFaultType(null);
       setRoomId(initialRoomId || '');
       setRoomSearch(initialRoomLabel || '');
@@ -145,7 +146,7 @@ export const AddMaintenanceModal: React.FC<AddMaintenanceModalProps> = ({
       setStatus('OPEN');
       setCategory(categories[0]);
       setLocation('');
-      setAssignedTo(currentUserRole === 'TECHNICIAN' ? currentUserFullName : '');
+      setAssignedTo(isTech ? currentUserFullName : '');
       setResolutionNote('');
       setServiceProvider(''); setServiceReference(''); setLaborCost(0); setPartsCost(0); setWarrantyCovered(false); setSentToServiceAt(''); setReturnedFromServiceAt('');
     }
@@ -181,7 +182,6 @@ export const AddMaintenanceModal: React.FC<AddMaintenanceModalProps> = ({
     if (!description.trim()) return setError('Lütfen arıza durumuna uygun açıklamayı girin.');
     if (faultType === 'ROOM_INVENTORY' && !roomInventoryId) return setError('Lütfen odadaki demirbaşlardan birini seçin.');
     if (faultType === 'ROOM_INVENTORY' && inventoryStatus === 'LOST' && !lostConfirmed) return setError('Kayıp / zayi stok düşümünü onaylamalısınız.');
-    if (maintenance && (status === 'RESOLVED' || status === 'CLOSED') && !resolutionNote.trim()) return setError('Arızayı sonuçlandırmak için yapılan işlemi açıklayan çözüm notunu girin.');
 
     setSubmitting(true);
     setError(null);
@@ -290,7 +290,7 @@ export const AddMaintenanceModal: React.FC<AddMaintenanceModalProps> = ({
                 {maintenance.type === 'ROOM_INVENTORY' && status !== 'RESOLVED' && status !== 'CLOSED' && <label className="sm:col-span-2 space-y-1.5 text-xs font-extrabold text-slate-700">Güncel Demirbaş Durumu<select value={inventoryStatus} onChange={(e) => setInventoryStatus(e.target.value as InventoryFaultStatus)} className="w-full px-3 py-2.5 rounded-xl border border-slate-300 bg-slate-50">{allowedInventoryStatusOptions.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select><span className="block font-semibold text-slate-500">Durum değişikliği stok hareket geçmişine kaydedilir.</span></label>}
                 <label className="space-y-1.5 text-xs font-extrabold text-slate-700">Arıza Durumu<select value={status} onChange={(e) => setStatus(e.target.value as MaintenanceStatus)} className="w-full px-3 py-2.5 rounded-xl border border-slate-300 bg-slate-50"><option value="OPEN">Açık</option><option value="IN_PROGRESS">İşlemde</option><option value="RESOLVED">Çözüldü</option><option value="CLOSED">Kapatıldı</option></select></label>
                 <label className="space-y-1.5 text-xs font-extrabold text-slate-700">Çözümleyen Personel<span className="relative block"><User className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" /><input maxLength={100} value={assignedTo} onChange={(e) => setAssignedTo(e.target.value)} className="w-full pl-9 pr-3 py-2.5 rounded-xl border border-slate-300 bg-slate-50" /></span></label>
-                <label className="sm:col-span-2 space-y-1.5 text-xs font-extrabold text-slate-700">Çözüm / Yapılan İşlem Notu{(status === 'RESOLVED' || status === 'CLOSED') ? ' *' : ''}<textarea required={status === 'RESOLVED' || status === 'CLOSED'} rows={2} maxLength={1000} value={resolutionNote} onChange={(e) => setResolutionNote(e.target.value)} placeholder="Yapılan kontrolü, onarımı veya sonucu eksiksiz yazın..." className="w-full px-3 py-2.5 rounded-xl border border-slate-300 bg-slate-50 resize-none" /></label>
+                <label className="sm:col-span-2 space-y-1.5 text-xs font-extrabold text-slate-700">Çözüm / Yapılan İşlem Notu <span className="text-slate-400 font-semibold text-[10px]">(İsteğe Bağlı)</span><textarea rows={2} maxLength={1000} value={resolutionNote} onChange={(e) => setResolutionNote(e.target.value)} placeholder="Yapılan kontrolü, onarımı veya sonucu yazabilirsiniz (İsteğe bağlı)..." className="w-full px-3 py-2.5 rounded-xl border border-slate-300 bg-slate-50 resize-none" /></label>
                 {maintenance.type === 'ROOM_INVENTORY' && canManageServiceDetails && <div className="sm:col-span-2 grid grid-cols-1 sm:grid-cols-2 gap-3 rounded-2xl border border-blue-200 bg-blue-50/50 p-4">
                   <p className="sm:col-span-2 text-xs font-black text-blue-950">Servis, Garanti ve Maliyet Bilgileri</p>
                   <label className="space-y-1.5 text-xs font-extrabold text-slate-700">Servis Firması<input maxLength={150} value={serviceProvider} onChange={(e) => setServiceProvider(e.target.value)} className="w-full px-3 py-2.5 rounded-xl border border-slate-300 bg-white" /></label>

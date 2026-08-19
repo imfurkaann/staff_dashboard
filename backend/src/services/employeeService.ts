@@ -53,14 +53,16 @@ async function setEmployeePortalAccountActive(
   if (!current || current.isActive === isActive) return;
   const updated = await tx.user.updateMany({ where: { id: userId, isActive: current.isActive }, data: { isActive } });
   if (updated.count !== 1) throw new AppError('Personel portal hesabı aynı anda başka bir işlemde değiştirildi.', 409);
-  await tx.userAuditLog.create({ data: {
-    targetUserId: userId,
-    actorUserId: actorUserId || null,
-    action,
-    beforeRole: current.role,
-    afterRole: current.role,
-    notes,
-  } });
+  await tx.userAuditLog.create({
+    data: {
+      targetUserId: userId,
+      actorUserId: actorUserId || null,
+      action,
+      beforeRole: current.role,
+      afterRole: current.role,
+      notes,
+    }
+  });
 }
 
 function applyEmployeeSearch(where: any, search?: string): void {
@@ -71,10 +73,12 @@ function applyEmployeeSearch(where: any, search?: string): void {
   const sensitiveIdentifier = query.replace(/\s+/g, '');
   where.AND = where.AND || [];
   if (/^\d{11}$/.test(sensitiveIdentifier)) {
-    where.AND.push({ OR: [
-      ...fields.map((field) => ({ [field]: { contains: query, mode: 'insensitive' } })),
-      { tcNoHash: hashSensitiveData(sensitiveIdentifier) },
-    ] });
+    where.AND.push({
+      OR: [
+        ...fields.map((field) => ({ [field]: { contains: query, mode: 'insensitive' } })),
+        { tcNoHash: hashSensitiveData(sensitiveIdentifier) },
+      ]
+    });
     return;
   }
   const terms = query.split(' ').slice(0, 8);
@@ -190,6 +194,9 @@ export class EmployeeService {
           deletedAt: now,
           deletedById: deletedById || null,
           status: 'CHECKED_OUT',
+          tcNoHash: null,
+          registrationNo: null,
+          userId: null,
         },
       });
     }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable }).catch((error: any) => {
@@ -330,10 +337,10 @@ export class EmployeeService {
    * Create new employee with exact registration, check-in, and check-out timestamps
    */
   public static async createEmployee(data: CreateEmployeeDTO) {
-    const { 
-      firstName, 
-      lastName, 
-      gender, 
+    const {
+      firstName,
+      lastName,
+      gender,
       department,
       title,
       company,
@@ -372,10 +379,10 @@ export class EmployeeService {
       throw new AppError('Mükerrer personel kaydını engellemek için lütfen TC Kimlik No veya Sicil No bilgilerinden en az birini giriniz.', 400);
     }
 
-    // 2. TC Kimlik No ile Mükerrer Kontrolü
+    // 2. TC Kimlik No ile Mükerrer Kontrolü (Yalnızca aktif personeller arasında)
     if (cleanTc !== '') {
-      const existingTcMatch = await prisma.employee.findUnique({
-        where: { tcNoHash: hashSensitiveData(cleanTc) },
+      const existingTcMatch = await prisma.employee.findFirst({
+        where: { tcNoHash: hashSensitiveData(cleanTc), isDeleted: false },
         select: { id: true, firstName: true, lastName: true },
       });
 
@@ -387,10 +394,10 @@ export class EmployeeService {
       }
     }
 
-    // 3. Sicil No ile Mükerrer Kontrolü
+    // 3. Sicil No ile Mükerrer Kontrolü (Yalnızca aktif personeller arasında)
     if (cleanRegNo !== '') {
       const existingReg = await prisma.employee.findFirst({
-        where: { registrationNo: cleanRegNo },
+        where: { registrationNo: cleanRegNo, isDeleted: false },
       });
 
       if (existingReg) {
@@ -682,7 +689,7 @@ export class EmployeeService {
     if (data.registrationNo !== undefined) {
       const registrationNo = normalizeIdentifier(data.registrationNo);
       if (registrationNo) {
-        const duplicate = await prisma.employee.findFirst({ where: { registrationNo, NOT: { id: employeeId } }, select: { id: true } });
+        const duplicate = await prisma.employee.findFirst({ where: { registrationNo, isDeleted: false, NOT: { id: employeeId } }, select: { id: true } });
         if (duplicate) throw new AppError('Bu sicil numarası başka bir personelde kayıtlı.', 409);
       }
       updateData.registrationNo = registrationNo;
@@ -701,7 +708,7 @@ export class EmployeeService {
     if (data.tcNo && data.tcNo.trim() !== '') {
       const cleanTc = data.tcNo.trim();
       const duplicate = await prisma.employee.findFirst({
-        where: { tcNoHash: hashSensitiveData(cleanTc), NOT: { id: employeeId } },
+        where: { tcNoHash: hashSensitiveData(cleanTc), isDeleted: false, NOT: { id: employeeId } },
         select: { id: true },
       });
       if (duplicate) throw new AppError('Bu TC/Pasaport numarası başka bir personelde kayıtlı.', 409);
@@ -954,43 +961,45 @@ export class EmployeeService {
     if (category === 'LOJMAN_ZİMMETİ' && data.stockItemId) {
       try {
         return await prisma.$transaction(async (tx) => {
-        const stockItem = await tx.stockItem.findUnique({ where: { id: data.stockItemId } });
-        if (!stockItem || !stockItem.isActive) throw new AppError('Seçilen aktif stok kalemi bulunamadı.', 404);
-        if (stockItem.itemType !== 'SARF_MALZEME' && !cleanSerial) throw new AppError('Demirbaş zimmeti için cihazın üretici seri numarası zorunludur.', 400);
-        if (cleanSerial) {
-          await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`INVENTORY_SERIAL:${cleanSerial}`}))`;
-          const [personnelDuplicate, roomDuplicate] = await Promise.all([
-            tx.inventoryItem.findFirst({ where: { serialNo: cleanSerial, returnedDate: null, isDeleted: false }, select: { id: true } }),
-            tx.roomInventory.findFirst({ where: { serialNo: cleanSerial, returnedAt: null }, select: { id: true } }),
-          ]);
-          if (personnelDuplicate || roomDuplicate) throw new AppError('Bu seri numarası başka bir aktif zimmette kullanılıyor.', 409);
-        }
-        if (stockItem.totalStock - stockItem.usedStock - stockItem.usedInRooms <= 0) {
-          throw new AppError(`Depoda yeterli miktarda "${stockItem.itemName}" kalmamıştır.`, 400);
-        }
-        await reservePersonnelStock(tx, stockItem.id);
-        const created = await tx.inventoryItem.create({
-          data: {
-            employeeId,
-            itemName: stockItem.itemName,
-            itemCode: stockItem.itemCode,
-            category,
-            serialNo: cleanSerial,
-            photoUrl: validatePhotoUrl(data.photoUrl),
-            status: 'TESLİM_EDİLDİ',
-            notes: data.notes ? boundedText(data.notes, 'Eşya notu', 1000, { casing: 'upper' }) : null,
-            createdById: data.createdById || null,
-            stockItemId: stockItem.id,
-          },
-        });
-        const sharedAssetId = await syncSharedAssetPersonnelAssignment(tx, stockItem.id, created.id, employee.id, created.assignedDate, data.createdById);
-        await tx.stockMovement.create({ data: {
-          stockItemId: stockItem.id, employeeId, personnelInventoryId: created.id,
-          sharedAssetId,
-          type: 'PERSONNEL_ASSIGNMENT', quantity: -1, itemNameSnapshot: stockItem.itemName,
-          reason: 'PERSONELE ZİMMET', notes: created.notes, createdById: data.createdById,
-        } });
-        return created;
+          const stockItem = await tx.stockItem.findUnique({ where: { id: data.stockItemId } });
+          if (!stockItem || !stockItem.isActive) throw new AppError('Seçilen aktif stok kalemi bulunamadı.', 404);
+          if (stockItem.itemType !== 'SARF_MALZEME' && !cleanSerial) throw new AppError('Demirbaş zimmeti için cihazın üretici seri numarası zorunludur.', 400);
+          if (cleanSerial) {
+            await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`INVENTORY_SERIAL:${cleanSerial}`}))`;
+            const [personnelDuplicate, roomDuplicate] = await Promise.all([
+              tx.inventoryItem.findFirst({ where: { serialNo: cleanSerial, returnedDate: null, isDeleted: false }, select: { id: true } }),
+              tx.roomInventory.findFirst({ where: { serialNo: cleanSerial, returnedAt: null }, select: { id: true } }),
+            ]);
+            if (personnelDuplicate || roomDuplicate) throw new AppError('Bu seri numarası başka bir aktif zimmette kullanılıyor.', 409);
+          }
+          if (stockItem.totalStock - stockItem.usedStock - stockItem.usedInRooms <= 0) {
+            throw new AppError(`Depoda yeterli miktarda "${stockItem.itemName}" kalmamıştır.`, 400);
+          }
+          await reservePersonnelStock(tx, stockItem.id);
+          const created = await tx.inventoryItem.create({
+            data: {
+              employeeId,
+              itemName: stockItem.itemName,
+              itemCode: stockItem.itemCode,
+              category,
+              serialNo: cleanSerial,
+              photoUrl: validatePhotoUrl(data.photoUrl),
+              status: 'TESLİM_EDİLDİ',
+              notes: data.notes ? boundedText(data.notes, 'Eşya notu', 1000, { casing: 'upper' }) : null,
+              createdById: data.createdById || null,
+              stockItemId: stockItem.id,
+            },
+          });
+          const sharedAssetId = await syncSharedAssetPersonnelAssignment(tx, stockItem.id, created.id, employee.id, created.assignedDate, data.createdById);
+          await tx.stockMovement.create({
+            data: {
+              stockItemId: stockItem.id, employeeId, personnelInventoryId: created.id,
+              sharedAssetId,
+              type: 'PERSONNEL_ASSIGNMENT', quantity: -1, itemNameSnapshot: stockItem.itemName,
+              reason: 'PERSONELE ZİMMET', notes: created.notes, createdById: data.createdById,
+            }
+          });
+          return created;
         }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
       } catch (error: any) {
         if (error instanceof AppError) throw error;
@@ -1013,17 +1022,19 @@ export class EmployeeService {
           ]);
           if (personnelDuplicate || roomDuplicate) throw new AppError('Bu seri numarası başka bir aktif zimmette kullanılıyor.', 409);
         }
-        return tx.inventoryItem.create({ data: {
-        employeeId,
-        itemName,
-        itemCode: boundedText(data.itemCode, 'Eşya kodu', 80, { casing: 'upper' }),
-        category,
-        serialNo: cleanSerial,
-        photoUrl: validatePhotoUrl(data.photoUrl),
-        status: category === 'ŞAHSİ_EŞYA' ? 'ÇIKIŞ_İZİNLİ_ŞAHSİ_MÜLK' : 'TESLİM_EDİLDİ',
-        notes: boundedText(data.notes, 'Eşya notu', 1000, { casing: 'upper' }),
-        createdById: data.createdById || null,
-        } });
+        return tx.inventoryItem.create({
+          data: {
+            employeeId,
+            itemName,
+            itemCode: boundedText(data.itemCode, 'Eşya kodu', 80, { casing: 'upper' }),
+            category,
+            serialNo: cleanSerial,
+            photoUrl: validatePhotoUrl(data.photoUrl),
+            status: category === 'ŞAHSİ_EŞYA' ? 'ÇIKIŞ_İZİNLİ_ŞAHSİ_MÜLK' : 'TESLİM_EDİLDİ',
+            notes: boundedText(data.notes, 'Eşya notu', 1000, { casing: 'upper' }),
+            createdById: data.createdById || null,
+          }
+        });
       }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
     } catch (error: any) {
       if (error instanceof AppError) throw error;
@@ -1095,13 +1106,15 @@ export class EmployeeService {
         const updated = await tx.inventoryItem.findUniqueOrThrow({ where: { id: inventoryId } });
         const stockItem = await tx.stockItem.findUniqueOrThrow({ where: { id: existing.stockItemId! } });
         const sharedAssetId = await syncSharedAssetReturn(tx, stockItem.id, 'EMPLOYEE', existing.id, isLost ? 'RETIRED' : 'AVAILABLE', dataToUpdate.notes || finalStatus, returnedById);
-        await tx.stockMovement.create({ data: {
-          stockItemId: stockItem.id, employeeId: existing.employeeId, personnelInventoryId: existing.id,
-          sharedAssetId,
-          type: isLost ? 'RETIREMENT' : 'PERSONNEL_RETURN', quantity: isLost ? -1 : 1,
-          itemNameSnapshot: existing.itemName, reason: finalStatus,
-          notes: dataToUpdate.notes || null, createdById: returnedById,
-        } });
+        await tx.stockMovement.create({
+          data: {
+            stockItemId: stockItem.id, employeeId: existing.employeeId, personnelInventoryId: existing.id,
+            sharedAssetId,
+            type: isLost ? 'RETIREMENT' : 'PERSONNEL_RETURN', quantity: isLost ? -1 : 1,
+            itemNameSnapshot: existing.itemName, reason: finalStatus,
+            notes: dataToUpdate.notes || null, createdById: returnedById,
+          }
+        });
         return updated;
       }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable }).catch((error: any) => {
         if (error instanceof AppError) throw error;
@@ -1351,7 +1364,7 @@ export class EmployeeService {
       // 1. Close active occupancy logs
       await tx.occupancyLog.updateMany({
         where: { employeeId, checkOutDate: null },
-        data: { 
+        data: {
           checkOutDate: now,
           checkedOutById: checkedOutById || null,
         },
@@ -1370,7 +1383,7 @@ export class EmployeeService {
 
       const updated = await tx.employee.update({
         where: { id: employeeId },
-        data: { 
+        data: {
           status: 'CHECKED_OUT',
           checkedOutById: checkedOutById || null,
         },
@@ -1442,9 +1455,11 @@ export class EmployeeService {
         const current = await tx.employee.findFirst({ where: { id: employeeId, isDeleted: false }, select: { id: true, userId: true, updatedAt: true } });
         if (!current) throw new AppError('Personel bulunamadı.', 404);
         if (current.userId) throw new AppError('Bu personelin zaten tanımlı bir kullanıcı hesabı var.', 409);
-        const newUser = await tx.user.create({ data: {
-          username, email, passwordHash, fullName: `${employee.firstName} ${employee.lastName}`, role: Role.STAFF, isActive: employee.status !== 'CHECKED_OUT', mustChangePassword: true,
-        } });
+        const newUser = await tx.user.create({
+          data: {
+            username, email, passwordHash, fullName: `${employee.firstName} ${employee.lastName}`, role: Role.STAFF, isActive: employee.status !== 'CHECKED_OUT', mustChangePassword: true,
+          }
+        });
         const linked = await tx.employee.updateMany({ where: { id: employeeId, isDeleted: false, userId: null, updatedAt: current.updatedAt }, data: { userId: newUser.id } });
         if (linked.count !== 1) throw new AppError('Personel hesabı aynı anda başka bir işlemde değiştirildi. Sayfayı yenileyin.', 409);
         await tx.userAuditLog.create({ data: { targetUserId: newUser.id, actorUserId, action: 'EMPLOYEE_PORTAL_ACCOUNT_GENERATED', afterRole: Role.STAFF, notes: 'PERSONEL DETAYINDAN TEK KULLANIMLIK PAROLA ÜRETİLDİ' } });

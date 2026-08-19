@@ -22,6 +22,7 @@ import {
 import { roomApi, Room, RoomStatusType, BlockSummary } from '../api/roomApi';
 import { RoomDetailView } from './RoomDetailView';
 import { RoomOccupancyExportModal, ReportCategory } from './RoomOccupancyExportModal';
+import { CompleteCleaningModal } from './CompleteCleaningModal';
 import { User } from '../api/authApi';
 import { can } from '../security/accessControl';
 
@@ -72,6 +73,9 @@ export const RoomManagementView: React.FC<RoomManagementViewProps> = ({ onNaviga
   // Export Modal State
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
+
+  // Complete Cleaning Modal State
+  const [pendingReadyRoom, setPendingReadyRoom] = useState<Room | null>(null);
   const [exportError, setExportError] = useState<string | null>(null);
 
   const handleSelectEmployee = (e: React.MouseEvent, empId: string) => {
@@ -118,12 +122,35 @@ export const RoomManagementView: React.FC<RoomManagementViewProps> = ({ onNaviga
 
   // Quick room status update handler
   const handleStatusChange = async (roomId: string, newStatus: RoomStatusType) => {
+    if (newStatus === 'READY') {
+      const targetRoom = rooms.find((r) => r.id === roomId);
+      if (targetRoom) {
+        if (currentUser.role === 'HOUSEKEEPING') {
+          try {
+            const updated = await roomApi.updateRoomStatus(roomId, 'READY', { cleanedBy: currentUser.fullName });
+            setRooms((prev) => prev.map((r) => (r.id === roomId ? { ...r, status: updated.status } : r)));
+          } catch (err: any) {
+            setError(err?.response?.data?.message || err?.message || 'Oda durumu güncellenemedi.');
+          }
+          return;
+        }
+        setPendingReadyRoom(targetRoom);
+        return;
+      }
+    }
     try {
       const updated = await roomApi.updateRoomStatus(roomId, newStatus);
       setRooms((prev) => prev.map((r) => (r.id === roomId ? { ...r, status: updated.status } : r)));
     } catch (err: any) {
       setError(err?.response?.data?.message || err?.message || 'Oda durumu güncellenemedi.');
     }
+  };
+
+  const handleCompleteCleaningSubmit = async (data: { cleanedBy: string; notes?: string }) => {
+    if (!pendingReadyRoom) return;
+    const updated = await roomApi.updateRoomStatus(pendingReadyRoom.id, 'READY', data);
+    setRooms((prev) => prev.map((r) => (r.id === pendingReadyRoom.id ? { ...r, status: updated.status } : r)));
+    setPendingReadyRoom(null);
   };
 
   const openRoomDetail = async (roomId: string) => {
@@ -784,6 +811,15 @@ export const RoomManagementView: React.FC<RoomManagementViewProps> = ({ onNaviga
             setIsExporting(false);
           }
         }}
+      />
+
+      {/* TEMİZLİĞİ TAMAMLA & HAZIR YAP MODALI */}
+      <CompleteCleaningModal
+        isOpen={Boolean(pendingReadyRoom)}
+        roomTitle={pendingReadyRoom ? `Oda ${pendingReadyRoom.roomNumber} (${pendingReadyRoom.block.name})` : ''}
+        currentUserFullName={currentUser.fullName}
+        onClose={() => setPendingReadyRoom(null)}
+        onSubmit={handleCompleteCleaningSubmit}
       />
     </div>
   );

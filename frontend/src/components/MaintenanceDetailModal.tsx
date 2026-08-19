@@ -11,12 +11,14 @@ import {
   MapPin,
   Package,
   RotateCcw,
+  Trash2,
   User,
   Wrench,
   X,
 } from 'lucide-react';
 import { MaintenanceLog, MaintenancePriority, MaintenanceStatus } from '../api/maintenanceApi';
 import { getInventoryStatusLabel } from '../utils/inventoryStatusLabels';
+import { can } from '../security/accessControl';
 
 interface MaintenanceDetailModalProps {
   log: MaintenanceLog | null;
@@ -24,6 +26,7 @@ interface MaintenanceDetailModalProps {
   onClose: () => void;
   onEdit?: (log: MaintenanceLog) => void;
   onStatusChange?: (log: MaintenanceLog, newStatus: MaintenanceStatus) => void;
+  onDelete?: (log: MaintenanceLog) => void;
   currentUserFullName?: string;
   currentUserRole?: string;
 }
@@ -34,6 +37,7 @@ export const MaintenanceDetailModal: React.FC<MaintenanceDetailModalProps> = ({
   onClose,
   onEdit,
   onStatusChange,
+  onDelete,
   currentUserFullName = 'Lojman Yönetimi',
   currentUserRole,
 }) => {
@@ -301,6 +305,19 @@ export const MaintenanceDetailModal: React.FC<MaintenanceDetailModalProps> = ({
           </div>
 
           <div className="flex items-center gap-2 ml-auto">
+            {onDelete && can(currentUserRole || '', 'MAINTENANCE_DELETE') && (
+              <button
+                type="button"
+                onClick={() => {
+                  onClose();
+                  onDelete(log);
+                }}
+                className="px-4 py-2 rounded-xl bg-rose-50 text-rose-700 hover:bg-rose-600 hover:text-white border border-rose-300 text-xs font-extrabold flex items-center gap-1.5 transition-colors cursor-pointer"
+              >
+                <Trash2 className="w-4 h-4" />
+                <span>Kaydı Sil</span>
+              </button>
+            )}
             {onEdit && !(currentUserRole === 'TECHNICIAN' && (log.status === 'RESOLVED' || log.status === 'CLOSED')) && (
               <button
                 type="button"

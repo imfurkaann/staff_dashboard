@@ -110,7 +110,7 @@ export const MaintenanceReportModal: React.FC<MaintenanceReportModalProps> = ({
                 onChange={(e) => setStatus(e.target.value as MaintenanceStatus | 'ALL')}
                 className="w-full pl-9 pr-3 py-2.5 rounded-xl border border-slate-300 bg-slate-50 focus:bg-white focus:border-[#1e3a8a] outline-none text-xs font-bold appearance-none cursor-pointer text-slate-900"
               >
-                <option value="ALL">Tüm Arızalar (Açık, İşlemde, Çözülen)</option>
+                <option value="ALL">Tüm Arızalar (Açık, İşlemde, Çözülen, Kapatılan)</option>
                 <option value="OPEN">Sadece Açık Arızalar</option>
                 <option value="IN_PROGRESS">Sadece İşlemdeki Arızalar</option>
                 <option value="RESOLVED">Sadece Çözülen Arızalar</option>

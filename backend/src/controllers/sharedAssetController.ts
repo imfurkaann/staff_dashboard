@@ -84,4 +84,20 @@ export class SharedAssetController {
       res.json({ success: true, message: 'Bakım/arıza işlemi denetim geçmişine eklendi.', data: updated });
     } catch (error) { next(error); }
   }
+
+  public static async deleteLog(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
+    try {
+      sharedAssetId(req.params.logId, 'İşlem kaydı kimliği');
+      await SharedAssetService.deleteLog(req.params.logId);
+      res.json({ success: true, message: 'İşlem kaydı silindi.' });
+    } catch (error) { next(error); }
+  }
+
+  public static async updateLog(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
+    try {
+      sharedAssetId(req.params.logId, 'İşlem kaydı kimliği');
+      const updated = await SharedAssetService.updateLog(req.params.logId, req.body);
+      res.json({ success: true, message: 'İşlem kaydı güncellendi.', data: updated });
+    } catch (error) { next(error); }
+  }
 }

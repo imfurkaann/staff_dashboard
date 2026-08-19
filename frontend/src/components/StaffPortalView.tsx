@@ -263,16 +263,16 @@ export const StaffPortalView: React.FC<StaffPortalViewProps> = ({ currentUser: _
     setDeferredPrompt(null);
   };
 
-  const fetchSharedAssets = async () => {
+  const fetchSharedAssets = async (quiet = false) => {
     try {
-      setSharedAssetsLoading(true);
+      if (!quiet) setSharedAssetsLoading(true);
       setSharedAssetsError(null);
       const res = await sharedAssetApi.getOverview();
       setSharedAssets(res.assets || []);
     } catch (err: any) {
       setSharedAssetsError(err instanceof Error ? err.message : 'Ortak eşya bilgileri alınamadı.');
     } finally {
-      setSharedAssetsLoading(false);
+      if (!quiet) setSharedAssetsLoading(false);
     }
   };
 
@@ -281,6 +281,52 @@ export const StaffPortalView: React.FC<StaffPortalViewProps> = ({ currentUser: _
       fetchSharedAssets();
     }
   }, [activeTab]);
+
+  // Real-time WebSocket connection for Shared Assets
+  useEffect(() => {
+    let ws: WebSocket | null = null;
+    let timer: number | null = null;
+    let isSubscribed = true;
+
+    const connect = () => {
+      try {
+        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const wsUrl = `${protocol}//${window.location.host}/ws/shared-assets`;
+        ws = new WebSocket(wsUrl);
+
+        ws.onmessage = (event) => {
+          try {
+            const msg = JSON.parse(event.data);
+            if (msg.type === 'SHARED_ASSET_UPDATED' && isSubscribed) {
+              fetchSharedAssets(true);
+            }
+          } catch {
+            // Ignore non-json socket messages
+          }
+        };
+
+        ws.onclose = () => {
+          if (isSubscribed) {
+            timer = window.setTimeout(connect, 3000);
+          }
+        };
+
+        ws.onerror = () => {
+          ws?.close();
+        };
+      } catch {
+        // Fallback for offline/unsupported
+      }
+    };
+
+    connect();
+
+    return () => {
+      isSubscribed = false;
+      if (timer) window.clearTimeout(timer);
+      if (ws) ws.close();
+    };
+  }, []);
 
   const fetchMyTickets = async () => {
     try {
@@ -839,15 +885,6 @@ export const StaffPortalView: React.FC<StaffPortalViewProps> = ({ currentUser: _
                   {sharedAssets.length}
                 </span>
               </h3>
-              <button
-                type="button"
-                onClick={fetchSharedAssets}
-                disabled={sharedAssetsLoading}
-                className="p-1.5 rounded-xl bg-slate-100 text-slate-700 hover:bg-blue-50 hover:text-[#1e3a8a] transition disabled:opacity-50 shrink-0 cursor-pointer"
-                title="Yenile"
-              >
-                <RefreshCw className={`w-4 h-4 ${sharedAssetsLoading ? 'animate-spin' : ''}`} />
-              </button>
             </div>
 
             {sharedAssetsLoading ? (
@@ -857,7 +894,7 @@ export const StaffPortalView: React.FC<StaffPortalViewProps> = ({ currentUser: _
             ) : sharedAssetsError ? (
               <div className="p-4 bg-rose-50 border border-rose-200 rounded-2xl text-xs font-bold text-rose-800 flex items-center justify-between">
                 <span>{sharedAssetsError}</span>
-                <button type="button" onClick={fetchSharedAssets} className="underline text-rose-900 font-extrabold cursor-pointer">Tekrar Dene</button>
+                <button type="button" onClick={() => fetchSharedAssets()} className="underline text-rose-900 font-extrabold cursor-pointer">Tekrar Dene</button>
               </div>
             ) : sharedAssets.length === 0 ? (
               <p className="text-xs text-slate-500 font-semibold italic text-center py-6">
@@ -866,9 +903,10 @@ export const StaffPortalView: React.FC<StaffPortalViewProps> = ({ currentUser: _
             ) : (
               <div className="space-y-3">
                 {sharedAssets.map((item) => {
-                  const isLoaned = item.status === 'LOANED' || Boolean(item.currentEmployeeId || item.currentRoomId);
+                  const isCommonRoomAsset = item.currentRoom && item.currentRoom.roomType !== 'PERSONEL_ODASI';
+                  const isLoaned = (item.status === 'LOANED' || Boolean(item.currentEmployeeId || (item.currentRoomId && !isCommonRoomAsset))) && !isCommonRoomAsset;
                   const isMaintenance = item.status === 'MAINTENANCE';
-                  const isAvailable = item.status === 'AVAILABLE' && !isLoaned;
+                  const isAvailable = (item.status === 'AVAILABLE' || isCommonRoomAsset) && !isLoaned && !isMaintenance;
 
                   return (
                     <div
