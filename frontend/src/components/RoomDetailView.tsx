@@ -13,6 +13,7 @@ import {
   Moon,
   Wrench,
   Package,
+  Boxes,
   History,
   Plus,
   Check,
@@ -119,6 +120,7 @@ export const RoomDetailView: React.FC<RoomDetailViewProps> = ({
   const [addInventorySubmitting, setAddInventorySubmitting] = useState(false);
   const [stockItems, setStockItems] = useState<StockItem[]>([]);
   const [selectedStockItemId, setSelectedStockItemId] = useState<string>('');
+  const roomFixtureStockItems = stockItems.filter((item) => item.isActive && item.itemType === 'DEMİRBAŞ');
 
   useEffect(() => {
     if (showAddInventoryModal) {
@@ -517,6 +519,8 @@ export const RoomDetailView: React.FC<RoomDetailViewProps> = ({
   const roomInventories = (currentRoom.inventories || []).filter(
     (item) => !item.returnedAt && item.status !== 'RETIRED' && item.status !== 'LOST'
   );
+  const roomSharedAssets = currentRoom.sharedAssets || [];
+  const totalEquipmentCount = roomInventories.length + roomSharedAssets.length;
   const roomOccupancyHistory = currentRoom.occupancyHistory || [];
   const inventoryStatusLabels: Record<RoomInventoryStatus, string> = { HEALTHY: 'Sağlam & Çalışır', MAINTENANCE_REQUIRED: 'Arızalı / Bakım Bekliyor', DAMAGED: 'Kırık / Hasarlı', LOST: 'Kayıp / Zayi', IN_SERVICE: 'Tamirde / Serviste', REPLACEMENT_REQUIRED: 'Değişim Bekliyor', RETIRED: 'İade Edildi / Düşüm Yapıldı' };
 
@@ -763,7 +767,7 @@ export const RoomDetailView: React.FC<RoomDetailViewProps> = ({
             }`}
           >
             <Package className="w-4 h-4" />
-            <span>Oda Zimmetleri ({roomInventories.length})</span>
+            <span>Oda Zimmetleri & Ekipmanlar ({totalEquipmentCount})</span>
           </button>
 
           {currentUser.role !== 'HOUSEKEEPING' && currentUser.role !== 'WAREHOUSE_MANAGER' && (
@@ -1015,59 +1019,94 @@ export const RoomDetailView: React.FC<RoomDetailViewProps> = ({
             </button>
           </div>
 
-          {roomInventories.length === 0 ? (
+          {totalEquipmentCount === 0 ? (
             <div className="m-5 p-8 text-center bg-slate-50 rounded-2xl border border-slate-200 text-slate-500">
               <Package className="w-10 h-10 text-slate-400 mx-auto mb-2" />
-              <p className="font-bold text-xs text-slate-700">Bu odaya ait tanımlı zimmetli demirbaş bulunmamaktadır.</p>
-              <p className="text-[11px] text-slate-500 mt-0.5">Yarıda bırakmadan odaya klima, televizyon, buzdolabı vb. demirbaş ekleyebilirsiniz.</p>
+              <p className="font-bold text-xs text-slate-700">Bu odaya ait tanımlı zimmetli demirbaş veya ortak kullanım ekipmanı bulunmamaktadır.</p>
+              <p className="text-[11px] text-slate-500 mt-0.5">Odaya klima, televizyon vb. demirbaş ekleyebilir veya Ortak Eşya ekranından cihaz konumu atayabilirsiniz.</p>
             </div>
           ) : (
             <div className="room-table-shell m-5 mt-4">
               <table className="room-data-table w-full text-left text-xs border-collapse">
                 <thead>
                   <tr>
-                    <th>Sabit Oda Demirbaşı</th>
-                    <th className="w-28">Adet / Miktar</th>
-                    <th className="w-36">Tesis Tarihi</th>
-                    <th className="w-52">Demirbaş Durumu</th>
+                    <th>Oda Demirbaşı / Ortak Ekipman</th>
+                    <th className="w-36">Tür / Miktar</th>
+                    <th className="w-36">Tesis / Kayıt Tarihi</th>
+                    <th className="w-56">Ekipman Durumu</th>
                   </tr>
                 </thead>
                 <tbody>
                   {roomInventories.map((inv) => (
-                      <tr key={inv.id}>
-                        <td className="font-extrabold text-slate-900">
-                          <div className="flex items-center gap-2">
-                            <Package className="w-3.5 h-3.5 text-[#1e3a8a] shrink-0" />
-                            <span>{inv.itemName}</span>
+                    <tr key={inv.id}>
+                      <td className="font-extrabold text-slate-900">
+                        <div className="flex items-center gap-2">
+                          <Package className="w-3.5 h-3.5 text-[#1e3a8a] shrink-0" />
+                          <span>{inv.itemName}</span>
+                        </div>
+                      </td>
+                      <td className="font-bold text-slate-900">
+                        <span className="bg-blue-50 text-blue-900 border border-blue-200 px-2 py-0.5 rounded-md text-[11px] font-extrabold">
+                          {inv.quantity} Adet (Oda Zimmeti)
+                        </span>
+                      </td>
+                      <td className="font-bold text-slate-600 whitespace-nowrap">{formatDateTime(inv.installedAt)}</td>
+                      <td>
+                        <span className={`inline-flex items-center rounded-md border px-2 py-1 text-[11px] font-extrabold ${
+                          inv.status === 'HEALTHY'
+                            ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                            : inv.status === 'MAINTENANCE_REQUIRED'
+                            ? 'bg-amber-50 text-amber-800 border-amber-200'
+                            : inv.status === 'DAMAGED'
+                            ? 'bg-rose-50 text-rose-800 border-rose-200'
+                            : inv.status === 'LOST'
+                            ? 'bg-purple-50 text-purple-800 border-purple-200'
+                            : inv.status === 'IN_SERVICE'
+                            ? 'bg-blue-50 text-blue-800 border-blue-200'
+                            : inv.status === 'REPLACEMENT_REQUIRED'
+                            ? 'bg-orange-50 text-orange-800 border-orange-200'
+                            : 'bg-slate-100 text-slate-700 border-slate-200'
+                        }`}>
+                          {inventoryStatusLabels[inv.status]}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+
+                  {roomSharedAssets.map((asset) => (
+                    <tr key={`sa-${asset.id}`} className="bg-blue-50/20 hover:bg-blue-50/50">
+                      <td className="font-extrabold text-slate-900">
+                        <div className="flex items-center gap-2">
+                          <Boxes className="w-3.5 h-3.5 text-[#1e3a8a] shrink-0" />
+                          <div>
+                            <span className="font-extrabold text-blue-950 block">{asset.assetName}</span>
+                            <span className="text-[10px] font-bold text-slate-500 block">
+                              {asset.assetCode} {asset.brandModel ? `· ${asset.brandModel}` : ''} {asset.serialNo ? `· SN: ${asset.serialNo}` : ''}
+                            </span>
                           </div>
-                        </td>
-                        <td className="font-bold text-slate-900">
-                          <span className="bg-blue-50 text-blue-900 border border-blue-200 px-2 py-0.5 rounded-md text-[11px] font-extrabold">
-                            {inv.quantity} Adet
-                          </span>
-                        </td>
-                        <td className="font-bold text-slate-600 whitespace-nowrap">{formatDateTime(inv.installedAt)}</td>
-                        <td>
-                          <span className={`inline-flex items-center rounded-md border px-2 py-1 text-[11px] font-extrabold ${
-                            inv.status === 'HEALTHY'
-                              ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
-                              : inv.status === 'MAINTENANCE_REQUIRED'
-                              ? 'bg-amber-50 text-amber-800 border-amber-200'
-                              : inv.status === 'DAMAGED'
-                              ? 'bg-rose-50 text-rose-800 border-rose-200'
-                              : inv.status === 'LOST'
-                              ? 'bg-purple-50 text-purple-800 border-purple-200'
-                              : inv.status === 'IN_SERVICE'
-                              ? 'bg-blue-50 text-blue-800 border-blue-200'
-                              : inv.status === 'REPLACEMENT_REQUIRED'
-                              ? 'bg-orange-50 text-orange-800 border-orange-200'
-                              : 'bg-slate-100 text-slate-700 border-slate-200'
-                          }`}>
-                            {inventoryStatusLabels[inv.status]}
-                          </span>
-                        </td>
-                      </tr>
-                    ))}
+                        </div>
+                      </td>
+                      <td className="font-bold text-slate-900">
+                        <span className="bg-indigo-50 text-indigo-900 border border-indigo-200 px-2 py-0.5 rounded-md text-[11px] font-extrabold">
+                          1 Adet (Ortak Eşya)
+                        </span>
+                      </td>
+                      <td className="font-bold text-slate-600 whitespace-nowrap">{formatDateTime(asset.createdAt)}</td>
+                      <td>
+                        <span className={`inline-flex items-center rounded-md border px-2 py-1 text-[11px] font-extrabold ${
+                          asset.status === 'AVAILABLE'
+                            ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                            : asset.status === 'LOANED'
+                            ? 'bg-amber-50 text-amber-800 border-amber-200'
+                            : asset.status === 'MAINTENANCE'
+                            ? 'bg-rose-50 text-rose-800 border-rose-200'
+                            : 'bg-slate-100 text-slate-700 border-slate-200'
+                        }`}>
+                          {asset.status === 'AVAILABLE' ? 'Ortak Kullanım Eşyası (Müsait)' : asset.status === 'LOANED' ? 'Ortak Eşya (Zimmetli)' : asset.status === 'MAINTENANCE' ? 'Bakımda / Arızalı' : asset.status}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
                 </tbody>
               </table>
             </div>
@@ -2033,13 +2072,13 @@ export const RoomDetailView: React.FC<RoomDetailViewProps> = ({
                     onChange={(e) => {
                       const val = e.target.value;
                       setSelectedStockItemId(val);
-                      const matched = stockItems.find(s => s.id === val);
+                      const matched = roomFixtureStockItems.find(s => s.id === val);
                       setAddInventoryForm(prev => ({ ...prev, itemName: matched ? matched.itemName : '', brand: '', serialNo: '' }));
                     }}
                     className="w-full px-3 py-2.5 bg-slate-50 border border-slate-300 rounded-xl font-semibold text-slate-900 outline-none cursor-pointer"
                   >
                     <option value="">-- Depodan Malzeme Seçin --</option>
-                    {stockItems.filter((item) => item.isActive).map((item) => {
+                    {roomFixtureStockItems.map((item) => {
                       const available = item.availableStock;
                       const isOutOfStock = available <= 0;
                       return (

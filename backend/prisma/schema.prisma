@@ -330,9 +330,23 @@ model StockItem {
   inventories     InventoryItem[]
   roomInventories RoomInventory[]
   movements       StockMovement[]
-  sharedAsset     SharedAsset?
+  sharedAssets    SharedAsset[]
+  roomStandard   RoomStockStandard?
 
   @@index([createdById, createdAt])
+}
+
+model RoomStockStandard {
+  id               String    @id @default(uuid())
+  stockItemId      String    @unique
+  stockItem        StockItem @relation(fields: [stockItemId], references: [id], onDelete: Cascade)
+  roomType         String    @default("PERSONEL_ODASI")
+  fixedQuantity    Int       @default(0)
+  quantityPerBed   Int       @default(0)
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  @@index([roomType])
 }
 
 model StockMovement {
@@ -643,7 +657,7 @@ model SharedAsset {
   currentPersonnelInventory   InventoryItem?    @relation("SharedAssetPersonnelInventory", fields: [currentPersonnelInventoryId], references: [id], onDelete: SetNull)
   currentRoomInventoryId      String?           @unique
   currentRoomInventory        RoomInventory?    @relation("SharedAssetRoomInventory", fields: [currentRoomInventoryId], references: [id], onDelete: SetNull)
-  stockItemId                 String?           @unique
+  stockItemId                 String?
   stockItem                   StockItem?        @relation(fields: [stockItemId], references: [id], onDelete: Restrict)
   borrowedAt                  DateTime?
   expectedReturnDate          DateTime?

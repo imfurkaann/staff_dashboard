@@ -101,6 +101,19 @@ export interface RoomCleaningLog {
   updatedAt: string;
 }
 
+export interface RoomSharedAsset {
+  id: string;
+  assetCode: string;
+  assetName: string;
+  category: string;
+  brandModel?: string | null;
+  serialNo?: string | null;
+  status: string;
+  locationNote?: string | null;
+  notes?: string | null;
+  createdAt: string;
+}
+
 export interface Room {
   id: string;
   blockId: string;
@@ -115,6 +128,7 @@ export interface Room {
   inventories?: RoomInventory[];
   occupancyHistory?: RoomOccupancyHistory[];
   cleaningLogs?: RoomCleaningLog[];
+  sharedAssets?: RoomSharedAsset[];
 }
 
 export interface BlockSummary {

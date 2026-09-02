@@ -5,6 +5,7 @@ import { authApi, User } from './api/authApi';
 import { Sidebar } from './components/Sidebar';
 import { canAccessTab, firstAllowedTab } from './security/accessControl';
 import { RequiredPasswordChangeView } from './components/RequiredPasswordChangeView';
+import { canonicalManagementUrl, managementUrl, portalUrl } from './utils/navigationUrl';
 
 const DashboardView = lazy(() => import('./components/DashboardView').then((m) => ({ default: m.DashboardView })));
 const EmployeeManagementView = lazy(() => import('./components/EmployeeManagementView').then((m) => ({ default: m.EmployeeManagementView })));
@@ -51,13 +52,7 @@ export const App: React.FC = () => {
     }
 
     if (!skipPushState) {
-      const url = new URL(window.location.href);
-      url.searchParams.set('tab', tab);
-      if (empId) {
-        url.searchParams.set('empId', empId);
-      } else {
-        url.searchParams.delete('empId');
-      }
+      const url = managementUrl(tab, { empId });
       window.history.pushState({ tab, empId, timestamp: Date.now() }, '', url.toString());
     }
   };
@@ -81,14 +76,27 @@ export const App: React.FC = () => {
   }, []);
 
   useEffect(() => {
+    // Personel portalı, yönetim ekranlarının tab parametrelerini asla taşımaz.
+    if (currentUser?.role !== 'STAFF') return;
+    const params = new URLSearchParams(window.location.search);
+    const validPortalTabs = ['room', 'notifications', 'inventories', 'sharedAssets', 'tickets'];
+    const portalTab = validPortalTabs.includes(params.get('portalTab') || '') ? params.get('portalTab')! : 'room';
+    const portalModal = params.get('portalModal') === 'ticket' ? 'ticket' : undefined;
+    const url = portalUrl(portalTab, portalModal);
+    if (url.toString() !== window.location.href) {
+      window.history.replaceState({ portalTab, ...(portalModal && { portalModal }), timestamp: Date.now() }, '', url.toString());
+    }
+  }, [currentUser?.role]);
+
+  useEffect(() => {
     // Initialize browser history entry if missing
     const params = new URLSearchParams(window.location.search);
     if (!params.has('tab')) {
-      const url = new URL(window.location.href);
-      url.searchParams.set('tab', activeTab);
+      const url = canonicalManagementUrl(activeTab);
       window.history.replaceState({ tab: activeTab, timestamp: Date.now() }, '', url.toString());
     } else {
-      window.history.replaceState({ tab: activeTab, timestamp: Date.now() }, '', window.location.href);
+      const url = canonicalManagementUrl(activeTab);
+      window.history.replaceState({ tab: activeTab, timestamp: Date.now() }, '', url.toString());
     }
 
     const handlePopState = (e: PopStateEvent) => {

@@ -37,6 +37,7 @@ import {
 import { employeeApi, Employee } from '../api/employeeApi';
 import { User } from '../api/authApi';
 import { can } from '../security/accessControl';
+import { managementUrl } from '../utils/navigationUrl';
 import { AddEmployeeModal } from './AddEmployeeModal';
 import { EmployeeDetailView } from './EmployeeDetailView';
 import { EmployeeExportModal, EmployeeExportFilter } from './EmployeeExportModal';
@@ -154,9 +155,7 @@ export const EmployeeManagementView: React.FC<EmployeeManagementViewProps> = ({ 
   const openEmployeeDetail = async (emp: Employee, skipPushState = false) => {
     localStorage.setItem('staff_app_active_emp_id', emp.id);
     if (!skipPushState) {
-      const url = new URL(window.location.href);
-      url.searchParams.set('tab', 'employees');
-      url.searchParams.set('empId', emp.id);
+      const url = managementUrl('employees', { empId: emp.id });
       window.history.pushState({ tab: 'employees', view: 'employee-detail', empId: emp.id, timestamp: Date.now() }, '', url.toString());
     }
     try {
@@ -170,9 +169,7 @@ export const EmployeeManagementView: React.FC<EmployeeManagementViewProps> = ({ 
   const closeEmployeeDetail = () => {
     setActiveEmployeeDetail(null);
     localStorage.removeItem('staff_app_active_emp_id');
-    const url = new URL(window.location.href);
-    url.searchParams.set('tab', 'employees');
-    url.searchParams.delete('empId');
+    const url = managementUrl('employees');
     if (window.history.state?.view === 'employee-detail') {
       window.history.back();
     } else {

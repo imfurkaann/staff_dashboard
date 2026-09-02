@@ -45,6 +45,22 @@ export const stockController = {
     } catch (error) { next(error); }
   },
 
+  getDeviceHistory: async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const serialNo = stockSingleQuery(req.query.serialNo, 'Seri numarası');
+      const data = await StockService.getDeviceHistory(serialNo || '');
+      res.status(200).json({ success: true, data });
+    } catch (error) { next(error); }
+  },
+
+  setRoomStandard: async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      validateStockId(req.params.id);
+      const result = await StockService.setRoomStandard(req.params.id, stockRequestBody(req.body));
+      res.status(200).json({ success: true, data: result, message: result ? 'Oda ürün standardı kaydedildi.' : 'Oda ürün standardı kaldırıldı.' });
+    } catch (error) { next(error); }
+  },
+
   createStockItem: async (req: Request, res: Response, next: NextFunction) => {
     try {
       const item = await StockService.createStockItem({ ...stockRequestBody(req.body), createdById: userId(req), requestKey: requestKey(req) } as any);

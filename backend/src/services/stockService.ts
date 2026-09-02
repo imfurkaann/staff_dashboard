@@ -26,7 +26,8 @@ const cleanOptional = (value: unknown, field = 'Metin alanı', maxLength = 500) 
   if (clean.length > maxLength) throw new AppError(`${field} en fazla ${maxLength} karakter olabilir.`, 400);
   return clean ? clean.toLocaleUpperCase('tr-TR') : null;
 };
-const allowedItemTypes = new Set(['DEMİRBAŞ', 'SARF_MALZEME', 'ORTAK_EKİPMAN', 'ORTAK_KULLANIM']);
+const allowedItemTypes = new Set(['DEMİRBAŞ', 'SARF_MALZEME', 'ORTAK_EŞYA', 'ORTAK_EKİPMAN', 'ORTAK_KULLANIM']);
+const sharedAssetItemTypes = new Set(['ORTAK_EŞYA', 'ORTAK_EKİPMAN', 'ORTAK_KULLANIM']);
 const allowedUnits = new Set(['ADET', 'TAKIM', 'PAKET', 'KOLİ', 'METRE', 'LİTRE', 'SET', 'KİLOGRAM', 'RULO']);
 const allowedPhysicalStatuses = new Set(['KULLANILABİLİR', 'KULLANIMDA', 'BAKIMDA', 'HURDA']);
 const positiveInteger = (value: unknown, field: string) => {
@@ -112,7 +113,7 @@ export class StockService {
             orderBy: { installedAt: 'desc' },
             include: {
               room: { include: { block: true } },
-              maintenances: { where: { status: { in: ['OPEN', 'IN_PROGRESS'] } }, select: { id: true, status: true } },
+              maintenances: { orderBy: { createdAt: 'desc' }, select: { id: true, status: true, title: true, description: true, createdAt: true, resolvedAt: true, resolutionNote: true } },
             },
           },
           inventories: {
@@ -120,12 +121,16 @@ export class StockService {
             orderBy: { assignedDate: 'desc' },
             include: { employee: { select: { id: true, firstName: true, lastName: true, registrationNo: true, department: true } } },
           },
+          sharedAssets: {
+            select: { id: true, assetCode: true, assetName: true, serialNo: true, brandModel: true, status: true, locationNote: true, currentRoomId: true, borrowedAt: true },
+          },
+          roomStandard: true,
           _count: { select: { movements: true } },
         },
       }),
       prisma.room.findMany({
         orderBy: [{ block: { name: 'asc' } }, { floor: 'asc' }, { roomNumber: 'asc' }],
-        select: { id: true, roomNumber: true, roomType: true, floor: true, status: true, block: { select: { id: true, name: true } } },
+        select: { id: true, roomNumber: true, roomType: true, floor: true, capacity: true, status: true, block: { select: { id: true, name: true } } },
       }),
       prisma.stockMovement.findMany({
         take: 80,
@@ -139,12 +144,41 @@ export class StockService {
       }),
     ]);
 
-    const enriched = items.map((item) => ({
-      ...item,
-      availableStock: Math.max(0, item.totalStock - item.usedStock - item.usedInRooms),
-      serviceCount: item.roomInventories.filter((entry) => entry.status === 'IN_SERVICE').reduce((sum, entry) => sum + entry.quantity, 0),
-      issueCount: item.roomInventories.filter((entry) => ['MAINTENANCE_REQUIRED', 'DAMAGED', 'LOST', 'REPLACEMENT_REQUIRED'].includes(entry.status)).reduce((sum, entry) => sum + entry.quantity, 0),
-    }));
+    const enriched = items.map((item) => {
+      const roomInventorySum = item.roomInventories.reduce((sum, entry) => sum + entry.quantity, 0);
+      // Ortak eşya ilk tanımlandığı anda fiziksel stoktan ayrılır; cihazın ana depoda
+      // veya çamaşırhanede olması bu muhasebeyi değiştirmez.
+      const sharedAssetsAllocated = (item.sharedAssets || []).filter((sa) => sa.status !== 'RETIRED').length;
+      const effectiveUsedInRooms = Math.max(item.usedInRooms, roomInventorySum);
+      const availableStock = Math.max(0, item.totalStock - item.usedStock - effectiveUsedInRooms - sharedAssetsAllocated);
+      const standard = item.roomStandard;
+      const missingRooms = standard ? rooms
+        .filter((room) => room.roomType === standard.roomType)
+        .map((room) => {
+          const required = standard.fixedQuantity + (standard.quantityPerBed * room.capacity);
+          const assigned = item.roomInventories.filter((entry) => entry.roomId === room.id).reduce((sum, entry) => sum + entry.quantity, 0);
+          return { roomId: room.id, roomNumber: room.roomNumber, blockName: room.block.name, required, assigned, missing: Math.max(0, required - assigned) };
+        })
+        .filter((room) => room.missing > 0)
+        : [];
+      const standardRoomCount = standard ? rooms.filter((room) => room.roomType === standard.roomType).length : 0;
+
+      return {
+        ...item,
+        usedInRooms: effectiveUsedInRooms,
+        sharedAssetsInLocations: sharedAssetsAllocated,
+        availableStock,
+        serviceCount: item.roomInventories.filter((entry) => entry.status === 'IN_SERVICE').reduce((sum, entry) => sum + entry.quantity, 0),
+        issueCount: item.roomInventories.filter((entry) => ['MAINTENANCE_REQUIRED', 'DAMAGED', 'LOST', 'REPLACEMENT_REQUIRED'].includes(entry.status)).reduce((sum, entry) => sum + entry.quantity, 0),
+        roomCoverage: standard ? {
+          standard,
+          totalRooms: standardRoomCount,
+          completeRooms: standardRoomCount - missingRooms.length,
+          missingTotal: missingRooms.reduce((sum, room) => sum + room.missing, 0),
+          missingRooms,
+        } : null,
+      };
+    });
 
     const summary = enriched.reduce((result, item) => {
       result.totalRegistered += item.totalStock;
@@ -157,6 +191,64 @@ export class StockService {
     }, { totalRegistered: 0, available: 0, inRooms: 0, inService: 0, issues: 0, criticalCards: 0 });
 
     return { items: enriched, rooms, movements, summary };
+  }
+
+  public static async setRoomStandard(stockItemId: string, data: { fixedQuantity?: number; quantityPerBed?: number; roomType?: string }) {
+    const fixedQuantity = Number(data.fixedQuantity || 0);
+    const quantityPerBed = Number(data.quantityPerBed || 0);
+    const roomType = cleanOptional(data.roomType, 'Oda türü', 50) || 'PERSONEL_ODASI';
+    if (!Number.isInteger(fixedQuantity) || fixedQuantity < 0 || !Number.isInteger(quantityPerBed) || quantityPerBed < 0) {
+      throw new AppError('Oda standardı miktarları negatif olmayan tam sayı olmalıdır.', 400);
+    }
+    const item = await prisma.stockItem.findUnique({ where: { id: stockItemId }, select: { id: true, itemType: true } });
+    if (!item) throw new AppError('Stok kartı bulunamadı.', 404);
+    if (item.itemType === 'SARF_MALZEME') throw new AppError('Sarf malzemesi için sabit oda standardı tanımlanamaz.', 400);
+    if (fixedQuantity + quantityPerBed === 0) {
+      await prisma.roomStockStandard.deleteMany({ where: { stockItemId } });
+      return null;
+    }
+    return prisma.roomStockStandard.upsert({
+      where: { stockItemId },
+      create: { stockItemId, roomType, fixedQuantity, quantityPerBed },
+      update: { roomType, fixedQuantity, quantityPerBed },
+    });
+  }
+
+  public static async getDeviceHistory(serialInput: string) {
+    const serialNo = cleanOptional(serialInput, 'Seri numarası', 100);
+    if (!serialNo) throw new AppError('Aranacak seri numarasını yazın.', 400);
+    const [assignments, sharedAssets, movements] = await Promise.all([
+      prisma.roomInventory.findMany({
+        where: { serialNo: { equals: serialNo, mode: 'insensitive' } },
+        orderBy: { installedAt: 'desc' },
+        include: {
+          room: { include: { block: true } },
+          stockItem: { select: { id: true, itemName: true, itemCode: true, unit: true } },
+          maintenances: { orderBy: { createdAt: 'desc' }, select: { id: true, title: true, description: true, status: true, priority: true, createdAt: true, resolvedAt: true, resolutionNote: true } },
+        },
+      }),
+      prisma.sharedAsset.findMany({
+        where: { serialNo: { equals: serialNo, mode: 'insensitive' } },
+        orderBy: { createdAt: 'desc' },
+        include: { logs: { orderBy: { createdAt: 'desc' }, include: { createdBy: { select: { fullName: true } } } } },
+      }),
+      prisma.stockMovement.findMany({
+        where: { serialNo: { equals: serialNo, mode: 'insensitive' } },
+        orderBy: { createdAt: 'desc' },
+        include: { stockItem: { select: { id: true, itemName: true, itemCode: true, unit: true } }, createdBy: { select: { fullName: true } } },
+      }),
+    ]);
+    return {
+      serialNo,
+      assignments,
+      sharedAssets,
+      movements,
+      summary: {
+        assignmentCount: assignments.length,
+        faultCount: assignments.reduce((sum, assignment) => sum + assignment.maintenances.length, 0),
+        activeAssignmentCount: assignments.filter((assignment) => !assignment.returnedAt).length,
+      },
+    };
   }
 
   public static async getMovements(filters: {
@@ -268,35 +360,6 @@ export class StockService {
           itemNameSnapshot: item.itemName, reason: 'AÇILIŞ STOKU', createdById: data.createdById,
       } });
 
-      if (itemType === 'ORTAK_EKİPMAN' || itemType === 'ORTAK_KULLANIM') {
-        const existingAsset = await tx.sharedAsset.findFirst({ where: { OR: [{ assetCode: itemCode }, { assetName: itemName }] } });
-        if (existingAsset) {
-          if (existingAsset.stockItemId && existingAsset.stockItemId !== item.id) throw new AppError('Aynı ortak eşya kaydı başka bir stok kartına bağlı.', 409);
-          await tx.sharedAsset.update({ where: { id: existingAsset.id }, data: { stockItemId: item.id, createdById: existingAsset.createdById || data.createdById || null } });
-        } else {
-          await tx.sharedAsset.create({
-            data: {
-              stockItemId: item.id,
-              requestKey: data.requestKey || null,
-              createdById: data.createdById || null,
-              assetCode: itemCode || `ORT-${item.id.slice(0, 4)}`,
-              assetName: itemName,
-              category: category,
-              brandModel: specifications || null,
-              status: 'AVAILABLE',
-              locationNote: locationNote || 'Ana Depo',
-              warrantyEndDate: warrantyEndDate,
-            },
-          });
-        }
-        const linkedAsset = await tx.sharedAsset.findUniqueOrThrow({ where: { stockItemId: item.id } });
-        if (!existingAsset) await tx.sharedAssetLog.create({ data: {
-          assetId: linkedAsset.id, action: 'CREATED', assetCodeSnapshot: linkedAsset.assetCode,
-          assetNameSnapshot: linkedAsset.assetName, statusTo: 'AVAILABLE',
-          notes: 'Depo stok kartıyla birlikte oluşturuldu.', createdById: data.createdById || null,
-        } });
-      }
-
       return item;
     }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
     } catch (error: any) {
@@ -349,12 +412,14 @@ export class StockService {
       ]);
       if (!item || !item.isActive) throw new AppError('Aktif stok kartı bulunamadı.', 404);
       if (!room) throw new AppError('Oda bulunamadı.', 404);
+      if (sharedAssetItemTypes.has(item.itemType)) {
+        throw new AppError('Ortak eşya odaya zimmetlenemez. Önce Ortak Eşya sayfasından cihazı tanımlayın, ardından “Konumu Güncelle” ile bulunduğu odayı seçin.', 400);
+      }
       if (item.itemType !== 'SARF_MALZEME' && quantity > 1) throw new AppError('Demirbaşlar cihaz geçmişinin korunması için tek tek ve 1 adet olarak zimmetlenmelidir.', 400);
       const available = item.totalStock - item.usedStock - item.usedInRooms;
       if (available < quantity) throw new AppError(`Yetersiz müsait stok. Depoda ${available} ${item.unit} bulunuyor.`, 409);
 
       const serialNo = cleanOptional(data.serialNo, 'Üretici seri numarası', 100);
-      if (item.itemType !== 'SARF_MALZEME' && !serialNo) throw new AppError('Demirbaş zimmeti için cihazın üretici seri numarası zorunludur.', 400);
       if (serialNo) {
         await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`INVENTORY_SERIAL:${serialNo}`}))`;
         const [roomDuplicate, personnelDuplicate] = await Promise.all([
@@ -408,6 +473,9 @@ export class StockService {
         }),
       ]);
       if (!item || !item.isActive) throw new AppError('Aktif stok kartı bulunamadı.', 404);
+      if (sharedAssetItemTypes.has(item.itemType)) {
+        throw new AppError('Ortak eşyalar toplu oda zimmetiyle dağıtılamaz. Cihazı Ortak Eşya sayfasından tanımlayıp konumunu güncelleyin.', 400);
+      }
       if (item.itemType !== 'SARF_MALZEME') throw new AppError('Demirbaşlar benzersiz seri numarasıyla tek tek zimmetlenmelidir; toplu dağıtım yalnızca sarf malzemelerinde kullanılabilir.', 400);
       if (rooms.length !== roomIds.length) throw new AppError('Seçilen odalardan biri veya birkaçı artık mevcut değil.', 409);
       const available = item.totalStock - item.usedStock - item.usedInRooms;
@@ -542,9 +610,6 @@ export class StockService {
       if (!assignment || assignment.returnedAt) throw new AppError('Aktif oda zimmeti bulunamadı.', 404);
 
       const serialNo = cleanOptional(data.serialNo, 'Üretici seri numarası', 100);
-      if (assignment.stockItem.itemType !== 'SARF_MALZEME' && !serialNo) {
-        throw new AppError('Demirbaş için üretici seri numarası zorunludur.', 400);
-      }
       if (serialNo) {
         await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`INVENTORY_SERIAL:${serialNo}`}))`;
         const [roomDuplicate, personnelDuplicate] = await Promise.all([
@@ -602,7 +667,6 @@ export class StockService {
       const activeFault = await tx.maintenanceLog.findFirst({ where: { roomInventoryId: assignment.id, status: { in: ['OPEN', 'IN_PROGRESS'] } } });
       if (!activeFault) throw new AppError('Cihaz değişimi için önce Arıza Yönetimi sayfasından aktif bir demirbaş arızası açılmalıdır.', 409);
       const replacementSerialNo = cleanOptional(data.serialNo, 'Yeni üretici seri numarası', 100);
-      if (assignment.stockItem.itemType !== 'SARF_MALZEME' && !replacementSerialNo) throw new AppError('Yeni demirbaş için üretici seri numarası zorunludur.', 400);
       if (replacementSerialNo) {
         await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`INVENTORY_SERIAL:${replacementSerialNo}`}))`;
         const [roomDuplicate, personnelDuplicate] = await Promise.all([

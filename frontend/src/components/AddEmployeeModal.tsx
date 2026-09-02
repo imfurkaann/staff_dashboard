@@ -84,6 +84,7 @@ export const AddEmployeeModal: React.FC<AddEmployeeModalProps> = ({
   // Camera State
   const [photoTab, setPhotoTab] = useState<'upload' | 'camera'>('upload');
   const [isCameraActive, setIsCameraActive] = useState(false);
+  const [cameraError, setCameraError] = useState<string | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
 
@@ -242,8 +243,9 @@ export const AddEmployeeModal: React.FC<AddEmployeeModalProps> = ({
   const startCamera = async () => {
     try {
       setErrorPopUpMessage(null);
+      setCameraError(null);
       if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-        setErrorPopUpMessage('Kamera erişimi tarayıcınız veya bağlantı türünüz (Güvenli HTTPS bağlantısı veya localhost gereklidir) tarafından desteklenmiyor.');
+        setCameraError('Canlı kamera bu bağlantıda kullanılamıyor. HTTPS/localhost kullanın veya cihaz kamerası seçeneğini deneyin.');
         setIsCameraActive(false);
         return;
       }
@@ -262,7 +264,7 @@ export const AddEmployeeModal: React.FC<AddEmployeeModalProps> = ({
       }
     } catch (err: any) {
       console.error('Kamera erişim hatası:', err);
-      setErrorPopUpMessage('Kamera erişimi sağlanamadı. Lütfen tarayıcı kamera izinlerini ve cihazınızın kamerasının aktif olduğunu kontrol ediniz.');
+      setCameraError('Kamera açılamadı. Tarayıcı iznini kontrol edin veya aşağıdaki cihaz kamerası seçeneğini kullanın.');
       setIsCameraActive(false);
     }
   };
@@ -278,25 +280,25 @@ export const AddEmployeeModal: React.FC<AddEmployeeModalProps> = ({
   const capturePhoto = () => {
     if (videoRef.current) {
       const video = videoRef.current;
-      const maxDim = 400;
-      let width = video.videoWidth || video.clientWidth || 640;
-      let height = video.videoHeight || video.clientHeight || 480;
-      if (width > maxDim || height > maxDim) {
-        if (width > height) {
-          height = Math.round((height * maxDim) / width);
-          width = maxDim;
-        } else {
-          width = Math.round((width * maxDim) / height);
-          height = maxDim;
-        }
+      if (video.readyState < 2 || !video.videoWidth || !video.videoHeight) {
+        setCameraError('Kamera görüntüsü henüz hazır değil. Birkaç saniye bekleyip tekrar deneyin.');
+        return;
       }
+      // Profil fotoğrafını standart 3:4 vesikalık oranında, görüntünün
+      // merkezinden kırparak kaydet. Böylece liste ve detay sayfasında esneme olmaz.
+      const sourceWidth = Math.min(video.videoWidth, video.videoHeight * 0.75);
+      const sourceHeight = sourceWidth / 0.75;
+      const sourceX = (video.videoWidth - sourceWidth) / 2;
+      const sourceY = (video.videoHeight - sourceHeight) / 2;
       const canvas = document.createElement('canvas');
-      canvas.width = width;
-      canvas.height = height;
+      canvas.width = 480;
+      canvas.height = 640;
       const ctx = canvas.getContext('2d');
       if (ctx) {
-        ctx.drawImage(video, 0, 0, width, height);
-        const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
+        ctx.translate(canvas.width, 0);
+        ctx.scale(-1, 1);
+        ctx.drawImage(video, sourceX, sourceY, sourceWidth, sourceHeight, 0, 0, canvas.width, canvas.height);
+        const dataUrl = canvas.toDataURL('image/jpeg', 0.86);
         setPhotoUrl(dataUrl);
         stopCamera();
         setPhotoTab('upload');
@@ -321,7 +323,7 @@ export const AddEmployeeModal: React.FC<AddEmployeeModalProps> = ({
       reader.onload = (event) => {
         const img = new Image();
         img.onload = () => {
-          const maxDim = 400;
+          const maxDim = 720;
           let width = img.width;
           let height = img.height;
           if (width > maxDim || height > maxDim) {
@@ -341,6 +343,8 @@ export const AddEmployeeModal: React.FC<AddEmployeeModalProps> = ({
             ctx.drawImage(img, 0, 0, width, height);
             const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
             setPhotoUrl(dataUrl);
+            stopCamera();
+            setPhotoTab('upload');
           }
         };
         img.src = event.target?.result as string;
@@ -391,7 +395,9 @@ export const AddEmployeeModal: React.FC<AddEmployeeModalProps> = ({
         emergencyContactName: emergencyContactName.trim() || undefined,
         emergencyRelation: emergencyRelation || undefined,
         emergencyContactPhone: emergencyContactPhone.trim() || undefined,
-        photoUrl: photoUrl || undefined,
+        // Boş metin mevcut fotoğrafın kaldırılmasını, data URI ise yeni
+        // fotoğrafın kalıcı olarak kaydedilmesini sağlar.
+        photoUrl: photoUrl ?? '',
         bedId: assignBed ? selectedBedId : undefined,
         systemUser: createSystemUser ? {
           createAccount: true,
@@ -458,6 +464,35 @@ export const AddEmployeeModal: React.FC<AddEmployeeModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm overflow-y-auto">
+      {/* Büyük kamera çalışma alanı */}
+      {photoTab === 'camera' && (
+        <div className="fixed inset-0 z-[140] flex flex-col bg-slate-950 text-white animate-fadeIn">
+          <div className="flex h-16 shrink-0 items-center justify-between border-b border-white/10 px-4 sm:px-6">
+            <div className="flex items-center gap-3"><span className="rounded-xl bg-blue-600 p-2"><Camera className="h-5 w-5" /></span><div><h3 className="text-sm font-black">Personel Fotoğrafını Çek</h3><p className="text-[10px] font-semibold text-slate-400">Yüzü çerçevenin ortasına yerleştirin</p></div></div>
+            <button type="button" onClick={() => { stopCamera(); setPhotoTab('upload'); }} className="rounded-xl border border-white/10 bg-white/10 p-2.5 text-slate-200 hover:bg-white/20" aria-label="Kamerayı kapat"><X className="h-5 w-5" /></button>
+          </div>
+
+          <div className="flex min-h-0 flex-1 items-center justify-center p-3 sm:p-6">
+            <div className="relative aspect-[4/3] w-full max-w-4xl overflow-hidden rounded-2xl border border-white/15 bg-black shadow-2xl sm:rounded-3xl">
+              {isCameraActive ? (
+                <>
+                  <video ref={videoRef} autoPlay playsInline muted className="h-full w-full object-cover [transform:scaleX(-1)]" />
+                  <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_28%_43%_at_50%_48%,transparent_97%,rgba(2,6,23,0.58)_100%)]" />
+                  <div className="pointer-events-none absolute left-1/2 top-1/2 aspect-[3/4] h-[78%] -translate-x-1/2 -translate-y-1/2 rounded-[45%] border-2 border-white/70 shadow-[0_0_0_999px_rgba(2,6,23,0.18)]" />
+                  <span className="absolute bottom-4 left-1/2 -translate-x-1/2 rounded-full bg-black/55 px-3 py-1.5 text-[10px] font-bold backdrop-blur">Baş ve omuzlar çerçeve içinde olsun</span>
+                </>
+              ) : (
+                <div className="flex h-full flex-col items-center justify-center gap-3 px-6 text-center"><div className="rounded-full bg-white/10 p-5"><Camera className="h-10 w-10 text-slate-400" /></div><p className="text-sm font-bold text-slate-300">{cameraError || 'Kamera görüntüsü bekleniyor'}</p><div className="flex flex-wrap justify-center gap-2"><button type="button" onClick={startCamera} className="inline-flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-2.5 text-xs font-black hover:bg-blue-500"><RefreshCw className="h-4 w-4" />Yeniden Dene</button><label className="inline-flex cursor-pointer items-center gap-2 rounded-xl border border-white/20 bg-white/10 px-4 py-2.5 text-xs font-black hover:bg-white/20"><Upload className="h-4 w-4" />Cihaz Kamerasını Aç<input type="file" accept="image/*" capture="user" onChange={handleFileUpload} className="sr-only" /></label></div></div>
+              )}
+            </div>
+          </div>
+
+          <div className="flex shrink-0 items-center justify-center gap-3 border-t border-white/10 bg-slate-950/95 px-4 py-4 sm:py-5">
+            <button type="button" onClick={() => { stopCamera(); setPhotoTab('upload'); }} className="rounded-xl border border-white/15 bg-white/10 px-5 py-3 text-xs font-black text-slate-200 hover:bg-white/20">Vazgeç</button>
+            <button type="button" onClick={capturePhoto} disabled={!isCameraActive} className="inline-flex min-w-44 items-center justify-center gap-2 rounded-xl bg-white px-6 py-3 text-xs font-black text-slate-950 shadow-lg hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-40"><span className="flex h-5 w-5 items-center justify-center rounded-full border-2 border-slate-900"><span className="h-2.5 w-2.5 rounded-full bg-slate-900" /></span>Fotoğrafı Çek</button>
+          </div>
+        </div>
+      )}
       {/* CREDENTIALS SUCCESS POPUP MODAL */}
       {credentialsPopup && (
         <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-sm no-print animate-fadeIn">
@@ -552,7 +587,7 @@ export const AddEmployeeModal: React.FC<AddEmployeeModalProps> = ({
 
       {/* MODERN MINIMAL CENTER ERROR POPUP MODAL */}
       {errorPopUpMessage && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-md animate-fadeIn">
+        <div className="fixed inset-0 z-[160] flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-md animate-fadeIn">
           <div className="bg-white border border-slate-200/80 rounded-3xl p-6 max-w-sm w-full shadow-2xl text-left space-y-4 animate-scaleUp">
             
             <div className="flex items-start justify-between gap-3">
@@ -592,7 +627,7 @@ export const AddEmployeeModal: React.FC<AddEmployeeModalProps> = ({
       )}
 
       {/* Main Form Modal */}
-      <div className="bg-white border border-slate-300 rounded-3xl w-full max-w-3xl max-h-[90vh] overflow-y-auto shadow-2xl animate-scaleUp my-auto">
+      <div className="bg-white border border-slate-300 rounded-3xl w-full max-w-4xl max-h-[90vh] overflow-y-auto shadow-2xl animate-scaleUp my-auto">
         
         {/* Modal Header */}
         <div className="p-6 border-b border-slate-200 flex justify-between items-center bg-slate-50 rounded-t-3xl sticky top-0 z-20">
@@ -622,75 +657,30 @@ export const AddEmployeeModal: React.FC<AddEmployeeModalProps> = ({
         <form onSubmit={handleSubmit} className="p-6 space-y-6">
 
           {/* Photo Upload / Camera Capture Section */}
-          <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200 space-y-3">
-            <label className="block text-xs font-bold text-slate-800 flex items-center gap-1.5">
-              <Camera className="w-4 h-4 text-[#1e3a8a]" />
-              <span>Personel Vesikalık Fotoğrafı</span>
-            </label>
+          <div className="overflow-hidden rounded-2xl border border-blue-200 bg-gradient-to-br from-blue-50 to-white">
+            <div className="flex items-center justify-between border-b border-blue-100 px-4 py-3">
+              <div className="flex items-center gap-2"><span className="rounded-lg bg-blue-100 p-2 text-blue-800"><Camera className="h-4 w-4" /></span><div><p className="text-xs font-black text-slate-900">Personel Profil Fotoğrafı</p><p className="text-[10px] font-semibold text-slate-500">Kimlik kontrolü için net, önden çekilmiş fotoğraf kullanın.</p></div></div>
+              {photoUrl && <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2.5 py-1 text-[9px] font-black text-emerald-700"><Check className="h-3 w-3" />Fotoğraf hazır</span>}
+            </div>
 
-            <div className="flex flex-col sm:flex-row items-center gap-4">
-              <div className="w-24 h-24 rounded-2xl bg-slate-200 border-2 border-slate-300 overflow-hidden flex items-center justify-center shrink-0 relative shadow-inner">
-                {photoUrl ? (
-                  <img src={photoUrl} alt="Personel Fotoğrafı" className="w-full h-full object-cover" />
-                ) : (
-                  <User className="w-10 h-10 text-slate-400" />
-                )}
+            <div className="grid gap-5 p-4 sm:grid-cols-[160px_1fr] sm:p-5">
+              <div className="relative mx-auto aspect-[3/4] w-36 overflow-hidden rounded-2xl border-2 border-white bg-slate-200 shadow-lg sm:w-40">
+                {photoUrl ? <img src={photoUrl} alt="Personel profil önizlemesi" className="h-full w-full object-cover" /> : <div className="flex h-full flex-col items-center justify-center text-slate-400"><User className="h-12 w-12" /><span className="mt-2 text-[9px] font-black uppercase">Fotoğraf yok</span></div>}
               </div>
 
-              <div className="flex-1 space-y-2 w-full">
-                <div className="flex gap-2">
-                  <button
-                    type="button"
-                    onClick={() => { stopCamera(); setPhotoTab('upload'); }}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
-                      photoTab === 'upload' ? 'bg-[#1e3a8a] text-white' : 'bg-slate-200 text-slate-700 hover:bg-slate-300'
-                    }`}
-                  >
-                    Dosya Yükle
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => { setPhotoTab('camera'); startCamera(); }}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
-                      photoTab === 'camera' ? 'bg-[#1e3a8a] text-white' : 'bg-slate-200 text-slate-700 hover:bg-slate-300'
-                    }`}
-                  >
-                    <Camera className="w-3.5 h-3.5" />
-                    <span>Kameradan Çek</span>
+              <div className="flex flex-col justify-center">
+                <p className="text-sm font-black text-slate-900">Fotoğraf ekleme yöntemi</p>
+                <p className="mt-1 text-[11px] font-medium leading-relaxed text-slate-500">Bilgisayardan bir görsel seçebilir veya kamerayı büyük ekranda açarak yeni bir fotoğraf çekebilirsiniz.</p>
+                <div className="mt-4 grid gap-2 sm:grid-cols-2">
+                  <label className="flex cursor-pointer items-center gap-3 rounded-xl border border-slate-200 bg-white p-3 transition hover:border-blue-300 hover:bg-blue-50">
+                    <span className="rounded-lg bg-slate-100 p-2 text-slate-700"><Upload className="h-4 w-4" /></span><span><b className="block text-[11px] text-slate-900">Dosyadan Seç</b><span className="text-[9px] font-semibold text-slate-500">JPG, PNG veya WEBP</span></span>
+                    <input type="file" accept="image/jpeg,image/png,image/webp" onChange={handleFileUpload} className="sr-only" />
+                  </label>
+                  <button type="button" onClick={() => { setPhotoTab('camera'); startCamera(); }} className="flex items-center gap-3 rounded-xl border border-blue-200 bg-blue-700 p-3 text-left text-white transition hover:bg-blue-800">
+                    <span className="rounded-lg bg-white/15 p-2"><Camera className="h-4 w-4" /></span><span><b className="block text-[11px]">Kameradan Çek</b><span className="text-[9px] font-semibold text-blue-100">Büyük kamera ekranını aç</span></span>
                   </button>
                 </div>
-
-                {photoTab === 'upload' ? (
-                  <input
-                    type="file"
-                    accept="image/*"
-                    onChange={handleFileUpload}
-                    className="block w-full text-xs text-slate-600 file:mr-3 file:py-2 file:px-3 file:rounded-xl file:border-0 file:text-xs file:font-bold file:bg-slate-200 file:text-slate-800 hover:file:bg-slate-300 cursor-pointer"
-                  />
-                ) : (
-                  <div className="space-y-2">
-                    {isCameraActive ? (
-                      <div className="relative rounded-xl overflow-hidden bg-black max-w-xs h-36">
-                        <video ref={videoRef} autoPlay playsInline muted className="w-full h-full object-cover" />
-                        <button
-                          type="button"
-                          onClick={capturePhoto}
-                          className="absolute bottom-2 left-1/2 -translate-x-1/2 px-3 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold shadow-md flex items-center gap-1"
-                        >
-                          <Camera className="w-3.5 h-3.5" /> Fotoğraf Çek
-                        </button>
-                      </div>
-                    ) : (
-                      <button
-                        type="button"
-                        onClick={startCamera}
-                        className="py-2 px-3 bg-[#1e3a8a] text-white rounded-xl text-xs font-bold flex items-center gap-1.5"
-                      >
-                        <RefreshCw className="w-3.5 h-3.5" /> Kamerayı Yeniden Başlat
-                      </button>
-                    )}
-                  </div>
-                )}
+                {photoUrl && <button type="button" onClick={() => setPhotoUrl(null)} className="mt-3 self-start text-[10px] font-black text-rose-700 hover:text-rose-900">Fotoğrafı kaldır</button>}
               </div>
             </div>
           </div>

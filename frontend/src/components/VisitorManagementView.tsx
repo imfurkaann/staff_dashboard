@@ -6,6 +6,7 @@ import { AddVisitorModal } from './AddVisitorModal';
 import { VisitorHistoryView } from './VisitorHistoryView';
 import { VisitorRecordsTable } from './VisitorRecordsTable';
 import { can } from '../security/accessControl';
+import { managementUrl } from '../utils/navigationUrl';
 
 interface Props { currentUser: User }
 const today = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Istanbul' }).format(new Date());
@@ -104,13 +105,10 @@ export const VisitorManagementView: React.FC<Props> = ({ currentUser }) => {
   const switchView = (nextView: 'list' | 'history', skipPushState = false) => {
     setView(nextView);
     if (!skipPushState) {
-      const url = new URL(window.location.href);
-      url.searchParams.set('tab', 'visitors');
+      const url = managementUrl('visitors', nextView === 'history' ? { subView: 'history' } : {});
       if (nextView === 'history') {
-        url.searchParams.set('subView', 'history');
         window.history.pushState({ tab: 'visitors', view: 'visitor-history', timestamp: Date.now() }, '', url.toString());
       } else {
-        url.searchParams.delete('subView');
         window.history.pushState({ tab: 'visitors', view: 'list', timestamp: Date.now() }, '', url.toString());
       }
     }

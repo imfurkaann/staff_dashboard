@@ -87,7 +87,9 @@ export const EmployeeDetailView: React.FC<EmployeeDetailViewProps> = ({
   currentUser,
 }) => {
   const canManage = Boolean(currentUser && can(currentUser.role, 'EMPLOYEE_MANAGE'));
+  const canDelete = Boolean(currentUser && can(currentUser.role, 'EMPLOYEE_DELETE'));
   const canViewSensitive = Boolean(currentUser && can(currentUser.role, 'EMPLOYEE_SENSITIVE_VIEW'));
+  const canViewOperationalHistory = canManage || canViewSensitive;
   const canViewVisitors = Boolean(currentUser && can(currentUser.role, 'VISITOR_VIEW'));
   const canManageVisitors = Boolean(currentUser && can(currentUser.role, 'VISITOR_MANAGE'));
   // currentEmp tracks local state for immediate UI updates after edit
@@ -136,11 +138,11 @@ export const EmployeeDetailView: React.FC<EmployeeDetailViewProps> = ({
   };
   useEffect(() => {
     const sensitiveTabs: TabType[] = ['inventory', 'complaints', 'occupancyHistory'];
-    if ((sensitiveTabs.includes(activeTab) && !canViewSensitive) || (activeTab === 'visitors' && !canViewVisitors)) {
+    if ((sensitiveTabs.includes(activeTab) && !canViewOperationalHistory) || (activeTab === 'visitors' && !canViewVisitors)) {
       setActiveTab('general');
       localStorage.setItem('staff_app_emp_detail_tab', 'general');
     }
-  }, [activeTab, canViewSensitive, canViewVisitors]);
+  }, [activeTab, canViewOperationalHistory, canViewVisitors]);
   const [isPhotoLightboxOpen, setIsPhotoLightboxOpen] = useState(false);
   const [itemPhotoLightboxUrl, setItemPhotoLightboxUrl] = useState<string | null>(null);
 
@@ -223,7 +225,7 @@ export const EmployeeDetailView: React.FC<EmployeeDetailViewProps> = ({
 
   // Parse persisted inventory and discipline records.
   const dbDelivered = currentEmp.inventories
-    ? currentEmp.inventories.filter((i: any) => i.category !== 'ŞAHSİ_EŞYA').map((i: any) => ({
+    ? currentEmp.inventories.filter((i: any) => i.category === 'LOJMAN_ZİMMETİ').map((i: any) => ({
       id: i.id,
       itemName: i.itemName,
       assignedDate: formatDateTime(i.assignedDate || i.createdAt),
@@ -286,7 +288,7 @@ export const EmployeeDetailView: React.FC<EmployeeDetailViewProps> = ({
   useEffect(() => {
     if (Array.isArray(currentEmp.inventories)) {
       setDeliveredInventories(
-        currentEmp.inventories.filter((i: any) => i.category !== 'ŞAHSİ_EŞYA').map((i: any) => ({
+        currentEmp.inventories.filter((i: any) => i.category === 'LOJMAN_ZİMMETİ').map((i: any) => ({
           id: i.id,
           itemName: i.itemName,
           itemCode: i.itemCode || 'ZMM-101',
@@ -1138,13 +1140,13 @@ export const EmployeeDetailView: React.FC<EmployeeDetailViewProps> = ({
         >
           <div
             onClick={(e) => e.stopPropagation()}
-            className="relative bg-white border border-slate-300 rounded-3xl p-4 max-w-lg w-full shadow-2xl space-y-4 text-center cursor-default"
+            className="relative bg-white border border-slate-300 rounded-3xl p-4 max-w-3xl w-full shadow-2xl space-y-4 text-center cursor-default"
           >
             <div className="flex items-center justify-between border-b border-slate-200 pb-3">
               <h3 className="font-extrabold text-slate-900 text-sm flex items-center gap-2">
                 <User className="w-4 h-4 text-[#1e3a8a]" />
                 <span>
-                  {itemPhotoLightboxUrl ? 'Şahsi Eşya / Cihaz Görseli Kaydı' : `Personel Vesikalık Fotoğrafı (${employee.firstName} ${employee.lastName})`}
+                  {itemPhotoLightboxUrl ? 'Şahsi Eşya / Cihaz Görseli Kaydı' : `Personel Vesikalık Fotoğrafı (${currentEmp.firstName} ${currentEmp.lastName})`}
                 </span>
               </h3>
               <button
@@ -1158,19 +1160,19 @@ export const EmployeeDetailView: React.FC<EmployeeDetailViewProps> = ({
               </button>
             </div>
 
-            <div className="w-full h-80 rounded-2xl bg-slate-100 border border-slate-200 overflow-hidden flex items-center justify-center shadow-inner">
+            <div className="w-full h-[65vh] max-h-[720px] rounded-2xl bg-slate-100 border border-slate-200 overflow-hidden flex items-center justify-center shadow-inner">
               {itemPhotoLightboxUrl ? (
                 <img src={itemPhotoLightboxUrl} alt="Şahsi Eşya Fotoğrafı" className="w-full h-full object-contain bg-slate-950" />
-              ) : employee.photoUrl ? (
+              ) : currentEmp.photoUrl ? (
                 <img
-                  src={employee.photoUrl}
-                  alt={`${employee.firstName} ${employee.lastName}`}
+                  src={currentEmp.photoUrl}
+                  alt={`${currentEmp.firstName} ${currentEmp.lastName}`}
                   className="w-full h-full object-contain bg-slate-950"
                 />
               ) : (
                 <div className="text-center space-y-2">
                   <div className="w-24 h-24 rounded-full bg-[#1e3a8a] text-white font-black text-4xl flex items-center justify-center mx-auto shadow-md">
-                    {employee.firstName.charAt(0)}{employee.lastName.charAt(0)}
+                    {currentEmp.firstName.charAt(0)}{currentEmp.lastName.charAt(0)}
                   </div>
                   <p className="text-xs text-slate-500 font-bold">Fotoğraf yüklenmemiş</p>
                 </div>
@@ -1692,11 +1694,11 @@ export const EmployeeDetailView: React.FC<EmployeeDetailViewProps> = ({
           {/* Avatar with Click to Enlarge */}
           <div
             onClick={() => setIsPhotoLightboxOpen(true)}
-            className="relative group w-20 h-20 rounded-2xl bg-slate-100 border-2 border-slate-200 overflow-hidden flex items-center justify-center shrink-0 shadow-inner cursor-pointer hover:border-[#1e3a8a] transition-all"
+            className="relative group w-32 h-40 sm:w-36 sm:h-44 rounded-2xl bg-slate-100 border-2 border-slate-200 overflow-hidden flex items-center justify-center shrink-0 shadow-inner cursor-pointer hover:border-[#1e3a8a] transition-all"
             title="Büyütmek için tıklayın"
           >
-            {employee.photoUrl ? (
-              <img src={employee.photoUrl} alt={`${employee.firstName} ${employee.lastName}`} className="w-full h-full object-cover group-hover:scale-105 transition-transform" />
+            {currentEmp.photoUrl ? (
+              <img src={currentEmp.photoUrl} alt={`${currentEmp.firstName} ${currentEmp.lastName}`} className="w-full h-full object-cover group-hover:scale-105 transition-transform" />
             ) : (
               <span className="font-black text-2xl text-[#1e3a8a]">
                 {employee.firstName.charAt(0)}{employee.lastName.charAt(0)}
@@ -1780,7 +1782,7 @@ export const EmployeeDetailView: React.FC<EmployeeDetailViewProps> = ({
                 <span>Yazdır / PDF Kaydet</span>
               </button>
 
-              {canManage && <button
+              {canDelete && <button
                 type="button"
                 onClick={() => setIsDeleteConfirmOpen(true)}
                 className="py-2.5 px-4 bg-rose-700 hover:bg-rose-800 text-white font-bold text-xs rounded-2xl border border-rose-800 flex items-center justify-center gap-1.5 transition-all cursor-pointer shadow-md w-full sm:w-auto"
@@ -1806,7 +1808,7 @@ export const EmployeeDetailView: React.FC<EmployeeDetailViewProps> = ({
             <span>Personel Genel Bilgileri</span>
           </button>
 
-          {canViewSensitive && <button
+          {canViewOperationalHistory && <button
             onClick={() => handleTabSwitch('inventory')}
             className={`px-4 py-2.5 rounded-2xl text-xs font-extrabold flex items-center gap-2 transition-all cursor-pointer ${activeTab === 'inventory'
               ? 'bg-[#1e3a8a] text-white shadow-md'
@@ -1817,7 +1819,7 @@ export const EmployeeDetailView: React.FC<EmployeeDetailViewProps> = ({
             <span>Zimmet & Şahsi Eşya Beyanı ({deliveredInventories.length + personalBelongings.length})</span>
           </button>}
 
-          {canViewSensitive && <button
+          {canViewOperationalHistory && <button
             onClick={() => handleTabSwitch('complaints')}
             className={`px-4 py-2.5 rounded-2xl text-xs font-extrabold flex items-center gap-2 transition-all cursor-pointer ${activeTab === 'complaints'
               ? 'bg-[#1e3a8a] text-white shadow-md'
@@ -1840,7 +1842,7 @@ export const EmployeeDetailView: React.FC<EmployeeDetailViewProps> = ({
             <span>Ziyaretçi Kayıtları ({visitorRecords.length})</span>
           </button>}
 
-          {canViewSensitive && <button
+          {canViewOperationalHistory && <button
             onClick={() => handleTabSwitch('occupancyHistory')}
             className={`px-4 py-2.5 rounded-2xl text-xs font-extrabold flex items-center gap-2 transition-all cursor-pointer ${activeTab === 'occupancyHistory'
               ? 'bg-[#1e3a8a] text-white shadow-md'
@@ -1863,7 +1865,7 @@ export const EmployeeDetailView: React.FC<EmployeeDetailViewProps> = ({
             <div className="space-y-6 animate-fadeIn">
 
               {/* KİMLİK & İLETİŞİM VE ACİL DURUM YAKINI */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+              {canViewSensitive && <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
                 <div className="p-5 rounded-2xl bg-slate-50 border border-slate-200 space-y-3">
                   <h3 className="text-xs font-extrabold text-slate-900 uppercase tracking-wider flex items-center gap-2 border-b border-slate-200 pb-3">
                     <Lock className="w-4 h-4 text-[#1e3a8a]" />
@@ -1928,7 +1930,7 @@ export const EmployeeDetailView: React.FC<EmployeeDetailViewProps> = ({
                     </div>
                   )}
                 </div>
-              </div>
+              </div>}
 
 
 
@@ -1965,7 +1967,7 @@ export const EmployeeDetailView: React.FC<EmployeeDetailViewProps> = ({
               </div>
 
               {/* ODA ARKADAŞI UYUM KRİTERLERİ PROFİLİ */}
-              <div className="p-5 rounded-2xl bg-amber-50/60 border border-amber-200 space-y-3">
+              {canViewSensitive && <div className="p-5 rounded-2xl bg-amber-50/60 border border-amber-200 space-y-3">
                 <h3 className="text-xs font-extrabold text-amber-900 uppercase tracking-wider flex items-center gap-2">
                   <User className="w-4 h-4 text-amber-700" />
                   <span>Oda Arkadaşı Uyum Kriterleri Profili</span>
@@ -2019,7 +2021,7 @@ export const EmployeeDetailView: React.FC<EmployeeDetailViewProps> = ({
                     </div>
                   </div>
                 </div>
-              </div>
+              </div>}
 
               {/* KAYIT, ODAYA YERLEŞME & ODADAN ÇIKIŞ TARİHİ KARTLARI */}
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -2062,7 +2064,7 @@ export const EmployeeDetailView: React.FC<EmployeeDetailViewProps> = ({
           )}
 
           {/* TAB 2: ZİMMET & ŞAHSİ EŞYA BEYANI (EXCEL TABLO DÜZENİ) */}
-          {canViewSensitive && activeTab === 'inventory' && (
+          {canViewOperationalHistory && activeTab === 'inventory' && (
             <div className="space-y-6 animate-fadeIn">
 
               {/* SECTION A: GİRİŞTE LOJMANDAN TESLİM EDİLENLER */}
@@ -2308,7 +2310,7 @@ export const EmployeeDetailView: React.FC<EmployeeDetailViewProps> = ({
           )}
 
           {/* TAB 3: PERSONEL HAKKINDAKİ ŞİKAYETLER */}
-          {canViewSensitive && activeTab === 'complaints' && (
+          {canViewOperationalHistory && activeTab === 'complaints' && (
             <div className="space-y-4 animate-fadeIn">
               <div className="flex items-center justify-between">
                 <div>
@@ -2408,7 +2410,7 @@ export const EmployeeDetailView: React.FC<EmployeeDetailViewProps> = ({
           )}
 
           {/* TAB 6: KONAKLAMA GEÇMİŞİ */}
-          {canViewSensitive && activeTab === 'occupancyHistory' && (
+          {canViewOperationalHistory && activeTab === 'occupancyHistory' && (
             <div className="space-y-4 animate-fadeIn">
               <div>
                 <h3 className="text-sm font-extrabold text-slate-900">Konaklama Geçmişi</h3>

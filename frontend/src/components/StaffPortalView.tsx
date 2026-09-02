@@ -4,6 +4,7 @@ import { portalApi, StaffPortalData } from '../api/portalApi';
 import { sharedAssetApi, SharedAsset } from '../api/sharedAssetApi';
 import { ticketApi, SupportTicket, connectTicketSocket } from '../api/ticketApi';
 import { appConfig } from '../config/appConfig';
+import { portalUrl } from '../utils/navigationUrl';
 import { 
   Building2, 
   BedDouble, 
@@ -47,8 +48,7 @@ export const StaffPortalView: React.FC<StaffPortalViewProps> = ({ currentUser: _
   const changePortalTab = (tab: 'room' | 'notifications' | 'inventories' | 'sharedAssets' | 'tickets', skipPushState = false) => {
     setActiveTab(tab);
     if (!skipPushState) {
-      const url = new URL(window.location.href);
-      url.searchParams.set('portalTab', tab);
+      const url = portalUrl(tab);
       window.history.pushState({ portalTab: tab, timestamp: Date.now() }, '', url.toString());
     }
   };
@@ -68,8 +68,7 @@ export const StaffPortalView: React.FC<StaffPortalViewProps> = ({ currentUser: _
   const openTicketModal = (skipPushState = false) => {
     setIsTicketModalOpen(true);
     if (!skipPushState) {
-      const url = new URL(window.location.href);
-      url.searchParams.set('portalModal', 'ticket');
+      const url = portalUrl(activeTab, 'ticket');
       window.history.pushState({ portalTab: activeTab, portalModal: 'ticket', timestamp: Date.now() }, '', url.toString());
     }
   };

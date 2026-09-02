@@ -2,10 +2,18 @@ import { hasPermission, permissions } from './permissions';
 
 const sensitiveEmployeeFields = new Set([
   'tcNo', 'tcNoHash', 'tcNoMasked', 'phone', 'vehiclePlate', 'ageGroup', 'languageNationality',
-  'emergencyContactName', 'emergencyRelation', 'emergencyContactPhone', 'photoUrl', 'isSmoker',
+  'emergencyContactName', 'emergencyRelation', 'emergencyContactPhone', 'isSmoker',
   'hasSnoring', 'disciplinaryNotes', 'user', 'userId',
 ]);
 const sensitiveEmployeeRelations = new Set(['inventories', 'occupancies']);
+
+// Lojman operasyonunu yürüten kullanıcılar zimmet, konaklama ve disiplin kaydını
+// görmelidir; ancak iletişim ve kişisel profil alanları görünür olmamalıdır.
+const privateEmployeeFields = new Set([
+  'tcNo', 'tcNoHash', 'tcNoMasked', 'phone', 'vehiclePlate', 'ageGroup', 'languageNationality',
+  'emergencyContactName', 'emergencyRelation', 'emergencyContactPhone', 'isSmoker',
+  'hasSnoring', 'user', 'userId',
+]);
 
 function stripSensitiveFields(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(stripSensitiveFields);
@@ -17,8 +25,21 @@ function stripSensitiveFields(value: unknown): unknown {
   );
 }
 
+function stripPrivateFieldsKeepOperationalHistory(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(stripPrivateFieldsKeepOperationalHistory);
+  if (!value || typeof value !== 'object' || value instanceof Date) return value;
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>)
+      .filter(([key]) => !privateEmployeeFields.has(key))
+      .map(([key, nested]) => [key, stripPrivateFieldsKeepOperationalHistory(nested)]),
+  );
+}
+
 export function scopeEmployeeData<T>(value: T, role?: string): T {
   if (hasPermission(role, permissions.EMPLOYEE_SENSITIVE_VIEW)) return value;
+  if (hasPermission(role, permissions.EMPLOYEE_MANAGE)) {
+    return stripPrivateFieldsKeepOperationalHistory(value) as T;
+  }
   return stripSensitiveFields(value) as T;
 }
 

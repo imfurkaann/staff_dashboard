@@ -63,7 +63,7 @@ router.delete('/cleaning/:cleaningId', authorizePermissions(permissions.CLEANING
 router.put('/:id', authorizePermissions(permissions.ROOM_MANAGE), roomMutationRateLimiter, roomController.updateRoom);
 
 // DELETE /api/rooms/:id - Delete room safely
-router.delete('/:id', authorizePermissions(permissions.ROOM_MANAGE), roomMutationRateLimiter, roomController.deleteRoom);
+router.delete('/:id', authorizePermissions(permissions.ROOM_DELETE), roomMutationRateLimiter, roomController.deleteRoom);
 
 // POST /api/rooms/:id/inventories - Create room fixture/inventory
 router.post('/:id/inventories', authorizePermissions(permissions.ROOM_INVENTORY_MANAGE), roomMutationRateLimiter, roomController.createRoomInventory);

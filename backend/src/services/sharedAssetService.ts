@@ -3,15 +3,19 @@ import prisma from '../db/prisma';
 import { AppError } from '../middleware/errorHandler';
 import { assertDateRange, parseIstanbulDateBoundary } from '../utils/dateTime';
 import { boundedText, normalizeIdentifier, normalizeInventoryItemName, normalizeUpper } from '../utils/normalization';
-import { releasePersonnelStock, releaseRoomStock, reservePersonnelStock, reserveRoomStock } from '../utils/stockBalance';
+import { releaseRoomStock } from '../utils/stockBalance';
 import { broadcastSharedAssetEvent } from '../websocket/sharedAssetSocket';
 
 const categories = new Set([
-  'TEMİZLİK & BAKIM MAKİNELERİ', 'EL ALETLERİ & TAMİR', 'BAHÇE & PEYZAJ',
+  'GENEL', 'ODA DEMİRBAŞI', 'MOBİLYA', 'YATAK & BAZA', 'TEKSTİL & MEFRUŞAT',
+  'ELEKTRONİK', 'BEYAZ EŞYA', 'ISITMA & SOĞUTMA', 'AYDINLATMA & ELEKTRİK',
+  'MUTFAK & YEMEKHANE', 'BANYO & SIHHİ TESİSAT', 'TEMİZLİK MALZEMESİ',
+  'SARF MALZEMESİ', 'TEKNİK BAKIM & YEDEK PARÇA', 'ANAHTAR, KİLİT & GÜVENLİK',
+  'İŞ SAĞLIĞI & GÜVENLİĞİ', 'YANGIN & ACİL DURUM', 'KIRTASİYE',
+  'BAHÇE & PEYZAJ', 'TEMİZLİK & BAKIM MAKİNELERİ', 'EL ALETLERİ & TAMİR',
   'ELEKTRİKLİ EV ALETLERİ', 'GÜVENLİK & İŞ SAĞLIĞI', 'MOBİLYA & MEFRUŞAT',
-  'ELEKTRONİK & BİLİŞİM', 'ISITMA & SOĞUTMA', 'MUTFAK & SERVİS EKİPMANLARI',
-  'ÖLÇÜM & TEST CİHAZLARI', 'MERDİVEN & İSKELE', 'TAŞIMA & DEPOLAMA',
-  'GENEL EŞYALAR', 'GENEL', 'BEYAZ EŞYA', 'ODA DEMİRBAŞI',
+  'ELEKTRONİK & BİLİŞİM', 'MUTFAK & SERVİS EKİPMANLARI', 'ÖLÇÜM & TEST CİHAZLARI',
+  'MERDİVEN & İSKELE', 'TAŞIMA & DEPOLAMA', 'GENEL EŞYALAR', 'DİĞER',
 ]);
 
 const categoryPrefixes: Record<string, string> = {
@@ -19,7 +23,8 @@ const categoryPrefixes: Record<string, string> = {
   'ELEKTRİKLİ EV ALETLERİ': 'ELK', 'GÜVENLİK & İŞ SAĞLIĞI': 'GVN', 'MOBİLYA & MEFRUŞAT': 'MOB',
   'ELEKTRONİK & BİLİŞİM': 'ELT', 'ISITMA & SOĞUTMA': 'IKL', 'MUTFAK & SERVİS EKİPMANLARI': 'MTF',
   'ÖLÇÜM & TEST CİHAZLARI': 'TST', 'MERDİVEN & İSKELE': 'MRD', 'TAŞIMA & DEPOLAMA': 'TSM',
-  'GENEL EŞYALAR': 'ORT', GENEL: 'ORT',
+  'GENEL EŞYALAR': 'ORT', GENEL: 'ORT', 'BEYAZ EŞYA': 'BEY', 'ODA DEMİRBAŞI': 'DMR',
+  'TEMİZLİK MALZEMESİ': 'TMZ', 'TEKNİK BAKIM & YEDEK PARÇA': 'TKN', 'MOBİLYA': 'MOB',
 };
 
 const assetInclude = {
@@ -135,7 +140,10 @@ export class SharedAssetService {
     };
     const [items, total] = await Promise.all([
       prisma.sharedAssetLog.findMany({ where, include: {
-        asset: { select: { id: true, assetCode: true, assetName: true, status: true } },
+        asset: { select: {
+          id: true, assetCode: true, assetName: true, category: true, brandModel: true, serialNo: true,
+          status: true, locationNote: true, currentRoomId: true, borrowedAt: true, expectedReturnDate: true,
+        } },
         createdBy: { select: { id: true, fullName: true } },
       }, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], skip: (page - 1) * pageSize, take: pageSize }),
       prisma.sharedAssetLog.count({ where }),
@@ -159,22 +167,74 @@ export class SharedAssetService {
           }
         }
         const stock = await tx.stockItem.findUnique({ where: { id: data.stockItemId } });
-        if (!stock || !stock.isActive || !['ORTAK_EKİPMAN', 'ORTAK_KULLANIM'].includes(stock.itemType)) throw new AppError('Aktif ortak kullanım stok kartı bulunamadı.', 404);
-        const linked = await tx.sharedAsset.findUnique({ where: { stockItemId: stock.id } });
-        if (linked) throw new AppError('Bu stok kartı zaten bir ortak eşya kaydına bağlı.', 409);
+        if (!stock || !stock.isActive) throw new AppError('Seçilen aktif stok kartı depoda bulunamadı.', 404);
+        if (!['ORTAK_EŞYA', 'ORTAK_EKİPMAN', 'ORTAK_KULLANIM'].includes(stock.itemType)) {
+          throw new AppError('Ortak kullanım cihazı yalnızca "Ortak Eşya" tipindeki stok kartından tanımlanabilir. Oda demirbaşı ve kişisel zimmet ürünleri bu ekranda kullanılamaz.', 400);
+        }
+        const count = await tx.sharedAsset.count({ where: { stockItemId: stock.id } });
+        if (count >= stock.totalStock) {
+          throw new AppError(`Bu stok kartına ait toplam stok miktarı kadar (${stock.totalStock} Adet) ortak eşya cihaz kaydı zaten tanımlanmış.`, 409);
+        }
         const assetName = normalizeInventoryItemName(boundedText(data.assetName ?? stock.itemName, 'Ortak eşya adı', 120, { required: true, casing: 'upper' }))!;
         const category = normalizeUpper(data.category ?? stock.category) || 'GENEL EŞYALAR';
         if (!categories.has(category)) throw new AppError('Geçersiz ortak eşya kategorisi.', 400);
         const assetCode = code(data.assetCode ?? stock.itemCode) || await this.generateNextAssetCode(tx, category);
         const serialNo = normalizeIdentifier(data.serialNo);
         const warrantyEndDate = data.warrantyEndDate === undefined ? stock.warrantyEndDate : dateOnly(data.warrantyEndDate, 'Garanti bitiş tarihi');
+
+        const unlinkedRoomInventories = await tx.roomInventory.findMany({
+          where: { stockItemId: stock.id, returnedAt: null, sharedAsset: null },
+          include: { room: { include: { block: true } } },
+          orderBy: { installedAt: 'desc' },
+          take: 2,
+        });
+        // Tek bir eski oda zimmeti varsa bu fiziksel cihaz ortak eşya kaydına
+        // dönüştürülür. Birden fazla kayıt varsa yanlış cihazın dönüştürülmemesi için
+        // otomatik işlem yapılmaz.
+        const unlinkedRoomInventory = unlinkedRoomInventories.length === 1 ? unlinkedRoomInventories[0] : null;
+
+        let locationNote = boundedText(data.locationNote ?? stock.locationNote, 'Konum', 200, { casing: 'upper' });
+        if (!locationNote || locationNote === 'ANA DEPO') {
+          if (unlinkedRoomInventory) {
+            locationNote = `${unlinkedRoomInventory.room.block.name} / Oda ${unlinkedRoomInventory.room.roomNumber}`;
+          } else {
+            locationNote = 'ANA DEPO';
+          }
+        }
+
         const asset = await tx.sharedAsset.create({ data: {
           requestKey: data.requestKey || null, stockItemId: stock.id, createdById: data.createdById || null,
           assetName, assetCode, category, serialNo,
           brandModel: boundedText(data.brandModel ?? stock.specifications, 'Marka / model', 150, { casing: 'upper' }),
-          warrantyEndDate, locationNote: boundedText(data.locationNote ?? stock.locationNote, 'Konum', 200, { casing: 'upper' }) || 'ANA DEPO',
+          warrantyEndDate, locationNote,
           notes: boundedText(data.notes, 'Açıklama', 1000, { casing: 'upper' }), status: 'AVAILABLE',
         } });
+        if (unlinkedRoomInventory) {
+          await tx.roomInventory.update({
+            where: { id: unlinkedRoomInventory.id },
+            data: {
+              returnedAt: new Date(),
+              status: 'RETIRED',
+              notes: `${unlinkedRoomInventory.notes ? `${unlinkedRoomInventory.notes} / ` : ''}ORTAK EŞYA KONUM KAYDINA DÖNÜŞTÜRÜLDÜ: ${asset.assetCode}`,
+            },
+          });
+          await releaseRoomStock(tx, stock.id, unlinkedRoomInventory.quantity);
+          await tx.stockMovement.create({ data: {
+            stockItemId: stock.id,
+            roomId: unlinkedRoomInventory.roomId,
+            roomInventoryId: unlinkedRoomInventory.id,
+            sharedAssetId: asset.id,
+            type: 'STATUS_CHANGE',
+            quantity: 0,
+            itemNameSnapshot: stock.itemName,
+            roomLabelSnapshot: `${unlinkedRoomInventory.room.block.name} / ODA ${unlinkedRoomInventory.room.roomNumber}`,
+            brand: unlinkedRoomInventory.brand,
+            serialNo: unlinkedRoomInventory.serialNo,
+            reason: 'ODA ZİMMETİNDEN ORTAK EŞYA KONUMUNA DÖNÜŞÜM',
+            notes: 'Aynı fiziksel cihazın iki kez stoktan düşmesini önlemek için oda zimmeti kapatıldı; cihaz ortak eşya konumuna aktarıldı.',
+            createdById: data.createdById || null,
+          } });
+        }
         await tx.sharedAssetLog.create({ data: {
           assetId: asset.id, action: 'CREATED', assetCodeSnapshot: asset.assetCode, assetNameSnapshot: asset.assetName,
           statusTo: 'AVAILABLE', notes: 'Ortak eşya stok kartına bağlı olarak oluşturuldu.', createdById: data.createdById || null,
@@ -193,8 +253,10 @@ export class SharedAssetService {
     holderType?: 'EMPLOYEE' | 'ROOM' | 'OTHER'; employeeId?: string; customBorrowerName?: string;
     roomId?: string; expectedReturnDate?: string; notes?: string; createdById?: string; requestKey?: string;
   }) {
-    const holderType = data.holderType || (data.roomId ? 'ROOM' : data.employeeId ? 'EMPLOYEE' : 'OTHER');
-    if (!['EMPLOYEE', 'ROOM', 'OTHER'].includes(holderType)) throw new AppError('Geçersiz zimmet hedefi.', 400);
+    const holderType = data.holderType || (data.employeeId ? 'EMPLOYEE' : 'OTHER');
+    if (!['EMPLOYEE', 'OTHER'].includes(holderType)) {
+      throw new AppError('Ortak kullanım cihazı odaya zimmetlenemez. Oda cihazın sabit konumuysa "Konumu Güncelle" işlemini kullanın; kullanım için personel veya harici kişi seçin.', 400);
+    }
     const notes = boundedText(data.notes, 'Zimmet açıklaması', 1000, { casing: 'upper' });
     const expectedReturnDate = dateOnly(data.expectedReturnDate, 'Beklenen iade tarihi');
     if (expectedReturnDate && expectedReturnDate < new Date()) throw new AppError('Beklenen iade tarihi geçmiş bir tarih olamaz.', 400);
@@ -210,52 +272,26 @@ export class SharedAssetService {
 
         let employeeId: string | null = null;
         let roomId: string | null = null;
-        let personnelInventoryId: string | null = null;
-        let roomInventoryId: string | null = null;
         let borrowerName: string;
-        let physicalLocation = asset.locationNote || 'ANA DEPO';
-        const identity = asset.serialNo || asset.assetCode;
         if (holderType === 'EMPLOYEE') {
           if (!data.employeeId) throw new AppError('Personel zimmeti için personel seçilmelidir.', 400);
           const employee = await tx.employee.findFirst({ where: { id: data.employeeId, isDeleted: false, status: 'RESIDENT' } });
           if (!employee) throw new AppError('Yalnızca odada konaklayan aktif personellere ortak eşya zimmetlenebilir.', 404);
-          const inventory = await tx.inventoryItem.create({ data: {
-            employeeId: employee.id, stockItemId: asset.stockItem.id, itemName: asset.assetName, itemCode: asset.assetCode,
-            category: 'LOJMAN_ZİMMETİ', status: 'TESLİM_EDİLDİ', serialNo: identity, notes,
-            createdById: data.createdById || null,
-          } });
-          employeeId = employee.id; personnelInventoryId = inventory.id;
+          // Ortak cihazdaki kullanım, personelin kalıcı zimmeti değildir. Bu nedenle
+          // personel envanteri ve stok bakiyesi burada değiştirilmez; yalnızca kullanım kaydı açılır.
+          employeeId = employee.id;
           borrowerName = `${employee.firstName} ${employee.lastName}${employee.department ? ` (${employee.department})` : ''}`;
-        } else if (holderType === 'ROOM') {
-          if (!data.roomId) throw new AppError('Oda zimmeti için oda seçilmelidir.', 400);
-          const room = await tx.room.findUnique({ where: { id: data.roomId }, include: { block: true } });
-          if (!room) throw new AppError('Oda bulunamadı.', 404);
-          let inventory = await tx.roomInventory.create({ data: {
-            roomId: room.id, stockItemId: asset.stockItem.id, itemName: asset.assetName, brand: asset.brandModel,
-            serialNo: identity, quantity: 1, status: 'HEALTHY', notes,
-          } });
-          inventory = await tx.roomInventory.update({ where: { id: inventory.id }, data: { assetTag: `${asset.assetCode}-${inventory.id.replace(/-/g, '').slice(0, 10).toUpperCase()}` } });
-          roomId = room.id; roomInventoryId = inventory.id;
-          borrowerName = `${room.block.name} / Oda ${room.roomNumber}`;
-          physicalLocation = borrowerName;
         } else {
           borrowerName = boundedText(data.customBorrowerName, 'Teslim alan kişi', 120, { required: true, casing: 'upper' })!;
         }
 
-        await tx.stockMovement.create({ data: {
-          stockItemId: asset.stockItem.id, sharedAssetId: asset.id, employeeId, roomId,
-          type: 'PERSONNEL_ASSIGNMENT', quantity: -1, itemNameSnapshot: asset.assetName, serialNo: identity,
-          reason: 'ORTAK EŞYA KULLANIM ZİMMETİ', notes, createdById: data.createdById || null,
-        } });
-
         const borrowedAt = new Date();
         const changed = await tx.sharedAsset.updateMany({ where: { id: asset.id, status: 'AVAILABLE', updatedAt: asset.updatedAt }, data: {
           status: 'LOANED', currentHolderType: holderType, currentEmployeeId: employeeId, currentRoomId: roomId,
-          currentPersonnelInventoryId: personnelInventoryId, currentRoomInventoryId: roomInventoryId,
-          borrowedAt, expectedReturnDate, locationNote: physicalLocation,
+          currentPersonnelInventoryId: null, currentRoomInventoryId: null,
+          borrowedAt, expectedReturnDate,
         } });
         if (changed.count !== 1) throw new AppError('Ortak eşya başka bir işlemde değişti. Listeyi yenileyin.', 409);
-        await tx.stockItem.update({ where: { id: asset.stockItem.id }, data: { physicalStatus: 'KULLANIMDA' } });
         await tx.sharedAssetLog.create({ data: {
           requestKey: data.requestKey || null, assetId: asset.id, action: 'CHECK_OUT', assetCodeSnapshot: asset.assetCode,
           assetNameSnapshot: asset.assetName, holderType, statusFrom: 'AVAILABLE', statusTo: 'LOANED', borrowerName,
@@ -289,20 +325,26 @@ export class SharedAssetService {
       } });
       if (!asset) throw new AppError('Ortak eşya bulunamadı.', 404);
       if (asset.status !== 'LOANED' || !asset.stockItem) throw new AppError('Yalnızca aktif zimmetli ortak eşya teslim alınabilir.', 409);
-      const borrowerName = activeBorrowerName(asset);
+      const activeLog = await tx.sharedAssetLog.findFirst({
+        where: { assetId, action: 'CHECK_OUT', returnedAt: null },
+        orderBy: { createdAt: 'desc' },
+      });
+      // Teslim alan kişi metnini ilk kullanım kaydından aynen koru. Böylece
+      // departman gibi ek bilgiler teslim alma hareketinde kaybolmaz.
+      const borrowerName = activeLog?.borrowerName || activeBorrowerName(asset);
       const returnedAt = new Date();
-      const returnLocation = locationNote || 'ANA DEPO';
+      // Kullanım sonunda cihaz sabit konumunda kalır. Konum, kullanım açma/kapatma
+      // işleminden bağımsız olarak "Konumu Güncelle" akışından yönetilir.
+      const returnLocation = locationNote || asset.locationNote || 'ANA DEPO';
 
       if (asset.currentPersonnelInventoryId) {
         await tx.inventoryItem.updateMany({ where: { id: asset.currentPersonnelInventoryId, returnedDate: null }, data: { returnedDate: returnedAt, returnedById: data.createdById || null, status: 'TAM_İADE_ALINDI', notes } });
       }
 
-      await tx.stockMovement.create({ data: {
-        stockItemId: asset.stockItem.id, sharedAssetId: asset.id, employeeId: asset.currentEmployeeId,
-        roomId: asset.currentRoomId, type: 'PERSONNEL_RETURN', quantity: 1,
-        itemNameSnapshot: asset.assetName, serialNo: asset.serialNo || asset.assetCode,
-        reason: 'ORTAK EŞYA İADE ALMA', notes, createdById: data.createdById || null,
-      } });
+      if (asset.currentRoomInventoryId) {
+        await tx.roomInventory.updateMany({ where: { id: asset.currentRoomInventoryId, returnedAt: null }, data: { returnedAt, notes } });
+        await releaseRoomStock(tx, asset.stockItem.id, 1);
+      }
 
       const changed = await tx.sharedAsset.updateMany({ where: { id: asset.id, status: 'LOANED', updatedAt: asset.updatedAt }, data: {
         status: targetStatus, currentHolderType: null, currentEmployeeId: null, currentRoomId: null,
@@ -310,8 +352,6 @@ export class SharedAssetService {
         locationNote: returnLocation,
       } });
       if (changed.count !== 1) throw new AppError('Ortak eşya başka bir işlemde değişti. Listeyi yenileyin.', 409);
-      await tx.stockItem.update({ where: { id: asset.stockItem.id }, data: { physicalStatus: targetStatus === 'MAINTENANCE' ? 'BAKIMDA' : 'KULLANILABİLİR' } });
-      const activeLog = await tx.sharedAssetLog.findFirst({ where: { assetId, action: 'CHECK_OUT', returnedAt: null }, orderBy: { createdAt: 'desc' } });
       if (activeLog) {
         await tx.sharedAssetLog.update({ where: { id: activeLog.id }, data: { returnedAt } });
       }
@@ -359,8 +399,6 @@ export class SharedAssetService {
           itemNameSnapshot: asset.assetName, serialNo: asset.serialNo || asset.assetCode,
           reason: 'ORTAK EŞYA HURDAYA AYIRMA', notes, createdById: data.createdById || null,
         } });
-      } else {
-        await tx.stockItem.update({ where: { id: asset.stockItemId }, data: { physicalStatus: data.status === 'MAINTENANCE' ? 'BAKIMDA' : 'KULLANILABİLİR' } });
       }
       const changed = await tx.sharedAsset.updateMany({ where: { id: asset.id, updatedAt: asset.updatedAt }, data: {
         status: data.status, ...(locationNote && { locationNote }), ...(notes && { notes }),
@@ -398,7 +436,6 @@ export class SharedAssetService {
       if (!asset.stockItemId) throw new AppError('Ortak eşyanın bağlı stok kartı bulunamadı.', 409);
       const changed = await tx.sharedAsset.updateMany({ where: { id: asset.id, status: asset.status, updatedAt: asset.updatedAt }, data: { status: targetStatus } });
       if (changed.count !== 1) throw new AppError('Ortak eşya başka bir işlemde değişti. Listeyi yenileyin.', 409);
-      await tx.stockItem.update({ where: { id: asset.stockItemId }, data: { physicalStatus: targetStatus === 'MAINTENANCE' ? 'BAKIMDA' : 'KULLANILABİLİR' } });
       await tx.sharedAssetLog.create({ data: {
         requestKey: data.requestKey || null, assetId, action: data.action,
         assetCodeSnapshot: asset.assetCode, assetNameSnapshot: asset.assetName,

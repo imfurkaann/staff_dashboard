@@ -265,6 +265,31 @@ export const roomService = {
       transferReason: occupancy.transferReason,
     }))).sort((a, b) => b.checkInDate.getTime() - a.checkInDate.getTime());
 
+    const roomLabel = `${room.block.name} / Oda ${room.roomNumber}`;
+    const sharedAssets = await prisma.sharedAsset.findMany({
+      where: {
+        OR: [
+          { currentRoomId: room.id },
+          { locationNote: { contains: roomLabel, mode: 'insensitive' } },
+          { locationNote: { contains: `Oda ${room.roomNumber}`, mode: 'insensitive' } },
+        ],
+      },
+      select: {
+        id: true,
+        assetCode: true,
+        assetName: true,
+        category: true,
+        brandModel: true,
+        serialNo: true,
+        status: true,
+        locationNote: true,
+        notes: true,
+        borrowedAt: true,
+        createdAt: true,
+      },
+      orderBy: { assetName: 'asc' },
+    });
+
     return {
       ...room,
       beds: room.beds.map(({ occupancies, ...bed }) => ({
@@ -275,6 +300,7 @@ export const roomService = {
         } : null,
       })),
       occupancyHistory,
+      sharedAssets,
     };
   },
 
@@ -692,8 +718,10 @@ export const roomService = {
       if (!data.stockItemId) throw new AppError('Oda zimmeti için depo stok kartı seçilmelidir.', 400);
       const stockItem = await tx.stockItem.findUnique({ where: { id: data.stockItemId } });
       if (!stockItem || !stockItem.isActive) throw new AppError('Seçilen aktif stok kartı depoda bulunamadı.', 404);
-      if (stockItem.itemType !== 'SARF_MALZEME' && quantity > 1) throw new AppError('Demirbaşlar fiziksel cihaz takibi için tek tek ve 1 adet olarak zimmetlenmelidir.', 400);
-      if (stockItem.itemType !== 'SARF_MALZEME' && !cleanSerialNo) throw new AppError('Demirbaş zimmeti için cihazın üretici seri numarası zorunludur.', 400);
+      if (stockItem.itemType !== 'DEMİRBAŞ') {
+        throw new AppError('Oda zimmetine yalnızca “Oda Demirbaşı” türündeki stok kartları eklenebilir.', 400);
+      }
+      if (quantity > 1) throw new AppError('Oda demirbaşları fiziksel cihaz takibi için tek tek ve 1 adet olarak zimmetlenmelidir.', 400);
       if (cleanSerialNo) {
         await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`INVENTORY_SERIAL:${cleanSerialNo}`}))`;
         const [roomDuplicate, personnelDuplicate] = await Promise.all([

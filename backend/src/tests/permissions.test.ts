@@ -17,13 +17,34 @@ test('housekeeping is limited to rooms and cleaning operations', () => {
   assert.equal(hasPermission('HOUSEKEEPING', permissions.STOCK_VIEW), false);
 });
 
-test('housing staff operational responses do not expose employee private fields', () => {
-  const employee = { id: 'e1', firstName: 'Ada', tcNo: '12345678901', phone: '555', user: { username: 'ada' } };
+test('housing staff see the complete employee profile required for lodging operations', () => {
+  assert.equal(hasPermission('HOUSING_STAFF', permissions.EMPLOYEE_MANAGE), true);
+  assert.equal(hasPermission('HOUSING_STAFF', permissions.ROOM_MANAGE), false);
+  const employee = {
+    id: 'e1', firstName: 'Ada', photoUrl: 'data:image/jpeg;base64,AAAA', tcNo: '12345678901', phone: '555', user: { username: 'ada' },
+    inventories: [{ id: 'i1', itemName: 'Anahtar' }], disciplinaryNotes: [{ id: 'd1', content: 'Not' }], occupancies: [{ id: 'o1' }],
+  };
   const scoped = scopeEmployeeData(employee, 'HOUSING_STAFF') as Record<string, unknown>;
   assert.equal(scoped.firstName, 'Ada');
-  assert.equal('tcNo' in scoped, false);
-  assert.equal('phone' in scoped, false);
-  assert.equal('user' in scoped, false);
+  assert.equal(scoped.photoUrl, 'data:image/jpeg;base64,AAAA');
+  assert.equal(scoped.tcNo, '12345678901');
+  assert.equal(scoped.phone, '555');
+  assert.deepEqual(scoped.user, { username: 'ada' });
+  assert.deepEqual(scoped.inventories, [{ id: 'i1', itemName: 'Anahtar' }]);
+  assert.deepEqual(scoped.disciplinaryNotes, [{ id: 'd1', content: 'Not' }]);
+  assert.deepEqual(scoped.occupancies, [{ id: 'o1' }]);
+});
+
+test('housing staff have full operational visibility but no destructive or user-management permissions', () => {
+  assert.equal(hasPermission('HOUSING_STAFF', permissions.EMPLOYEE_SENSITIVE_VIEW), true);
+  assert.equal(hasPermission('HOUSING_STAFF', permissions.EMPLOYEE_EXPORT), true);
+  assert.equal(hasPermission('HOUSING_STAFF', permissions.MAINTENANCE_DELETE), false);
+  assert.equal(hasPermission('HOUSING_STAFF', permissions.EMPLOYEE_DELETE), false);
+  assert.equal(hasPermission('HOUSING_STAFF', permissions.ROOM_DELETE), false);
+  assert.equal(hasPermission('HOUSING_STAFF', permissions.STOCK_DELETE), false);
+  assert.equal(hasPermission('HOUSING_STAFF', permissions.SHARED_ASSET_DELETE), false);
+  assert.equal(hasPermission('HOUSING_STAFF', permissions.VISITOR_EXPORT), false);
+  assert.equal(hasPermission('HOUSING_STAFF', permissions.USER_MANAGE), false);
 });
 
 test('room scoping hides occupants from technical and housekeeping roles', () => {

@@ -9,6 +9,7 @@ export interface StockRoom {
   floor: number;
   status: string;
   roomType?: string | null;
+  capacity: number;
   block: { id: string; name: string };
 }
 
@@ -26,7 +27,8 @@ export interface RoomAssignment {
   status: AssignmentStatus;
   notes?: string | null;
   room: StockRoom;
-  maintenances?: Array<{ id: string; status: 'OPEN' | 'IN_PROGRESS' }>;
+  maintenances?: Array<{ id: string; status: 'OPEN' | 'IN_PROGRESS' | 'RESOLVED' | 'CLOSED'; priority?: string; title: string; description: string; createdAt: string; resolvedAt?: string | null; resolutionNote?: string | null }>;
+  stockItem?: { id: string; itemName: string; itemCode?: string | null; unit: string };
 }
 
 export interface StockMovement {
@@ -80,6 +82,16 @@ export interface StockItem {
   issueCount: number;
   roomInventories: RoomAssignment[];
   inventories: PersonnelAssignment[];
+  sharedAssets: Array<{ id: string; assetCode: string; assetName: string; serialNo?: string | null; brandModel?: string | null; status: 'AVAILABLE' | 'LOANED' | 'MAINTENANCE' | 'RETIRED'; locationNote?: string | null; currentRoomId?: string | null; borrowedAt?: string | null }>;
+  sharedAssetsInLocations: number;
+  roomStandard?: { id: string; roomType: string; fixedQuantity: number; quantityPerBed: number } | null;
+  roomCoverage?: {
+    standard: { id: string; roomType: string; fixedQuantity: number; quantityPerBed: number };
+    totalRooms: number;
+    completeRooms: number;
+    missingTotal: number;
+    missingRooms: Array<{ roomId: string; roomNumber: string; blockName: string; required: number; assigned: number; missing: number }>;
+  } | null;
   _count: { movements: number };
   createdAt: string;
   updatedAt: string;
@@ -95,6 +107,14 @@ export interface StockOverview {
 export interface StockMovementList {
   items: StockMovement[];
   pagination: { page: number; pageSize: number; total: number; totalPages: number };
+}
+
+export interface DeviceHistory {
+  serialNo: string;
+  assignments: RoomAssignment[];
+  sharedAssets: Array<{ id: string; assetName: string; assetCode: string; status: string; locationNote?: string | null; logs: Array<{ id: string; action: string; borrowerName?: string | null; notes?: string | null; createdAt: string; returnedAt?: string | null }> }>;
+  movements: StockMovement[];
+  summary: { assignmentCount: number; faultCount: number; activeAssignmentCount: number };
 }
 
 const request = async <T>(path: string, init?: RequestInit): Promise<T> => {
@@ -121,9 +141,11 @@ export const stockApi = {
     if (filters.pageSize) params.set('pageSize', String(filters.pageSize));
     return request<StockMovementList>(`/movements?${params.toString()}`);
   },
+  getDeviceHistory: (serialNo: string) => request<DeviceHistory>(`/device-history?serialNo=${encodeURIComponent(serialNo)}`),
   getNextItemCode: (category?: string) => request<{ itemCode: string }>(`/next-code${category ? `?category=${encodeURIComponent(category)}` : ''}`),
   // Compatibility for employee/room detail selectors; all data still comes from the central stock overview.
   getStockItems: async () => (await request<StockOverview>('')).items,
+  setRoomStandard: (id: string, payload: { fixedQuantity: number; quantityPerBed: number; roomType?: string }) => request(`/` + id + '/room-standard', { method: 'PUT', body: JSON.stringify(payload) }),
   createStockItem: (payload: Partial<StockItem> & { itemName: string; totalStock?: number }, key?: string) => request<StockItem>('', { method: 'POST', headers: key ? { 'X-Idempotency-Key': key } : undefined, body: JSON.stringify(payload) }),
   updateStockItem: (id: string, payload: Partial<StockItem>, key?: string) => request<StockItem>(`/${id}`, { method: 'PUT', headers: key ? { 'X-Idempotency-Key': key } : undefined, body: JSON.stringify(payload) }),
   receive: (id: string, payload: { quantity: number; reason?: string; notes?: string }, key?: string) => request<StockItem>(`/${id}/receive`, { method: 'POST', headers: key ? { 'X-Idempotency-Key': key } : undefined, body: JSON.stringify(payload) }),

@@ -6,6 +6,7 @@ import {
 import { SupportTicket, SupportTicketStatus, ticketApi, connectTicketSocket, playChimeSound } from '../api/ticketApi';
 import { User as UserType } from '../api/authApi';
 import { can } from '../security/accessControl';
+import { managementUrl } from '../utils/navigationUrl';
 
 const TICKET_CATEGORIES = [
   'GÜRÜLTÜ / RAHATSIZLIK',
@@ -104,9 +105,7 @@ export const SupportTicketManagementView: React.FC<SupportTicketManagementViewPr
     setUpdateStatus(ticket.status);
     setUpdateNote(ticket.adminNote || '');
     if (!skipPushState) {
-      const url = new URL(window.location.href);
-      url.searchParams.set('tab', 'tickets');
-      url.searchParams.set('ticketId', ticket.id);
+      const url = managementUrl('tickets', { ticketId: ticket.id });
       window.history.pushState({ tab: 'tickets', view: 'ticket-modal', ticketId: ticket.id, timestamp: Date.now() }, '', url.toString());
     }
   };

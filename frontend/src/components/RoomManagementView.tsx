@@ -25,6 +25,7 @@ import { RoomOccupancyExportModal, ReportCategory } from './RoomOccupancyExportM
 import { CompleteCleaningModal } from './CompleteCleaningModal';
 import { User } from '../api/authApi';
 import { can } from '../security/accessControl';
+import { managementUrl } from '../utils/navigationUrl';
 
 type GroupByMode = 'block' | 'floor';
 
@@ -157,9 +158,7 @@ export const RoomManagementView: React.FC<RoomManagementViewProps> = ({ onNaviga
     setDetailLoadingId(roomId);
     setError(null);
     if (!skipPushState) {
-      const url = new URL(window.location.href);
-      url.searchParams.set('tab', 'rooms');
-      url.searchParams.set('roomId', roomId);
+      const url = managementUrl('rooms', { roomId });
       window.history.pushState({ tab: 'rooms', view: 'room-detail', roomId, timestamp: Date.now() }, '', url.toString());
     }
     try {
@@ -173,9 +172,7 @@ export const RoomManagementView: React.FC<RoomManagementViewProps> = ({ onNaviga
 
   const closeRoomDetail = () => {
     setActiveRoomDetail(null);
-    const url = new URL(window.location.href);
-    url.searchParams.set('tab', 'rooms');
-    url.searchParams.delete('roomId');
+    const url = managementUrl('rooms');
     if (window.history.state?.view === 'room-detail') {
       window.history.back();
     } else {
@@ -215,8 +212,14 @@ export const RoomManagementView: React.FC<RoomManagementViewProps> = ({ onNaviga
         });
         setRoomForm((prev) => ({ ...prev, roomNumber: '', capacity: prev.isSpecialFacility ? '0' : '2' }));
       } else if (createModal === 'block') {
-        await roomApi.createBlock(blockForm);
+        const createdBlock = await roomApi.createBlock(blockForm);
         setBlockForm({ name: '', genderPolicy: 'Mixed' });
+        // İlk kurulumda blok oluşturulduktan sonra kullanıcıyı tekrar düğme
+        // aramaya zorlamadan doğrudan ilk oda kaydına geçir.
+        setRoomForm((prev) => ({ ...prev, blockId: createdBlock.id }));
+        await fetchRooms(true);
+        setCreateModal('room');
+        return;
       }
       setCreateModal(null);
       await fetchRooms(true);
@@ -487,12 +490,11 @@ export const RoomManagementView: React.FC<RoomManagementViewProps> = ({ onNaviga
                   Yeni Blok
                 </button>
                 <button
-                  onClick={() => openCreateModal('room')}
-                  disabled={availableBlocks.length === 0}
+                  onClick={() => availableBlocks.length > 0 ? openCreateModal('room') : openCreateModal('block')}
                   className="px-3.5 py-2 rounded-xl border border-[#1e3a8a] bg-[#1e3a8a] text-white hover:bg-blue-900 text-xs font-bold inline-flex items-center gap-1.5 transition-colors disabled:opacity-50 cursor-pointer"
                 >
-                  <Plus className="w-3.5 h-3.5" />
-                  Yeni Oda
+                  {availableBlocks.length > 0 ? <Plus className="w-3.5 h-3.5" /> : <Building2 className="w-3.5 h-3.5" />}
+                  {availableBlocks.length > 0 ? 'Yeni Oda' : 'İlk Bloğu ve Odayı Oluştur'}
                 </button>
                 <button
                   onClick={() => setIsExportModalOpen(true)}

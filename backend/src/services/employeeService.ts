@@ -224,7 +224,7 @@ export class EmployeeService {
           },
         },
         inventories: {
-          where: { isDeleted: false },
+          where: { isDeleted: false, category: { in: ['LOJMAN_ZİMMETİ', 'ŞAHSİ_EŞYA'] } },
           orderBy: { createdAt: 'desc' },
         },
         disciplinaryNotes: {
@@ -911,7 +911,7 @@ export class EmployeeService {
               },
             },
           },
-          inventories: { where: { isDeleted: false }, orderBy: { createdAt: 'desc' } },
+          inventories: { where: { isDeleted: false, category: { in: ['LOJMAN_ZİMMETİ', 'ŞAHSİ_EŞYA'] } }, orderBy: { createdAt: 'desc' } },
           disciplinaryNotes: { where: { isDeleted: false }, orderBy: { createdAt: 'desc' } },
           occupancies: {
             orderBy: { checkInDate: 'desc' },
@@ -953,7 +953,7 @@ export class EmployeeService {
   public static async addInventoryItem(employeeId: string, data: { itemName: string; itemCode?: string; category?: string; serialNo?: string; photoUrl?: string; notes?: string; createdById?: string; stockItemId?: string }) {
     const employee = await prisma.employee.findUnique({ where: { id: employeeId, isDeleted: false } });
     if (!employee) throw new AppError('Personel bulunamadı.', 404);
-    const category = data.category || 'LOJMAN_ZİMMETİ';
+    const category = data.stockItemId ? 'LOJMAN_ZİMMETİ' : (data.category || 'LOJMAN_ZİMMETİ');
     const cleanSerial = normalizeIdentifier(data.serialNo);
     if (!['LOJMAN_ZİMMETİ', 'ŞAHSİ_EŞYA'].includes(category)) throw new AppError('Geçersiz eşya kategorisi.', 400);
     if (category === 'LOJMAN_ZİMMETİ' && !data.stockItemId) throw new AppError('Lojman zimmeti için depo stok kartı seçilmelidir.', 400);
@@ -963,7 +963,9 @@ export class EmployeeService {
         return await prisma.$transaction(async (tx) => {
           const stockItem = await tx.stockItem.findUnique({ where: { id: data.stockItemId } });
           if (!stockItem || !stockItem.isActive) throw new AppError('Seçilen aktif stok kalemi bulunamadı.', 404);
-          if (stockItem.itemType !== 'SARF_MALZEME' && !cleanSerial) throw new AppError('Demirbaş zimmeti için cihazın üretici seri numarası zorunludur.', 400);
+          if (['ORTAK_EŞYA', 'ORTAK_EKİPMAN', 'ORTAK_KULLANIM'].includes(stockItem.itemType)) {
+            throw new AppError('Ortak kullanım cihazı personele kalıcı zimmetlenemez. Kullanım kaydını Ortak Eşya sayfasından açın.', 400);
+          }
           if (cleanSerial) {
             await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`INVENTORY_SERIAL:${cleanSerial}`}))`;
             const [personnelDuplicate, roomDuplicate] = await Promise.all([
@@ -1396,7 +1398,7 @@ export class EmployeeService {
               },
             },
           },
-          inventories: { where: { isDeleted: false }, orderBy: { createdAt: 'desc' } },
+          inventories: { where: { isDeleted: false, category: { in: ['LOJMAN_ZİMMETİ', 'ŞAHSİ_EŞYA'] } }, orderBy: { createdAt: 'desc' } },
           disciplinaryNotes: { where: { isDeleted: false }, orderBy: { createdAt: 'desc' } },
           occupancies: {
             orderBy: { checkInDate: 'desc' },

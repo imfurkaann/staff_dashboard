@@ -8,10 +8,14 @@ import {
 import {
   SharedAsset, SharedAssetLog, SharedAssetOverview, SharedAssetStatus, sharedAssetApi,
 } from '../api/sharedAssetApi';
+import { stockApi, StockItem } from '../api/stockApi';
 import { SharedAssetHistoryView } from './SharedAssetHistoryView';
 import { generateUUID } from '../utils/cryptoHelpers';
+import { managementUrl } from '../utils/navigationUrl';
 
 type ModalState =
+  | { type: 'createAsset' }
+  | { type: 'editLocation'; asset: SharedAsset }
   | { type: 'checkOut'; asset?: SharedAsset }
   | { type: 'checkIn'; asset: SharedAsset }
   | { type: 'detail'; asset: SharedAsset }
@@ -354,10 +358,24 @@ export const SharedAssetManagementView: React.FC = () => {
   const [history, setHistory] = useState<{ items: SharedAssetLog[]; pagination: { page: number; pageSize: number; total: number; totalPages: number } } | null>(null);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [historyFilters, setHistoryFilters] = useState({ search: '', action: '', holderType: '', dateStart: '', dateEnd: '', page: 1 });
+  const [todayLogs, setTodayLogs] = useState<SharedAssetLog[]>([]);
   const [detailLogs, setDetailLogs] = useState<SharedAssetLog[]>([]);
   const [retireNotes, setRetireNotes] = useState('');
   const [editLogForm, setEditLogForm] = useState({ logId: '', borrowerName: '', notes: '' });
   const [deleteLogTarget, setDeleteLogTarget] = useState({ logId: '', borrowerName: '', assetName: '' });
+
+  const [editLocationText, setEditLocationText] = useState('');
+  const [availableStockItems, setAvailableStockItems] = useState<StockItem[]>([]);
+  const [createAssetForm, setCreateAssetForm] = useState({
+    stockItemId: '',
+    assetName: '',
+    assetCode: '',
+    category: 'ELEKTRİKLİ EV ALETLERİ',
+    brandModel: '',
+    serialNo: '',
+    locationNote: 'ANA DEPO',
+    notes: '',
+  });
 
   const [checkOutForm, setCheckOutForm] = useState({
     assetId: '',
@@ -451,6 +469,17 @@ export const SharedAssetManagementView: React.FC = () => {
     return () => window.clearTimeout(timer);
   }, [historyFilters]);
 
+  // "Bugünün Kayıtları" cihaz durumundan türetilmez. Teslim alma gerçekleşse
+  // dahi aynı günün kullanım kaydı burada kalmalıdır.
+  useEffect(() => {
+    const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Istanbul' }).format(new Date());
+    let active = true;
+    sharedAssetApi.getLogs({ dateStart: today, dateEnd: today, page: 1, pageSize: 100 })
+      .then((result) => { if (active) setTodayLogs(result.items); })
+      .catch((caught) => { if (active) setError(caught instanceof Error ? caught.message : 'Bugünün kullanım kayıtları yüklenemedi.'); });
+    return () => { active = false; };
+  }, [overview?.assets]);
+
   useEffect(() => {
     if (modal?.type !== 'detail') { setDetailLogs([]); return; }
     let active = true;
@@ -461,13 +490,13 @@ export const SharedAssetManagementView: React.FC = () => {
   }, [modal]);
 
   const registeredLocations = useMemo(() => {
-    return Array.from(
-      new Set(
-        (overview?.assets || [])
-          .map((item) => item.locationNote)
-          .filter((note): note is string => Boolean(note && note.trim()))
-      )
-    ).sort();
+    const fromAssets = (overview?.assets || [])
+      .map((item) => item.locationNote)
+      .filter((note): note is string => Boolean(note && note.trim()));
+    const fromRooms = (overview?.rooms || [])
+      .map((r) => `${r.block.name} / Oda ${r.roomNumber}`);
+    const defaults = ['ANA DEPO', 'TEKNİK SERVİS DEPOSU', 'KADEMET HİZMET BİNASI'];
+    return Array.from(new Set([...defaults, ...fromAssets, ...fromRooms])).sort();
   }, [overview]);
 
   const loanRecords = useMemo(() => {
@@ -488,29 +517,25 @@ export const SharedAssetManagementView: React.FC = () => {
     const assets = overview?.assets || [];
 
     assets.forEach((asset) => {
-      const logs = asset.logs || [];
-      const isCommonRoom = isCommonFacilityRoom(asset.currentRoom);
+      const isCommonRoom = isCommonFacilityRoom(asset.currentRoom) || (!!asset.locationNote && !['ANA DEPO', 'Ana Depo'].includes(asset.locationNote));
       const locationDisp = asset.currentRoom
         ? `${asset.currentRoom.block.name} / Oda ${asset.currentRoom.roomNumber}`
         : asset.locationNote || 'Ana Depo';
 
-      // 1. Active Loan Record (if equipment is currently borrowed by personnel/room)
       if (asset.status === 'LOANED') {
-        const lastCheckOut = logs.find((l) => l.action === 'CHECK_OUT');
         const borrower = asset.currentEmployee
           ? `${asset.currentEmployee.firstName} ${asset.currentEmployee.lastName}${asset.currentEmployee.department ? ` (${asset.currentEmployee.department})` : ''}`
           : asset.currentRoom
             ? `${asset.currentRoom.block.name} / Oda ${asset.currentRoom.roomNumber}`
-            : lastCheckOut?.borrowerName || 'Zimmetli Personel';
+            : 'Zimmetli Personel';
 
         records.push({
-          id: `active-${asset.id}`,
-          logId: lastCheckOut?.id,
+          id: asset.id,
           asset,
           borrowerName: borrower,
-          borrowedAt: asset.borrowedAt || lastCheckOut?.createdAt || lastCheckOut?.borrowedAt,
+          borrowedAt: asset.borrowedAt,
           returnedAt: null,
-          notes: asset.notes || lastCheckOut?.notes,
+          notes: asset.notes,
           isCurrentlyLoaned: true,
           isCommonRoom,
           status: 'LOANED',
@@ -518,36 +543,31 @@ export const SharedAssetManagementView: React.FC = () => {
         });
       } else if (asset.status === 'MAINTENANCE') {
         records.push({
-          id: `maint-${asset.id}`,
+          id: asset.id,
           asset,
-          borrowerName: 'Serviste / Bakımda',
+          borrowerName: '-',
           borrowedAt: null,
           returnedAt: null,
+          notes: asset.notes,
           isCurrentlyLoaned: false,
           isCommonRoom: false,
           status: 'MAINTENANCE',
           locationDisplay: locationDisp,
         });
+      } else {
+        records.push({
+          id: asset.id,
+          asset,
+          borrowerName: '-',
+          borrowedAt: null,
+          returnedAt: null,
+          notes: asset.notes,
+          isCurrentlyLoaned: false,
+          isCommonRoom,
+          status: 'AVAILABLE',
+          locationDisplay: locationDisp,
+        });
       }
-
-      // 2. Completed Loan Records (Past loan usages issued to personnel and returned)
-      logs.forEach((log) => {
-        if (log.action === 'CHECK_IN' && log.returnedAt) {
-          records.push({
-            id: `returned-${log.id}`,
-            logId: log.id,
-            asset,
-            borrowerName: log.borrowerName || 'Personel',
-            borrowedAt: log.borrowedAt || log.createdAt,
-            returnedAt: log.returnedAt,
-            notes: log.notes,
-            isCurrentlyLoaned: false,
-            isCommonRoom: false,
-            status: 'AVAILABLE',
-            locationDisplay: asset.locationNote || 'Ana Depo',
-          });
-        }
-      });
     });
 
     // Sort: Active loans first (newest borrowedAt), then returned loans (newest returnedAt)
@@ -579,47 +599,51 @@ export const SharedAssetManagementView: React.FC = () => {
     });
   }, [overview, search, categoryFilter, statusFilter]);
 
-  const [statusTab, setStatusTab] = useState<'TODAY' | 'LOANED' | 'RETURNED'>('TODAY');
+  const [statusTab, setStatusTab] = useState<'TODAY' | 'LOANED'>('TODAY');
 
-  const { displayRecords, todayCount, loanedCount, returnedCount } = useMemo(() => {
-    const todayStr = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Istanbul' }).format(new Date());
-    const isToday = (dateStr?: string | null) => {
-      if (!dateStr) return false;
-      const d = new Date(dateStr);
-      if (Number.isNaN(d.getTime())) return false;
-      return new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Istanbul' }).format(d) === todayStr;
-    };
+  const { displayRecords, todayCount, loanedCount } = useMemo(() => {
+    const assets = overview?.assets || [];
+    // CHECK_OUT ve CHECK_IN denetim geçmişinde ayrı hareketlerdir; ancak kullanım
+    // ekranında aynı teslim oturumunu tek satır olarak göstermeliyiz. Teslim alma
+    // bugün, teslim verme önceki gün yapılmışsa yalnız CHECK_IN kaydı bulunabilir.
+    const usageSessions = Array.from(todayLogs
+      .filter((log) => log.action === 'CHECK_OUT' || log.action === 'CHECK_IN')
+      .reduce((sessions, log) => {
+        const sessionStart = log.borrowedAt || log.createdAt;
+        const sessionKey = `${log.assetId}:${sessionStart}`;
+        const existing = sessions.get(sessionKey);
+        if (!existing || log.action === 'CHECK_OUT') sessions.set(sessionKey, log);
+        return sessions;
+      }, new Map<string, SharedAssetLog>()).values());
 
-    let tCount = 0;
-    let lCount = 0;
-    let rCount = 0;
-
-    loanRecords.forEach((row) => {
-      if (isToday(row.borrowedAt) || isToday(row.returnedAt)) tCount++;
-      if (row.isCurrentlyLoaned) lCount++;
-      if (isToday(row.returnedAt)) rCount++;
+    const todayRecords = usageSessions.flatMap((log) => {
+      // Geçmiş kaydındaki cihaz özeti sınırlı olabilir. Konum ve anlık durum için
+      // her zaman ana cihaz listesindeki güncel kayıt önceliklidir.
+      const asset = assets.find((item) => item.id === log.assetId) || log.asset;
+      if (!asset) return [];
+      const locationDisplay = asset.currentRoom
+        ? `${asset.currentRoom.block.name} / Oda ${asset.currentRoom.roomNumber}`
+        : asset.locationNote || 'Ana Depo';
+      const isCurrentlyLoaned = log.action === 'CHECK_OUT' && !log.returnedAt && asset.status === 'LOANED';
+      return [{
+        id: log.id, logId: log.id, asset, borrowerName: log.borrowerName || '-',
+        borrowedAt: log.borrowedAt, returnedAt: log.returnedAt, notes: log.notes,
+        isCurrentlyLoaned, isCommonRoom: locationDisplay !== 'ANA DEPO',
+        status: (log.statusTo || asset.status) as SharedAssetStatus, locationDisplay,
+      }];
+    }).filter((row) => {
+      const q = search.trim().toLocaleLowerCase('tr-TR');
+      const matchesText = !q || [row.asset.assetName, row.asset.assetCode, row.borrowerName, row.locationDisplay]
+        .some((value) => value?.toLocaleLowerCase('tr-TR').includes(q));
+      return matchesText && (categoryFilter === 'ALL' || row.asset.category === categoryFilter);
     });
-
-    const filtered = loanRecords.filter((row) => {
-      if (statusTab === 'TODAY') {
-        return isToday(row.borrowedAt) || isToday(row.returnedAt);
-      }
-      if (statusTab === 'LOANED') {
-        return row.isCurrentlyLoaned;
-      }
-      if (statusTab === 'RETURNED') {
-        return isToday(row.returnedAt);
-      }
-      return true;
-    });
-
+    const activeRecords = loanRecords.filter((row) => row.isCurrentlyLoaned);
     return {
-      displayRecords: filtered,
-      todayCount: tCount,
-      loanedCount: lCount,
-      returnedCount: rCount,
+      displayRecords: statusTab === 'TODAY' ? todayRecords : activeRecords,
+      todayCount: todayRecords.length,
+      loanedCount: activeRecords.length,
     };
-  }, [loanRecords, statusTab]);
+  }, [overview?.assets, todayLogs, loanRecords, statusTab, search, categoryFilter]);
 
   const runAction = async (action: () => Promise<unknown>, _message: string) => {
     try {
@@ -629,6 +653,33 @@ export const SharedAssetManagementView: React.FC = () => {
       await loadOverview(true);
     } catch (caught) { setError(caught instanceof Error ? caught.message : 'İşlem tamamlanamadı.'); }
     finally { setBusy(false); }
+  };
+
+  const openCreateAsset = async () => {
+    operationKeyRef.current = generateUUID();
+    try {
+      const items = await stockApi.getStockItems();
+      setAvailableStockItems(items.filter((i) => i.isActive && ['ORTAK_EŞYA', 'ORTAK_EKİPMAN', 'ORTAK_KULLANIM'].includes(i.itemType || '')));
+    } catch {
+      // fallback
+    }
+    setCreateAssetForm({
+      stockItemId: '',
+      assetName: '',
+      assetCode: '',
+      category: 'ELEKTRİKLİ EV ALETLERİ',
+      brandModel: '',
+      serialNo: '',
+      locationNote: 'ANA DEPO',
+      notes: '',
+    });
+    setModal({ type: 'createAsset' });
+  };
+
+  const openEditLocation = (asset: SharedAsset) => {
+    operationKeyRef.current = generateUUID();
+    setEditLocationText(asset.locationNote || 'A BLOK ÇAMAŞIRHANE ODASI');
+    setModal({ type: 'editLocation', asset });
   };
 
   const openCheckOut = (asset?: SharedAsset) => {
@@ -676,13 +727,10 @@ export const SharedAssetManagementView: React.FC = () => {
   const switchViewMode = (nextMode: 'list' | 'history', skipPushState = false) => {
     setViewMode(nextMode);
     if (!skipPushState) {
-      const url = new URL(window.location.href);
-      url.searchParams.set('tab', 'shared-assets');
+      const url = managementUrl('shared-assets', nextMode === 'history' ? { subView: 'history' } : {});
       if (nextMode === 'history') {
-        url.searchParams.set('subView', 'history');
         window.history.pushState({ tab: 'shared-assets', view: 'asset-history', timestamp: Date.now() }, '', url.toString());
       } else {
-        url.searchParams.delete('subView');
         window.history.pushState({ tab: 'shared-assets', view: 'list', timestamp: Date.now() }, '', url.toString());
       }
     }
@@ -735,23 +783,17 @@ export const SharedAssetManagementView: React.FC = () => {
           >
             Kullanımda Olanlar ({loanedCount})
           </button>
-          <button
-            type="button"
-            onClick={() => setStatusTab('RETURNED')}
-            className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap shrink-0 ${
-              statusTab === 'RETURNED' ? 'bg-emerald-700 text-white shadow-xs' : 'text-slate-700 hover:text-slate-900 hover:bg-slate-200/60'
-            }`}
-          >
-            Teslim Alınanlar ({returnedCount})
-          </button>
         </div>
 
-        <div className="flex items-center gap-2 shrink-0">
-          <button type="button" onClick={() => switchViewMode('history')} className={secondaryButton}>
-            <History className="h-3.5 w-3.5 text-blue-700" /> Tüm İşlem Geçmişi Raporu
+        <div className="flex flex-wrap items-center gap-2 shrink-0">
+          <button type="button" onClick={() => openCreateAsset()} className="inline-flex h-8 items-center justify-center gap-1.5 rounded-xl border border-emerald-700 bg-emerald-700 px-3 text-[11px] font-extrabold text-white shadow-xs transition-all hover:bg-emerald-800 cursor-pointer">
+            <Plus className="h-3.5 w-3.5 text-white" /> + Yeni Ortak Eşya Tanımla
           </button>
           <button type="button" onClick={() => openCheckOut()} className={primaryButton}>
             <Send className="h-3.5 w-3.5 text-white" /> Ödünç Ver / Zimmetle
+          </button>
+          <button type="button" onClick={() => switchViewMode('history')} className={secondaryButton}>
+            <History className="h-3.5 w-3.5 text-blue-700" /> Tüm İşlem Geçmişi
           </button>
         </div>
       </div>
@@ -826,8 +868,8 @@ export const SharedAssetManagementView: React.FC = () => {
                 <tr>
                   <td colSpan={9} className="p-8 text-center">
                     <Boxes className="mx-auto mb-2 h-8 w-8 text-slate-300" />
-                    <p className="font-extrabold text-slate-800">Kayıtlı zimmet veya ortak eşya hareketi bulunamadı</p>
-                    <p className="mt-0.5 text-[10px] font-semibold text-slate-500">Arama veya filtre kriterlerini değiştirin ya da yeni zimmet oluşturun.</p>
+                    <p className="font-extrabold text-slate-800">{statusTab === 'TODAY' ? 'Bugün için kullanım kaydı bulunamadı' : 'Aktif kullanım kaydı bulunamadı'}</p>
+                    <p className="mt-0.5 text-[10px] font-semibold text-slate-500">{statusTab === 'TODAY' ? 'Teslim alınan kullanımlar da bu sekmede gün boyunca görünür.' : 'Müsait cihazlar ortak kullanım cihazı listesinde konumlarıyla izlenir.'}</p>
                   </td>
                 </tr>
               ) : (
@@ -856,28 +898,55 @@ export const SharedAssetManagementView: React.FC = () => {
                         <span className="inline-flex items-center gap-1 rounded-md border border-emerald-300 bg-emerald-50 px-2 py-0.5 text-[9px] font-extrabold text-emerald-800 whitespace-nowrap">
                           <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" /> Teslim Alındı
                         </span>
+                      ) : row.isCommonRoom ? (
+                        <span className="inline-flex items-center gap-1 rounded-md border border-blue-300 bg-blue-50 px-2 py-0.5 text-[9px] font-extrabold text-blue-900 whitespace-nowrap">
+                          <span className="h-1.5 w-1.5 rounded-full bg-blue-500" /> Ortak Alanda
+                        </span>
                       ) : (
-                        <AssetStatusBadge status={row.status} />
+                        <span className="inline-flex items-center gap-1 rounded-md border border-emerald-300 bg-emerald-50 px-2 py-0.5 text-[9px] font-extrabold text-emerald-800 whitespace-nowrap">
+                          <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" /> Depoda Müsait
+                        </span>
                       )}
                     </td>
                     <td className="px-3 py-2 border-r border-slate-200 font-bold text-slate-800">
-                      {row.borrowerName !== '-' ? (
+                      {(row.isCurrentlyLoaned || row.returnedAt) && row.borrowerName !== '-' ? (
                         <span className="font-extrabold text-blue-900 flex items-center gap-1.5">
                           <Users className="h-3.5 w-3.5 text-blue-600 shrink-0" />
                           {row.borrowerName}
                         </span>
                       ) : (
-                        <span className="text-[10px] font-semibold text-slate-400">{row.isCommonRoom ? 'Ortak Kullanım' : 'Depoda (Müsait)'}</span>
+                        <span className="text-[11px] font-semibold text-slate-400">-</span>
                       )}
                     </td>
                     <td className="px-2.5 py-2 border-r border-slate-200 text-[10px] font-semibold text-slate-700 whitespace-nowrap">
-                      {formatDateTime(row.borrowedAt)}
+                      {(row.isCurrentlyLoaned || row.returnedAt) && row.borrowedAt ? (
+                        formatDateTime(row.borrowedAt)
+                      ) : (
+                        <span className="text-[11px] font-semibold text-slate-400">-</span>
+                      )}
                     </td>
                     <td className="px-2.5 py-2 border-r border-slate-200 text-[10px] font-semibold text-slate-700 whitespace-nowrap">
-                      {formatDateTime(row.returnedAt)}
+                      {row.returnedAt ? (
+                        formatDateTime(row.returnedAt)
+                      ) : (
+                        <span className="text-[11px] font-semibold text-slate-400">-</span>
+                      )}
                     </td>
-                    <td className="px-2.5 py-2 border-r border-slate-200 text-[10px] font-semibold text-slate-600 truncate max-w-[140px] hidden md:table-cell" title={row.locationDisplay}>
-                      {row.locationDisplay}
+                    <td className="px-2.5 py-2 border-r border-slate-200 text-[10px] font-extrabold text-slate-800 truncate max-w-[160px] hidden md:table-cell" title={row.locationDisplay}>
+                      <div className="flex items-center justify-between gap-1">
+                        <span className="truncate">{row.locationDisplay}</span>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            openEditLocation(row.asset);
+                          }}
+                          className="opacity-0 group-hover:opacity-100 p-1 text-slate-400 hover:text-blue-700 transition cursor-pointer"
+                          title="Fiziksel Konumu Güncelle"
+                        >
+                          <Pencil className="w-3 h-3 text-[#1e3a8a]" />
+                        </button>
+                      </div>
                     </td>
                     <td className="px-3 py-2 text-right whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
                       <div className="inline-flex gap-1.5 items-center justify-end">
@@ -936,6 +1005,139 @@ export const SharedAssetManagementView: React.FC = () => {
           </table>
         </div>
       </div>
+
+      {/* Modal: Create New Shared Asset */}
+      {modal?.type === 'createAsset' && (
+        <ModalShell onClose={() => setModal(null)} icon={<Plus className="h-4 w-4 text-emerald-600" />} title="Yeni Ortak Eşya / Cihaz Kaydı Tanımla" subtitle="Depodaki stok kartına bağlı yeni bir ortak kullanım cihazı (çamaşır makinesi, süpürge, matkap vb.) tanımlayın.">
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              if (!createAssetForm.stockItemId) {
+                setError('Lütfen bağlı olduğu depodaki stok kartını seçin.');
+                return;
+              }
+              runAction(
+                () => sharedAssetApi.createAsset(createAssetForm, operationKeyRef.current),
+                'Yeni ortak eşya başarıyla eklendi.'
+              );
+            }}
+            className="space-y-4"
+          >
+            <div className="rounded-2xl border border-emerald-200 bg-emerald-50/70 p-3 text-[11px] font-semibold text-emerald-950 flex items-start gap-2">
+              <Sparkles className="h-4 w-4 text-emerald-700 shrink-0 mt-0.5" />
+              <div>
+                <span className="font-extrabold block">Ortak Eşya Tanımlama Kılavuzu:</span>
+                Önce depoda kayıtlı olan stok kartını seçin. Cihazın ismi, kategorisi ve kodu otomatik doldurulacaktır. İsterseniz markasını ve seri numarasını özelleştirebilirsiniz.
+              </div>
+            </div>
+
+            <div className="grid gap-3 sm:grid-cols-2">
+              <label className="sm:col-span-2">
+                <span className={labelClass}>Bağlı Depo Stok Kartı *</span>
+                <select
+                  required
+                  className={inputClass}
+                  value={createAssetForm.stockItemId}
+                  onChange={(e) => {
+                    const selectedId = e.target.value;
+                    const found = availableStockItems.find((s) => s.id === selectedId);
+                    setCreateAssetForm({
+                      ...createAssetForm,
+                      stockItemId: selectedId,
+                      ...(found && {
+                        assetName: found.itemName,
+                        assetCode: found.itemCode || '',
+                        category: found.category || 'ELEKTRİKLİ EV ALETLERİ',
+                        brandModel: found.specifications || '',
+                        locationNote: found.locationNote || 'ANA DEPO',
+                      }),
+                    });
+                  }}
+                >
+                  <option value="">Depodaki Stok Kartını Seçin (Örn: Çamaşır Makinesi, Elektrikli Süpürge...)</option>
+                  {availableStockItems.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.itemName} ({s.category}) · Stok Kodu: {s.itemCode || 'Yok'} · Toplam Stok: {s.totalStock} {s.unit} {s.itemType === 'ORTAK_EŞYA' ? ' (★ Ortak Kullanım Eşyası)' : ''}
+                    </option>
+                  ))}
+                </select>
+                {availableStockItems.length === 0 && (
+                  <p className="mt-1 text-[10px] font-bold text-amber-700">
+                    ⚠️ Depoda henüz "Ortak Eşya" tipinde stok kartı bulunamadı. Önce Depo Yönetimi sayfasından ortak kullanım cihazı stoğu açabilirsiniz.
+                  </p>
+                )}
+              </label>
+
+              {createAssetForm.stockItemId && (
+                <div className="sm:col-span-2 p-3 bg-blue-50/70 rounded-xl border border-blue-200 text-xs flex flex-wrap items-center justify-between gap-2 text-slate-700">
+                  <div>
+                    <span className="font-extrabold text-blue-950 block">📦 Stok Kartından Otomatik Alınan Bilgiler</span>
+                    <span className="text-[11px] text-slate-600 block mt-0.5">
+                      Kategori: <b className="text-slate-800">{createAssetForm.category}</b> · Marka/Model: <b className="text-slate-800">{createAssetForm.brandModel || 'Belirtilmedi'}</b> · Barkod: <b className="text-slate-800">{createAssetForm.assetCode || 'Otomatik Barkod'}</b>
+                    </span>
+                  </div>
+                  <span className="bg-blue-100 text-blue-900 font-extrabold text-[10px] px-2.5 py-1 rounded-md border border-blue-300 whitespace-nowrap">
+                    Stok Kartına Bağlı
+                  </span>
+                </div>
+              )}
+
+              <label className="sm:col-span-2">
+                <span className={labelClass}>Ortak Eşya / Cihaz Etiketi veya Adı *</span>
+                <input
+                  required
+                  className={inputClass}
+                  value={createAssetForm.assetName}
+                  onChange={(e) => setCreateAssetForm({ ...createAssetForm, assetName: e.target.value })}
+                  placeholder="Örn: Kadın Çamaşır Makinesi, Ortak Elektrikli Süpürge..."
+                />
+              </label>
+            </div>
+
+            <div className="flex justify-end gap-2 border-t border-slate-200 pt-4">
+              <button type="button" onClick={() => setModal(null)} className={secondaryButton}>Vazgeç</button>
+              <button disabled={busy || !createAssetForm.stockItemId || !createAssetForm.assetName.trim()} type="submit" className="inline-flex h-8 items-center justify-center gap-1.5 rounded-xl border border-emerald-700 bg-emerald-700 px-3 text-[11px] font-extrabold text-white shadow-xs transition-all hover:bg-emerald-800 disabled:opacity-50">
+                {busy ? 'Kaydediliyor...' : 'Ortak Eşyayı Tanımla ve Kaydet'}
+              </button>
+            </div>
+          </form>
+        </ModalShell>
+      )}
+
+      {/* Modal: Edit Location */}
+      {modal?.type === 'editLocation' && (
+        <ModalShell onClose={() => setModal(null)} icon={<MapPin className="h-4 w-4 text-[#1e3a8a]" />} title="Fiziksel Konumu Güncelle" subtitle={modal.asset.assetName}>
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              if (!editLocationText.trim()) return;
+              runAction(
+                () => sharedAssetApi.updateStatus(modal.asset.id, { status: modal.asset.status, locationNote: editLocationText.trim() }, operationKeyRef.current),
+                'Konum başarıyla güncellendi.'
+              );
+            }}
+            className="space-y-4"
+          >
+            <div className="rounded-2xl border border-blue-200 bg-blue-50 p-3 text-[11px] font-semibold text-blue-950">
+              💡 Cihazın durduğu fiziksel mekanı veya bulunduğu odayı (örn: A BLOK ÇAMAŞIRHANE ODASI) güncelleyin.
+            </div>
+            <div>
+              <span className={labelClass}>Fiziksel Konum / Bulunduğu Mekan *</span>
+              <CustomLocationSelector
+                value={editLocationText}
+                onChange={(val) => setEditLocationText(val)}
+                options={registeredLocations}
+              />
+            </div>
+            <div className="flex justify-end gap-2 border-t border-slate-200 pt-4">
+              <button type="button" onClick={() => setModal(null)} className={secondaryButton}>Vazgeç</button>
+              <button disabled={busy || !editLocationText.trim()} type="submit" className={primaryButton}>
+                {busy ? 'Güncelleniyor...' : 'Konumu Güncelle ve Kaydet'}
+              </button>
+            </div>
+          </form>
+        </ModalShell>
+      )}
 
       {/* Modal: Check Out / Loan Asset */}
       {modal?.type === 'checkOut' && (

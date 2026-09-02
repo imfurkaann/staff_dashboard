@@ -37,7 +37,7 @@ router.put('/:id', authorizePermissions(permissions.EMPLOYEE_MANAGE), employeeMu
 // PATCH /api/employees/:id/checkout (Check out employee from room)
 router.patch('/:id/checkout', authorizePermissions(permissions.EMPLOYEE_MANAGE), employeeMutationRateLimiter, EmployeeController.checkoutRoom);
 
-router.delete('/:id', authorizePermissions(permissions.EMPLOYEE_MANAGE), employeeMutationRateLimiter, EmployeeController.remove);
+router.delete('/:id', authorizePermissions(permissions.EMPLOYEE_DELETE), employeeMutationRateLimiter, EmployeeController.remove);
 
 // POST /api/employees/:id/inventories (Add inventory or personal belonging item)
 router.post('/:id/inventories', authorizePermissions(permissions.EMPLOYEE_MANAGE), employeeMutationRateLimiter, EmployeeController.addInventory);
@@ -49,7 +49,7 @@ router.put('/inventories/:inventoryId', authorizePermissions(permissions.EMPLOYE
 router.patch('/inventories/:inventoryId/return', authorizePermissions(permissions.EMPLOYEE_MANAGE), employeeMutationRateLimiter, EmployeeController.returnInventory);
 
 // DELETE /api/employees/inventories/:inventoryId
-router.delete('/inventories/:inventoryId', authorizePermissions(permissions.EMPLOYEE_MANAGE), employeeMutationRateLimiter, EmployeeController.deleteInventory);
+router.delete('/inventories/:inventoryId', authorizePermissions(permissions.EMPLOYEE_DELETE), employeeMutationRateLimiter, EmployeeController.deleteInventory);
 
 // POST /api/employees/:id/disciplinary-notes (Add disciplinary or complaint note)
 router.post('/:id/disciplinary-notes', authorizePermissions(permissions.EMPLOYEE_SENSITIVE_VIEW, permissions.EMPLOYEE_MANAGE), employeeMutationRateLimiter, EmployeeController.addDisciplinaryNote);
@@ -58,7 +58,7 @@ router.post('/:id/disciplinary-notes', authorizePermissions(permissions.EMPLOYEE
 router.put('/disciplinary-notes/:noteId', authorizePermissions(permissions.EMPLOYEE_SENSITIVE_VIEW, permissions.EMPLOYEE_MANAGE), employeeMutationRateLimiter, EmployeeController.updateDisciplinaryNote);
 
 // DELETE /api/employees/disciplinary-notes/:noteId (Delete disciplinary or complaint note)
-router.delete('/disciplinary-notes/:noteId', authorizePermissions(permissions.EMPLOYEE_SENSITIVE_VIEW, permissions.EMPLOYEE_MANAGE), employeeMutationRateLimiter, EmployeeController.deleteDisciplinaryNote);
+router.delete('/disciplinary-notes/:noteId', authorizePermissions(permissions.EMPLOYEE_DELETE), employeeMutationRateLimiter, EmployeeController.deleteDisciplinaryNote);
 
 export default router;
 

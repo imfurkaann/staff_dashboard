@@ -18,7 +18,15 @@ async function main() {
     const createKey = crypto.randomUUID();
     const stock = await StockService.createStockItem({ itemName: `ZZ ORTAK EŞYA DOĞRULAMA ${suffix}`, itemCode: `ZZOA-${suffix}`, category: 'GENEL EŞYALAR', itemType: 'ORTAK_EKİPMAN', totalStock: 1, minimumStock: 0, createdById: actor?.id, requestKey: createKey });
     ids.stock = stock.id;
-    const asset = await prisma.sharedAsset.findUniqueOrThrow({ where: { stockItemId: stock.id } });
+    const asset = await SharedAssetService.createAsset({
+      stockItemId: stock.id,
+      assetName: stock.itemName,
+      assetCode: `ZZAS-${suffix}`,
+      serialNo: `ZZSN-${suffix}`,
+      locationNote: 'ZZ ORTAK TEST ALANI',
+      createdById: actor?.id,
+      requestKey: crypto.randomUUID(),
+    });
     ids.asset = asset.id;
     assert.equal(asset.status, 'AVAILABLE'); checks++;
     const repeatedStock = await StockService.createStockItem({ itemName: `ZZ ORTAK EŞYA DOĞRULAMA ${suffix}`, itemCode: `ZZOA-${suffix}`, category: 'GENEL EŞYALAR', itemType: 'ORTAK_EKİPMAN', totalStock: 1, minimumStock: 0, createdById: actor?.id, requestKey: createKey });
@@ -31,7 +39,7 @@ async function main() {
     const employeeReplay = await SharedAssetService.checkOutAsset(asset.id, { holderType: 'EMPLOYEE', employeeId: employee.id, notes: 'PERSONEL ZİMMET TESTİ', createdById: actor?.id, requestKey: employeeKey });
     assert.equal(employeeReplay.id, asset.id); checks++;
     const stockOnLoan = await prisma.stockItem.findUniqueOrThrow({ where: { id: stock.id } });
-    assert.equal(stockOnLoan.usedStock, 1); checks++;
+    assert.equal(stockOnLoan.usedStock, 0); checks++;
     await assert.rejects(() => SharedAssetService.addMaintenanceLog(asset.id, { action: 'FAULT_REPORTED', notes: 'ZİMMETLİYKEN ARIZA TESTİ', createdById: actor?.id })); checks++;
 
     const checkInKey = crypto.randomUUID();
@@ -40,15 +48,7 @@ async function main() {
     const stockReturned = await prisma.stockItem.findUniqueOrThrow({ where: { id: stock.id } });
     assert.equal(stockReturned.usedStock, 0); checks++;
 
-    const roomKey = crypto.randomUUID();
-    const roomLoan = await SharedAssetService.checkOutAsset(asset.id, { holderType: 'ROOM', roomId: room1.id, notes: 'ODA ZİMMET TESTİ', createdById: actor?.id, requestKey: roomKey });
-    assert.equal(roomLoan.currentRoomId, room1.id); checks++;
-    const roomInventoryId = roomLoan.currentRoomInventoryId!;
-    await StockService.transferRoom(roomInventoryId, { roomId: room2.id, notes: 'ODA TRANSFER TESTİ', createdById: actor?.id, requestKey: crypto.randomUUID() });
-    const transferred = await prisma.sharedAsset.findUniqueOrThrow({ where: { id: asset.id } });
-    assert.equal(transferred.currentRoomId, room2.id); checks++;
-    await StockService.returnFromRoom(roomInventoryId, { outcome: 'RETURNED', notes: 'ODA İADE TESTİ', createdById: actor?.id, requestKey: crypto.randomUUID() });
-    assert.equal((await prisma.sharedAsset.findUniqueOrThrow({ where: { id: asset.id } })).status, 'AVAILABLE'); checks++;
+    await assert.rejects(() => SharedAssetService.checkOutAsset(asset.id, { holderType: 'ROOM', roomId: room1.id, notes: 'ODA ZİMMET TESTİ', createdById: actor?.id, requestKey: crypto.randomUUID() })); checks++;
 
     const faultKey = crypto.randomUUID();
     await SharedAssetService.addMaintenanceLog(asset.id, { action: 'FAULT_REPORTED', notes: 'MOTOR SESİ KONTROL TESTİ', createdById: actor?.id, requestKey: faultKey });
@@ -57,7 +57,7 @@ async function main() {
     await SharedAssetService.addMaintenanceLog(asset.id, { action: 'REPAIR_COMPLETED', notes: 'MOTOR KONTROL EDİLDİ TEST', createdById: actor?.id, requestKey: crypto.randomUUID() });
     assert.equal((await prisma.sharedAsset.findUniqueOrThrow({ where: { id: asset.id } })).status, 'AVAILABLE'); checks++;
     const filtered = await SharedAssetService.getLogs({ assetId: asset.id, action: 'CHECK_OUT', page: 1, pageSize: 50 });
-    assert.equal(filtered.pagination.total, 2); checks++;
+    assert.equal(filtered.pagination.total, 1); checks++;
     const publicOverview = await SharedAssetService.getOverview(false);
     assert.equal(publicOverview.employees.length, 0); checks++;
     assert.equal(publicOverview.rooms.length, 0); checks++;
