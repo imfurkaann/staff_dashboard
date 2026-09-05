@@ -1044,9 +1044,9 @@ export const SharedAssetManagementView: React.FC = () => {
                     setCreateAssetForm({
                       ...createAssetForm,
                       stockItemId: selectedId,
+                      assetCode: '',
                       ...(found && {
                         assetName: found.itemName,
-                        assetCode: found.itemCode || '',
                         category: found.category || 'ELEKTRİKLİ EV ALETLERİ',
                         brandModel: found.specifications || '',
                         locationNote: found.locationNote || 'ANA DEPO',
@@ -1073,7 +1073,7 @@ export const SharedAssetManagementView: React.FC = () => {
                   <div>
                     <span className="font-extrabold text-blue-950 block">📦 Stok Kartından Otomatik Alınan Bilgiler</span>
                     <span className="text-[11px] text-slate-600 block mt-0.5">
-                      Kategori: <b className="text-slate-800">{createAssetForm.category}</b> · Marka/Model: <b className="text-slate-800">{createAssetForm.brandModel || 'Belirtilmedi'}</b> · Barkod: <b className="text-slate-800">{createAssetForm.assetCode || 'Otomatik Barkod'}</b>
+                      Kategori: <b className="text-slate-800">{createAssetForm.category}</b> · Marka/Model: <b className="text-slate-800">{createAssetForm.brandModel || 'Belirtilmedi'}</b> · Cihaz kodu: <b className="text-slate-800">Her cihaz için otomatik oluşturulur</b>
                     </span>
                   </div>
                   <span className="bg-blue-100 text-blue-900 font-extrabold text-[10px] px-2.5 py-1 rounded-md border border-blue-300 whitespace-nowrap">

@@ -171,14 +171,19 @@ export class SharedAssetService {
         if (!['ORTAK_EŞYA', 'ORTAK_EKİPMAN', 'ORTAK_KULLANIM'].includes(stock.itemType)) {
           throw new AppError('Ortak kullanım cihazı yalnızca "Ortak Eşya" tipindeki stok kartından tanımlanabilir. Oda demirbaşı ve kişisel zimmet ürünleri bu ekranda kullanılamaz.', 400);
         }
-        const count = await tx.sharedAsset.count({ where: { stockItemId: stock.id } });
+        const count = await tx.sharedAsset.count({ where: { stockItemId: stock.id, status: { not: 'RETIRED' } } });
         if (count >= stock.totalStock) {
           throw new AppError(`Bu stok kartına ait toplam stok miktarı kadar (${stock.totalStock} Adet) ortak eşya cihaz kaydı zaten tanımlanmış.`, 409);
         }
         const assetName = normalizeInventoryItemName(boundedText(data.assetName ?? stock.itemName, 'Ortak eşya adı', 120, { required: true, casing: 'upper' }))!;
         const category = normalizeUpper(data.category ?? stock.category) || 'GENEL EŞYALAR';
         if (!categories.has(category)) throw new AppError('Geçersiz ortak eşya kategorisi.', 400);
-        const assetCode = code(data.assetCode ?? stock.itemCode) || await this.generateNextAssetCode(tx, category);
+        // Stock codes identify the product; asset codes identify individual devices.
+        // Older clients sent the stock code automatically, so treat it as automatic too.
+        const requestedCode = code(data.assetCode);
+        const assetCode = requestedCode && requestedCode !== code(stock.itemCode)
+          ? requestedCode
+          : await this.generateNextAssetCode(tx, category);
         const serialNo = normalizeIdentifier(data.serialNo);
         const warrantyEndDate = data.warrantyEndDate === undefined ? stock.warrantyEndDate : dateOnly(data.warrantyEndDate, 'Garanti bitiş tarihi');
 
@@ -243,7 +248,13 @@ export class SharedAssetService {
       }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
     } catch (error: any) {
       if (error instanceof AppError) throw error;
-      if (error?.code === 'P2002') throw new AppError('Aynı kod, seri numarası veya stok bağlantısıyla kayıtlı ortak eşya bulunuyor.', 409);
+      if (error?.code === 'P2002') {
+        const target = String(error.meta?.target || '');
+        if (target.includes('stockItemId')) throw new AppError('Veritabanında eski tek cihaz kısıtı bulunuyor. Güncel veritabanı migration işlemlerini uygulayın.', 409);
+        if (target.includes('serialNo')) throw new AppError('Bu üretici seri numarası başka bir aktif cihazda kullanılıyor. Her fiziksel cihazın seri numarası farklı olmalıdır.', 409);
+        if (target.includes('assetCode')) throw new AppError('Bu cihaz kodu zaten kullanılıyor. Farklı bir kod girin veya otomatik kod üretimini kullanın.', 409);
+        throw new AppError('Cihaz kodu, seri numarası veya işlem anahtarı başka bir kayıtta kullanılıyor.', 409);
+      }
       if (error?.code === 'P2034') throw new AppError('Ortak eşya aynı anda değiştirildi. Listeyi yenileyip tekrar deneyin.', 409);
       throw error;
     }

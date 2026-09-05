@@ -673,6 +673,7 @@ model SharedAsset {
 
   @@index([status])
   @@index([category])
+  @@index([stockItemId])
   @@index([currentEmployeeId])
   @@index([currentRoomId])
   @@index([createdById, createdAt])
