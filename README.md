@@ -15,7 +15,7 @@ Yeni bir şema değişikliği geliştirirken yalnızca yerel geliştirme veritab
 
 1. Kök `.env.example` dosyasını `.env` olarak kopyalayın.
 2. `POSTGRES_PASSWORD`, `JWT_SECRET`, `COOKIE_SECRET` ve `DATA_ENCRYPTION_KEY` alanlarını birbirinden farklı, güçlü ve rastgele değerlerle değiştirin. `DATA_ENCRYPTION_KEY` daha sonra değiştirilmemelidir; mevcut TC verilerini çözmek için gereklidir.
-3. Bu sunucuda doğrudan IP ile yayın için örnekteki `CLIENT_URL=http://169.58.124.2:3335`, `CORS_ALLOWED_ORIGINS=http://169.58.124.2:3335`, `APP_PORT=3335`, `ALLOW_INSECURE_HTTP=true` ve `COOKIE_SECURE=false` değerlerini koruyun.
+3. Bu sunucuda doğrudan IP ile yayın için kök `.env` içinde `PUBLIC_URL=http://169.58.124.2:3335` ve `APP_PORT=3335` kullanın. CORS ve cookie güvenliği PUBLIC_URL üzerinden otomatik ayarlanır.
 4. `docker compose up -d --build` çalıştırın. Backend başlangıçta migration'ları otomatik uygular ve health-check başarılı olmadan frontend açılmaz.
 5. İlk kurulumda `docker compose run --rm -e ADMIN_USERNAME -e ADMIN_EMAIL -e ADMIN_FULL_NAME -e ADMIN_PASSWORD backend npm run prisma:seed` ile yönetici hesabını oluşturun; ardından `.env` içindeki `ADMIN_PASSWORD` değerini kaldırın. Seed mevcut hesabın rolünü veya parolasını otomatik değiştirmez.
 
@@ -28,7 +28,7 @@ Sunucuda Docker Engine ve Docker Compose eklentisi kurulu olmalıdır. Proje dos
 ```sh
 cp .env.example .env
 nano .env
-docker compose config
+docker compose config --quiet
 docker compose up -d --build
 docker compose ps
 ```
@@ -43,7 +43,7 @@ Tarayıcılar kamera ve push bildirimlerini güvenli bağlantı dışında kıs�
 docker compose run --rm -e ADMIN_USERNAME -e ADMIN_EMAIL -e ADMIN_FULL_NAME -e ADMIN_PASSWORD backend npm run prisma:seed
 ```
 
-Kurulum tamamlanınca `.env` dosyasından `ADMIN_PASSWORD` satırını kaldırın. Daha sonra bir alan adı ve TLS eklendiğinde `CLIENT_URL` ile `CORS_ALLOWED_ORIGINS` değerlerini `https://alan-adiniz` yapın, `ALLOW_INSECURE_HTTP=false` ve `COOKIE_SECURE=true` kullanın.
+Kurulum tamamlanınca `.env` dosyasından `ADMIN_PASSWORD` satırını kaldırın. IP/domain geçişi ve mevcut kurulumun güncellenmesi için [yayın adresi rehberini](docs/deployment.md) izleyin.
 
 ## Doğrulama
 

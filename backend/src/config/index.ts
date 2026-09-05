@@ -1,7 +1,9 @@
 import dotenv from 'dotenv';
 import path from 'path';
+import { resolvePublicAccess } from './publicUrl';
 
 dotenv.config({ path: path.resolve(__dirname, '../../.env') });
+const publicAccess = resolvePublicAccess(process.env);
 
 export const config = {
   appName: process.env.APP_NAME || 'LojmanYönetim',
@@ -17,14 +19,12 @@ export const config = {
     secret: process.env.COOKIE_SECRET || 'fallback_cookie_secret',
     name: process.env.COOKIE_NAME || 'token',
     maxAgeMs: parseInt(process.env.COOKIE_MAX_AGE_DAYS || '30', 10) * 24 * 60 * 60 * 1000,
-    secure: process.env.COOKIE_SECURE
-      ? process.env.COOKIE_SECURE === 'true'
-      : process.env.NODE_ENV === 'production',
+    secure: publicAccess.secure,
   },
   cors: {
-    clientUrl: process.env.CLIENT_URL || 'http://localhost:5173',
-    allowedOrigins: (process.env.CORS_ALLOWED_ORIGINS || 'http://localhost:5173').split(',').map((origin) => origin.trim()).filter(Boolean),
-    allowInsecureHttp: process.env.ALLOW_INSECURE_HTTP === 'true',
+    clientUrl: publicAccess.clientUrl,
+    allowedOrigins: publicAccess.allowedOrigins,
+    allowInsecureHttp: publicAccess.allowInsecureHttp,
   },
   rateLimit: {
     windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS || '900000', 10),
@@ -67,7 +67,7 @@ export function validateConfig(): void {
     ['JWT_SECRET', process.env.JWT_SECRET],
     ['COOKIE_SECRET', process.env.COOKIE_SECRET],
     ['DATA_ENCRYPTION_KEY', process.env.DATA_ENCRYPTION_KEY],
-    ['CORS_ALLOWED_ORIGINS', process.env.CORS_ALLOWED_ORIGINS],
+    ['PUBLIC_URL veya CORS_ALLOWED_ORIGINS', process.env.PUBLIC_URL?.trim() || process.env.CORS_ALLOWED_ORIGINS],
     ['VAPID_PUBLIC_KEY', config.push.publicKey],
     ['VAPID_PRIVATE_KEY', config.push.privateKey],
   ].filter(([, value]) => !value).map(([name]) => name);
