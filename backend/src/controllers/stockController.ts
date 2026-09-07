@@ -21,15 +21,17 @@ export const stockController = {
     try {
       const search = stockSingleQuery(req.query.search, 'Arama filtresi');
       const stockItemId = stockSingleQuery(req.query.stockItemId, 'Stok kartı filtresi');
+      const roomInventoryId = stockSingleQuery(req.query.roomInventoryId, 'Oda cihazı filtresi');
       const type = stockSingleQuery(req.query.type, 'Hareket türü filtresi');
       const dateStart = stockSingleQuery(req.query.dateStart, 'Başlangıç tarihi');
       const dateEnd = stockSingleQuery(req.query.dateEnd, 'Bitiş tarihi');
       if (stockItemId) validateStockId(stockItemId, 'Stok kartı filtresi');
+      if (roomInventoryId) validateStockId(roomInventoryId, 'Oda cihazı filtresi');
       if (type && !Object.values(StockMovementType).includes(type as StockMovementType)) {
         return res.status(400).json({ success: false, message: 'Geçersiz stok hareket türü.' });
       }
       const data = await StockService.getMovements({
-        search, stockItemId, type: type as StockMovementType | undefined, dateStart, dateEnd,
+        search, stockItemId, roomInventoryId, type: type as StockMovementType | undefined, dateStart, dateEnd,
         page: stockPositivePage(req.query.page, 'Sayfa', 1),
         pageSize: Math.min(stockPositivePage(req.query.pageSize, 'Sayfa boyutu', 50), 100),
       });

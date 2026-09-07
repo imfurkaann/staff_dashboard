@@ -116,7 +116,7 @@ export class StockService {
             orderBy: { installedAt: 'desc' },
             include: {
               room: { include: { block: true } },
-              maintenances: { orderBy: { createdAt: 'desc' }, select: { id: true, status: true, title: true, description: true, createdAt: true, resolvedAt: true, resolutionNote: true } },
+              maintenances: { orderBy: { createdAt: 'desc' }, select: { id: true, status: true, priority: true, title: true, description: true, reportedBy: true, assignedTo: true, createdAt: true, resolvedAt: true, resolutionNote: true } },
             },
           },
           inventories: {
@@ -217,12 +217,13 @@ export class StockService {
   }
 
   public static async getMovements(filters: {
-    search?: string; stockItemId?: string; type?: StockMovementType; dateStart?: string; dateEnd?: string; page?: number; pageSize?: number;
+    search?: string; stockItemId?: string; roomInventoryId?: string; type?: StockMovementType; dateStart?: string; dateEnd?: string; page?: number; pageSize?: number;
   } = {}) {
     const page = filters.page && filters.page > 0 ? Math.floor(filters.page) : 1;
     const pageSize = filters.pageSize && filters.pageSize > 0 ? Math.min(Math.floor(filters.pageSize), 100) : 50;
     const where: Prisma.StockMovementWhereInput = {};
     if (filters.stockItemId) where.stockItemId = filters.stockItemId;
+    if (filters.roomInventoryId) where.roomInventoryId = filters.roomInventoryId;
     if (filters.type) where.type = filters.type;
     if (filters.dateStart || filters.dateEnd) {
       const start = parseIstanbulDateBoundary(filters.dateStart, false);

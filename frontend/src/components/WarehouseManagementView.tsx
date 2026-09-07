@@ -10,8 +10,12 @@ import { employeeApi } from '../api/employeeApi';
 import { User } from '../api/authApi';
 import { can } from '../security/accessControl';
 import { generateUUID } from '../utils/cryptoHelpers';
+import { managementUrl } from '../utils/navigationUrl';
 
 type MainTab = 'quick' | 'stock' | 'rooms' | 'personnel' | 'movements';
+type PassportSection = 'overview' | 'rooms' | 'coverage' | 'faults' | 'movements';
+const warehouseTabs: MainTab[] = ['quick', 'stock', 'rooms', 'personnel', 'movements'];
+const passportSections: PassportSection[] = ['overview', 'rooms', 'coverage', 'faults', 'movements'];
 type ModalState =
   | { type: 'create' }
   | { type: 'edit'; item: StockItem }
@@ -80,6 +84,17 @@ const stockLocations = (item: StockItem) => {
   const rooms = Array.from(roomQuantities, ([name, quantity]) => `${name}: ${quantity} ${item.unit}`);
   const parts = [...(item.availableStock > 0 ? [`Ana Depo: ${item.availableStock} ${item.unit}`] : []), ...rooms];
   return parts.length > 0 ? parts.join(' • ') : 'Stokta / zimmette ürün yok';
+};
+
+const faultPriorityLabels: Record<string, string> = { URGENT: 'Acil', HIGH: 'Yüksek', MEDIUM: 'Orta', LOW: 'Düşük' };
+const FaultPriorityBadge = ({ priority = 'MEDIUM' }: { priority?: string }) => {
+  const color = priority === 'URGENT' ? 'border-rose-300 bg-rose-100 text-rose-800' : priority === 'HIGH' ? 'border-orange-200 bg-orange-50 text-orange-800' : priority === 'LOW' ? 'border-slate-200 bg-slate-50 text-slate-600' : 'border-amber-200 bg-amber-50 text-amber-800';
+  return <span className={`inline-flex rounded-md border px-2 py-1 text-[10px] font-black ${color}`}>{faultPriorityLabels[priority] || priority}</span>;
+};
+
+const FaultStatusBadge = ({ status }: { status: 'OPEN' | 'IN_PROGRESS' | 'RESOLVED' | 'CLOSED' }) => {
+  const open = status === 'OPEN' || status === 'IN_PROGRESS';
+  return <span className={`inline-flex rounded-md border px-2 py-1 text-[10px] font-black ${open ? 'border-rose-200 bg-rose-50 text-rose-700' : 'border-emerald-200 bg-emerald-50 text-emerald-700'}`}>{open ? 'Açık' : 'Kapalı'}</span>;
 };
 const hasOpenMaintenance = (assignment: RoomAssignment) => Boolean(assignment.maintenances?.some((record) => record.status === 'OPEN' || record.status === 'IN_PROGRESS'));
 
@@ -426,19 +441,31 @@ export const WarehouseManagementView: React.FC<{ currentUser: User }> = ({ curre
   const [category, setCategory] = useState('ALL');
   const [itemTypeFilter, setItemTypeFilter] = useState('ALL');
   const [stockFilter, setStockFilter] = useState('ALL');
-  const [tab, setTab] = useState<MainTab>('quick');
+  const [tab, setTabState] = useState<MainTab>(() => {
+    const requested = new URLSearchParams(window.location.search).get('warehouseTab') as MainTab | null;
+    return requested && warehouseTabs.includes(requested) ? requested : 'quick';
+  });
   const [modal, setModal] = useState<ModalState>(null);
   const operationKeyRef = useRef('');
 
   // Enterprise UI States
   const [viewMode, setViewMode] = useState<'cards' | 'table'>('cards');
   const [passportModal, setPassportModal] = useState<StockItem | null>(null);
+  const [passportSection, setPassportSection] = useState<PassportSection>('overview');
+  const [passportSearch, setPassportSearch] = useState('');
+  const [passportBlock, setPassportBlock] = useState('ALL');
+  const [passportStatus, setPassportStatus] = useState<'ALL' | 'HEALTHY' | 'ISSUE'>('ALL');
+  const [passportPage, setPassportPage] = useState(1);
+  const [selectedRoomAssignmentId, setSelectedRoomAssignmentId] = useState<string | null>(null);
+  const [deviceMovements, setDeviceMovements] = useState<StockMovement[]>([]);
+  const [deviceMovementsLoading, setDeviceMovementsLoading] = useState(false);
+  const passportReturnRef = useRef<{ itemId: string; section: PassportSection; tab: MainTab; roomInventoryId?: string } | null>(null);
   const [isExecutiveReportOpen, setIsExecutiveReportOpen] = useState(false);
 
   const [movementType, setMovementType] = useState<MovementType | 'ALL'>('ALL');
   const [movementDateStart, setMovementDateStart] = useState('');
   const [movementDateEnd, setMovementDateEnd] = useState('');
-  const [movementStockItemId, setMovementStockItemId] = useState('');
+  const [movementStockItemId, setMovementStockItemId] = useState(() => new URLSearchParams(window.location.search).get('movementItemId') || '');
   const [movementPage, setMovementPage] = useState(1);
   const [movementResult, setMovementResult] = useState<StockMovementList>({ items: [], pagination: { page: 1, pageSize: 50, total: 0, totalPages: 1 } });
   const [movementsLoading, setMovementsLoading] = useState(false);
@@ -463,17 +490,131 @@ export const WarehouseManagementView: React.FC<{ currentUser: User }> = ({ curre
   const [assignForm, setAssignForm] = useState({ targetType: 'ROOM' as 'ROOM' | 'EMPLOYEE', stockItemId: '', roomId: '', employeeId: '', quantity: 1, brand: '', notes: '' });
   const [assignmentForm, setAssignmentForm] = useState({ action: 'TRANSFER', roomId: '', outcome: 'RETURNED' as 'RETURNED' | 'RETIRED', brand: '', notes: '' });
 
+  const writeWarehouseUrl = (nextTab: MainTab, itemId?: string, section?: PassportSection, mode: 'push' | 'replace' = 'push', movementItemId?: string, roomInventoryId?: string) => {
+    const url = managementUrl('warehouse', { warehouseTab: nextTab, stockItemId: itemId, stockSection: section, movementItemId, stockRoomInventoryId: roomInventoryId });
+    const state = { tab: 'warehouse', warehouseTab: nextTab, ...(itemId ? { view: roomInventoryId ? 'stock-device-detail' : 'stock-passport', stockItemId: itemId, stockSection: section || 'overview' } : {}), ...(movementItemId ? { movementItemId } : {}), ...(roomInventoryId ? { stockRoomInventoryId: roomInventoryId } : {}), timestamp: Date.now() };
+    window.history[mode === 'push' ? 'pushState' : 'replaceState'](state, '', url.toString());
+  };
+
+  const navigateWarehouseTab = (nextTab: MainTab, mode: 'push' | 'replace' = 'push', movementItemId = '') => {
+    setTabState(nextTab);
+    setPassportModal(null);
+    setSelectedRoomAssignmentId(null);
+    setMovementStockItemId(nextTab === 'movements' ? movementItemId : '');
+    setMovementPage(1);
+    passportReturnRef.current = null;
+    writeWarehouseUrl(nextTab, undefined, undefined, mode, nextTab === 'movements' ? movementItemId : undefined);
+  };
+
+  const openPassport = (item: StockItem, section: PassportSection = 'overview', mode: 'push' | 'replace' = 'push') => {
+    setPassportModal(item);
+    setSelectedRoomAssignmentId(null);
+    setPassportSection(section);
+    setPassportSearch('');
+    setPassportBlock('ALL');
+    setPassportStatus('ALL');
+    setPassportPage(1);
+    writeWarehouseUrl(tab, item.id, section, mode);
+  };
+
+  const openRoomAssignmentDetail = (assignment: RoomAssignment) => {
+    if (!passportModal) return;
+    setPassportSection('rooms');
+    setSelectedRoomAssignmentId(assignment.id);
+    writeWarehouseUrl(tab, passportModal.id, 'rooms', 'push', undefined, assignment.id);
+  };
+
+  const closeRoomAssignmentDetail = () => {
+    setSelectedRoomAssignmentId(null);
+    if (window.history.state?.view === 'stock-device-detail') window.history.back();
+    else if (passportModal) writeWarehouseUrl(tab, passportModal.id, 'rooms', 'replace');
+  };
+
+  const closePassport = () => {
+    setPassportModal(null);
+    setSelectedRoomAssignmentId(null);
+    if (window.history.state?.view === 'stock-passport') window.history.back();
+    else writeWarehouseUrl(tab, undefined, undefined, 'replace');
+  };
+
+  const preparePassportAction = () => {
+    if (!passportModal) return;
+    passportReturnRef.current = { itemId: passportModal.id, section: passportSection, tab, roomInventoryId: selectedRoomAssignmentId || undefined };
+    setPassportModal(null);
+    writeWarehouseUrl(tab, undefined, undefined, 'replace');
+  };
+
+  const restorePassport = (source: StockOverview | null = overview) => {
+    const target = passportReturnRef.current;
+    if (!target || !source) return;
+    const item = source.items.find((entry) => entry.id === target.itemId);
+    passportReturnRef.current = null;
+    if (item) {
+      setTabState(target.tab);
+      setPassportModal(item);
+      setPassportSection(target.section);
+      const roomInventoryId = target.roomInventoryId && item.roomInventories.some((assignment) => assignment.id === target.roomInventoryId) ? target.roomInventoryId : undefined;
+      setSelectedRoomAssignmentId(roomInventoryId || null);
+      setPassportSearch('');
+      setPassportBlock('ALL');
+      setPassportStatus('ALL');
+      setPassportPage(1);
+      writeWarehouseUrl(target.tab, item.id, target.section, 'replace', undefined, roomInventoryId);
+    }
+  };
+
+  const closeModal = () => {
+    setModal(null);
+    restorePassport();
+  };
+
   const loadOverview = useCallback(async (quiet = false) => {
     try {
       if (!quiet) setLoading(true);
       setError(null);
-      setOverview(await stockApi.getOverview());
+      const result = await stockApi.getOverview();
+      setOverview(result);
+      return result;
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'Stok verileri yüklenemedi.');
+      return null;
     } finally { setLoading(false); }
   }, []);
 
   useEffect(() => { loadOverview(); }, [loadOverview]);
+
+  useEffect(() => {
+    if (!overview) return;
+    const applyLocation = () => {
+      const params = new URLSearchParams(window.location.search);
+      const requestedTab = params.get('warehouseTab') as MainTab | null;
+      const nextTab = requestedTab && warehouseTabs.includes(requestedTab) ? requestedTab : 'quick';
+      const requestedSection = params.get('stockSection') as PassportSection | null;
+      const nextSection = requestedSection && passportSections.includes(requestedSection) ? requestedSection : 'overview';
+      const itemId = params.get('stockItemId');
+      const movementItemId = nextTab === 'movements' ? params.get('movementItemId') || '' : '';
+      const selectedItem = itemId ? overview.items.find((item) => item.id === itemId) || null : null;
+      const requestedRoomInventoryId = params.get('stockRoomInventoryId');
+      const roomInventoryId = selectedItem && requestedRoomInventoryId && selectedItem.roomInventories.some((assignment) => assignment.id === requestedRoomInventoryId) ? requestedRoomInventoryId : null;
+      setTabState(nextTab);
+      setPassportSection(nextSection);
+      setPassportSearch('');
+      setPassportBlock('ALL');
+      setPassportStatus('ALL');
+      setPassportPage(1);
+      setMovementStockItemId(movementItemId);
+      setMovementPage(1);
+      setPassportModal(selectedItem);
+      setSelectedRoomAssignmentId(roomInventoryId);
+      const canonicalUrl = managementUrl('warehouse', { warehouseTab: nextTab, stockItemId: selectedItem?.id, stockSection: selectedItem ? nextSection : undefined, movementItemId, stockRoomInventoryId: roomInventoryId || undefined });
+      if (canonicalUrl.toString() !== window.location.href) {
+        window.history.replaceState({ tab: 'warehouse', warehouseTab: nextTab, ...(selectedItem ? { view: roomInventoryId ? 'stock-device-detail' : 'stock-passport', stockItemId: selectedItem.id, stockSection: nextSection } : {}), ...(movementItemId ? { movementItemId } : {}), ...(roomInventoryId ? { stockRoomInventoryId: roomInventoryId } : {}), timestamp: Date.now() }, '', canonicalUrl.toString());
+      }
+    };
+    applyLocation();
+    window.addEventListener('popstate', applyLocation);
+    return () => window.removeEventListener('popstate', applyLocation);
+  }, [overview]);
 
   useEffect(() => {
     if (tab !== 'movements') return;
@@ -500,6 +641,15 @@ export const WarehouseManagementView: React.FC<{ currentUser: User }> = ({ curre
       .catch((caught) => setError(caught instanceof Error ? caught.message : 'Ürün geçmişi yüklenemedi.'))
       .finally(() => setDetailMovementsLoading(false));
   }, [passportModal?.id]);
+
+  useEffect(() => {
+    if (!selectedRoomAssignmentId) { setDeviceMovements([]); return; }
+    setDeviceMovementsLoading(true);
+    stockApi.getMovements({ roomInventoryId: selectedRoomAssignmentId, page: 1, pageSize: 100 })
+      .then((result) => setDeviceMovements(result.items))
+      .catch((caught) => setError(caught instanceof Error ? caught.message : 'Cihaz hareket geçmişi yüklenemedi.'))
+      .finally(() => setDeviceMovementsLoading(false));
+  }, [selectedRoomAssignmentId]);
 
   const filteredItems = useMemo(() => (overview?.items || []).filter((item) => {
     const query = search.trim().toLocaleLowerCase('tr-TR');
@@ -531,7 +681,8 @@ export const WarehouseManagementView: React.FC<{ currentUser: User }> = ({ curre
       setBusy(true); setError(null);
       await action();
       setModal(null);
-      await loadOverview(true);
+      const refreshed = await loadOverview(true);
+      restorePassport(refreshed);
     } catch (caught) { setError(caught instanceof Error ? caught.message : 'İşlem tamamlanamadı.'); }
     finally { setBusy(false); }
   };
@@ -602,43 +753,159 @@ export const WarehouseManagementView: React.FC<{ currentUser: User }> = ({ curre
       .map((assignment) => ({ assignment, faultCount: assignment.maintenances?.length || 0 }))
       .filter((entry) => entry.faultCount >= 2)
       .sort((a, b) => b.faultCount - a.faultCount);
-    const healthyCount = passportModal.roomInventories.filter((assignment) => assignment.status === 'HEALTHY').reduce((sum, assignment) => sum + assignment.quantity, 0);
-    const problemCount = passportModal.roomInventories.filter((assignment) => assignment.status !== 'HEALTHY').reduce((sum, assignment) => sum + assignment.quantity, 0);
+    const normalizedPassportSearch = passportSearch.trim().toLocaleLowerCase('tr-TR');
+    const roomBlocks = Array.from(new Set(passportModal.roomInventories.map((assignment) => assignment.room.block.name))).sort((a, b) => a.localeCompare(b, 'tr'));
+    const filteredRoomAssignments = passportModal.roomInventories.filter((assignment) => {
+      const searchable = `${roomName(assignment)} ${assignment.itemName} ${assignment.brand || ''}`.toLocaleLowerCase('tr-TR');
+      return (!normalizedPassportSearch || normalizedPassportSearch.split(/\s+/).every((token) => searchable.includes(token)))
+        && (passportBlock === 'ALL' || assignment.room.block.name === passportBlock)
+        && (passportStatus === 'ALL' || (passportStatus === 'HEALTHY' ? assignment.status === 'HEALTHY' : assignment.status !== 'HEALTHY'));
+    });
+    const filteredMissingRooms = (passportModal.roomCoverage?.missingRooms || []).filter((room) =>
+      !normalizedPassportSearch || `${room.blockName} oda ${room.roomNumber}`.toLocaleLowerCase('tr-TR').includes(normalizedPassportSearch));
+    const filteredFaults = faultHistory.filter(({ assignment, maintenance }) =>
+      !normalizedPassportSearch || `${assignment.itemName} ${roomName(assignment)} ${maintenance.description} ${maintenance.resolutionNote || ''}`.toLocaleLowerCase('tr-TR').includes(normalizedPassportSearch));
+    const filteredDetailMovements = detailMovements.filter((movement) =>
+      !normalizedPassportSearch || `${movementLabels[movement.type] || movement.type} ${movement.roomLabelSnapshot || 'ana depo'} ${movement.reason || ''} ${movement.notes || ''}`.toLocaleLowerCase('tr-TR').includes(normalizedPassportSearch));
+    const activeCollection = passportSection === 'rooms' ? filteredRoomAssignments
+      : passportSection === 'coverage' ? filteredMissingRooms
+        : passportSection === 'faults' ? filteredFaults
+          : passportSection === 'movements' ? filteredDetailMovements : [];
+    const pageSize = passportSection === 'rooms' ? 25 : 20;
+    const totalPages = Math.max(1, Math.ceil(activeCollection.length / pageSize));
+    const safePage = Math.min(passportPage, totalPages);
+    const pageStart = (safePage - 1) * pageSize;
+    const changePassportSection = (section: PassportSection) => {
+      setPassportSection(section);
+      setSelectedRoomAssignmentId(null);
+      setPassportSearch('');
+      setPassportBlock('ALL');
+      setPassportStatus('ALL');
+      setPassportPage(1);
+      writeWarehouseUrl(tab, passportModal.id, section, 'replace');
+    };
+    const pageControls = activeCollection.length > pageSize && (
+      <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-200 px-4 py-3">
+        <p className="text-[11px] font-semibold text-slate-500">{pageStart + 1}-{Math.min(pageStart + pageSize, activeCollection.length)} / {activeCollection.length} kayıt</p>
+        <div className="flex items-center gap-2">
+          <button type="button" disabled={safePage === 1} onClick={() => setPassportPage((page) => Math.max(1, page - 1))} className={secondaryButton}>← Önceki</button>
+          <span className="text-xs font-bold text-slate-700">{safePage} / {totalPages}</span>
+          <button type="button" disabled={safePage === totalPages} onClick={() => setPassportPage((page) => Math.min(totalPages, page + 1))} className={secondaryButton}>Sonraki →</button>
+        </div>
+      </div>
+    );
+
+    const selectedAssignment = selectedRoomAssignmentId ? passportModal.roomInventories.find((assignment) => assignment.id === selectedRoomAssignmentId) : undefined;
+    if (selectedAssignment) {
+      const deviceFaults = [...(selectedAssignment.maintenances || [])].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+      return (
+        <div className="w-full space-y-4 animate-fadeIn">
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 pb-3">
+            <div className="flex items-center gap-3">
+              <button type="button" onClick={closeRoomAssignmentDetail} className={secondaryButton}>← Oda Dağılımına Dön</button>
+              <div>
+                <p className="text-[10px] font-bold uppercase tracking-wider text-[#1e3a8a]">Cihaz Detay Sayfası</p>
+                <h2 className="text-lg font-black text-slate-900">{selectedAssignment.itemName}</h2>
+                <p className="text-xs font-semibold text-slate-500">{passportModal.itemName} · {roomName(selectedAssignment)}</p>
+              </div>
+            </div>
+            {canManageLifecycle && <button type="button" onClick={() => { const item = passportModal; preparePassportAction(); openAssignment(item, selectedAssignment); }} className={primaryButton}>Cihaz İşlemi Yap</button>}
+          </div>
+
+          {error && <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-xs font-bold text-rose-800">{error}</div>}
+
+          <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            <div className="rounded-xl border border-slate-200 bg-white p-4"><p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Bulunduğu Yer</p><p className="mt-1 text-sm font-black text-slate-900">{roomName(selectedAssignment)}</p><p className="mt-1 text-[11px] font-semibold text-slate-500">{selectedAssignment.room.floor}. kat</p></div>
+            <div className="rounded-xl border border-slate-200 bg-white p-4"><p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Odaya Veriliş Tarihi</p><p className="mt-1 text-sm font-black text-slate-900">{formatDateTime(selectedAssignment.installedAt)}</p></div>
+            <div className="rounded-xl border border-slate-200 bg-white p-4"><p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Güncel Durum</p><div className="mt-2"><StatusBadge status={selectedAssignment.status} /></div></div>
+            <div className="rounded-xl border border-slate-200 bg-white p-4"><p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Cihaz Bilgisi</p><p className="mt-1 text-sm font-black text-slate-900">{selectedAssignment.quantity} {passportModal.unit}</p><p className="mt-1 text-[11px] font-semibold text-slate-500">{selectedAssignment.brand || 'Marka / model belirtilmedi'}</p></div>
+          </section>
+
+          <section className="overflow-hidden rounded-xl border border-slate-200 bg-white">
+            <div className="border-b border-slate-200 bg-slate-50 px-4 py-3"><h3 className="text-sm font-black text-slate-900">Cihaz Hareket Geçmişi</h3><p className="mt-0.5 text-[11px] font-semibold text-slate-500">Yalnızca bu cihazın odaya veriliş, transfer ve durum değişiklikleri.</p></div>
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[850px] text-left text-xs">
+                <thead className="border-b border-slate-200 bg-white text-[10px] font-black uppercase tracking-wider text-slate-500"><tr><th className="px-4 py-3">Tarih</th><th className="px-4 py-3">İşlem</th><th className="px-4 py-3">Konum / Oda</th><th className="px-4 py-3 text-center">Miktar</th><th className="px-4 py-3">İşlemi Yapan</th><th className="px-4 py-3">Açıklama</th></tr></thead>
+                <tbody className="divide-y divide-slate-200">{deviceMovementsLoading ? <tr><td colSpan={6} className="p-10 text-center text-slate-500">Cihaz geçmişi yükleniyor...</td></tr> : deviceMovements.length === 0 ? <tr><td colSpan={6} className="p-10 text-center text-slate-500">Bu cihaza ait hareket kaydı bulunmuyor.</td></tr> : deviceMovements.map((movement) => <tr key={movement.id} className="hover:bg-slate-50"><td className="whitespace-nowrap px-4 py-3 font-semibold text-slate-600">{formatDateTime(movement.createdAt)}</td><td className="px-4 py-3 font-black text-[#1e3a8a]">{movementLabels[movement.type] || movement.type}</td><td className="px-4 py-3 font-bold text-slate-800">{movement.roomLabelSnapshot || 'Ana Depo'}</td><td className="px-4 py-3 text-center font-black text-slate-900">{movement.quantity > 0 ? `+${movement.quantity}` : movement.quantity} {movement.stockItem.unit}</td><td className="px-4 py-3 font-semibold text-slate-700">{movement.createdBy?.fullName || 'Sistem'}</td><td className="max-w-[300px] px-4 py-3 text-slate-600">{movement.notes || movement.reason || '-'}</td></tr>)}</tbody>
+              </table>
+            </div>
+          </section>
+
+          <section className="overflow-hidden rounded-xl border border-slate-200 bg-white">
+            <div className="border-b border-slate-200 bg-slate-50 px-4 py-3"><h3 className="text-sm font-black text-slate-900">Cihaza Ait Arıza Geçmişi ({deviceFaults.length})</h3><p className="mt-0.5 text-[11px] font-semibold text-slate-500">Diğer odalardaki aynı ürünler bu tabloya dahil edilmez.</p></div>
+            <div className="overflow-x-auto"><table className="w-full min-w-[1000px] text-left text-xs"><thead className="border-b border-slate-200 bg-white text-[10px] font-black uppercase tracking-wider text-slate-500"><tr><th className="px-4 py-3">Arıza Açıklaması</th><th className="px-4 py-3">Öncelik</th><th className="px-4 py-3">Durum</th><th className="px-4 py-3">Bildiren</th><th className="px-4 py-3">Kapatan</th><th className="px-4 py-3">Açılış Tarihi</th><th className="px-4 py-3">Kapanış Tarihi</th><th className="px-4 py-3">Kapanış Notu</th></tr></thead><tbody className="divide-y divide-slate-200">{deviceFaults.length === 0 ? <tr><td colSpan={8} className="p-10 text-center text-slate-500">Bu cihaz için arıza kaydı bulunmuyor.</td></tr> : deviceFaults.map((fault) => <tr key={fault.id} className="hover:bg-slate-50"><td className="max-w-[280px] px-4 py-3"><p className="font-black text-slate-900">{fault.description}</p><p className="mt-1 text-[10px] font-semibold text-slate-500">{fault.title}</p></td><td className="px-4 py-3"><FaultPriorityBadge priority={fault.priority} /></td><td className="px-4 py-3"><FaultStatusBadge status={fault.status} /></td><td className="px-4 py-3 font-semibold text-slate-700">{fault.reportedBy || 'Sistem'}</td><td className="px-4 py-3 font-semibold text-slate-700">{fault.assignedTo || '-'}</td><td className="whitespace-nowrap px-4 py-3 font-semibold text-slate-600">{formatDateTime(fault.createdAt)}</td><td className="whitespace-nowrap px-4 py-3 font-semibold text-slate-600">{fault.resolvedAt ? formatDateTime(fault.resolvedAt) : '-'}</td><td className="max-w-[260px] px-4 py-3 text-slate-600">{fault.resolutionNote || '-'}</td></tr>)}</tbody></table></div>
+          </section>
+        </div>
+      );
+    }
 
     return (
       <div className="w-full space-y-4 animate-fadeIn">
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 pb-3">
           <div className="flex items-center gap-3">
-            <button type="button" onClick={() => setPassportModal(null)} className={secondaryButton}>← Stok Listesine Dön</button>
+            <button type="button" onClick={closePassport} className={secondaryButton}>← Stok Listesine Dön</button>
             <div>
               <h2 className="text-lg font-black text-slate-900">{passportModal.itemName}</h2>
               <p className="text-xs font-semibold text-slate-500">{passportModal.itemCode || 'KODSUZ'} · {passportModal.category} · Ürün Takip Sayfası</p>
             </div>
           </div>
           <div className="flex gap-2">
-            {canManageStock && <button type="button" onClick={() => { const item = passportModal; setPassportModal(null); openReceive(item); }} className={secondaryButton}>+ Depoya Ekle</button>}
-            {canManageStock && <button type="button" onClick={() => { const item = passportModal; setPassportModal(null); openAssign(item); }} className={primaryButton}>Odaya / Personele Ver</button>}
+            {canManageStock && <button type="button" onClick={() => { const item = passportModal; preparePassportAction(); openReceive(item); }} className={secondaryButton}>+ Depoya Ekle</button>}
+            {canManageStock && <button type="button" onClick={() => { const item = passportModal; preparePassportAction(); openAssign(item); }} className={primaryButton}>Odaya / Personele Ver</button>}
           </div>
         </div>
 
         {error && <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-xs font-bold text-rose-800">{error}</div>}
 
-        <div className="grid grid-cols-2 gap-3 lg:grid-cols-7">
+        <nav className="overflow-x-auto rounded-xl border border-slate-200 bg-white p-1.5 shadow-2xs" aria-label="Ürün takip bölümleri">
+          <div className="flex min-w-max gap-1">
+            {([
+              ['overview', 'Genel Bakış'],
+              ['rooms', `Oda Dağılımı (${passportModal.roomInventories.length})`],
+              ['coverage', `Eksik Odalar (${passportModal.roomCoverage?.missingRooms.length || 0})`],
+              ['faults', `Arıza Geçmişi (${faultHistory.length})`],
+              ['movements', 'Stok Hareketleri'],
+            ] as Array<[PassportSection, string]>).map(([section, label]) => (
+              <button key={section} type="button" onClick={() => changePassportSection(section)} className={`rounded-lg px-3.5 py-2 text-xs font-bold transition ${passportSection === section ? 'bg-[#1e3a8a] text-white shadow-sm' : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'}`}>
+                {label}
+              </button>
+            ))}
+          </div>
+        </nav>
+
+        {passportSection === 'overview' && <div className="space-y-4">
+        <div className="grid gap-3 sm:grid-cols-2">
           {[
             ['Toplam', passportModal.totalStock, 'text-slate-900'],
-            ['Ana Depoda', passportModal.availableStock, 'text-emerald-700'],
-            ['Odalarda', passportModal.usedInRooms, 'text-blue-800'],
-            ['Personelde', passportModal.usedStock, 'text-violet-800'],
-            ['Ortak Eşya Kaydı', passportModal.sharedAssetsInLocations, 'text-cyan-800'],
-            ['Sağlam', healthyCount, 'text-emerald-700'],
-            ['Sorunlu', problemCount, problemCount ? 'text-rose-700' : 'text-slate-500'],
+            ['Elde Kalan', passportModal.availableStock, 'text-emerald-700'],
           ].map(([label, value, color]) => (
-            <div key={String(label)} className="rounded-xl border border-slate-200 bg-white p-3 shadow-2xs">
+            <div key={String(label)} className="rounded-xl border border-slate-200 bg-white p-4 shadow-2xs">
               <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">{label}</p>
-              <p className={`mt-1 text-xl font-black ${color}`}>{value} <span className="text-xs">{passportModal.unit}</span></p>
+              <p className={`mt-1 text-2xl font-black ${color}`}>{value} <span className="text-xs">{passportModal.unit}</span></p>
             </div>
           ))}
         </div>
+
+        <section className="rounded-xl border border-slate-200 bg-white p-4">
+          <div className="mb-3">
+            <h3 className="text-sm font-black text-slate-900">Hızlı Erişim</h3>
+            <p className="mt-0.5 text-[11px] font-semibold text-slate-500">İncelemek istediğiniz bölüme geçin; uzun kayıtlar ayrı sayfalarda açılır.</p>
+          </div>
+          <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+            {([
+              ['rooms', Building2, 'Oda Dağılımı', 'Odalardaki cihazları ara ve yönet'],
+              ['coverage', ClipboardCheck, 'Eksik Oda Kontrolü', 'Standart ve eksikleri incele'],
+              ['faults', AlertTriangle, 'Arıza Geçmişi', 'Açılan ve kapanan kayıtları gör'],
+              ['movements', History, 'Stok Hareketleri', 'Ürünün işlem geçmişini izle'],
+            ] as const).map(([section, Icon, title, description]) => (
+              <button key={section} type="button" onClick={() => changePassportSection(section)} className="group flex items-center gap-3 rounded-xl border border-slate-200 bg-slate-50/60 p-3 text-left transition hover:border-blue-300 hover:bg-blue-50">
+                <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-white text-[#1e3a8a] shadow-sm"><Icon className="h-4 w-4" /></span>
+                <span className="min-w-0 flex-1"><span className="block text-xs font-black text-slate-900">{title}</span><span className="mt-0.5 block text-[10px] font-semibold text-slate-500">{description}</span></span>
+                <ChevronRight className="h-4 w-4 text-slate-400 group-hover:text-[#1e3a8a]" />
+              </button>
+            ))}
+          </div>
+        </section>
 
         {repeatedFaults.length > 0 && (
           <div className="rounded-xl border border-rose-200 bg-rose-50 p-4">
@@ -678,33 +945,41 @@ export const WarehouseManagementView: React.FC<{ currentUser: User }> = ({ curre
             </div>
           </section>
         )}
+        </div>}
 
-        <div className="grid gap-4 xl:grid-cols-[1.4fr_1fr]">
+        {passportSection === 'rooms' && <div className="space-y-3">
           <section className="overflow-hidden rounded-xl border border-slate-200 bg-white">
-            <div className="flex items-center justify-between border-b border-slate-200 bg-slate-50 px-4 py-3">
+            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 bg-slate-50 px-4 py-3">
               <div><h3 className="text-sm font-black text-slate-900">Oda Dağılımı ve Cihaz Durumu</h3><p className="text-[11px] font-semibold text-slate-500">Ürünleri oda ve ad bilgisine göre karşılaştırın.</p></div>
-              <span className="text-xs font-bold text-slate-600">{passportModal.roomInventories.length} kayıt</span>
+              <span className="text-xs font-bold text-slate-600">{filteredRoomAssignments.length} kayıt</span>
+            </div>
+            <div className="grid gap-2 border-b border-slate-200 p-3 md:grid-cols-[minmax(240px,1fr)_180px_180px]">
+              <label className="relative"><Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" /><input value={passportSearch} onChange={(event) => { setPassportSearch(event.target.value); setPassportPage(1); }} className={`${inputClass} pl-9`} placeholder="Oda no veya cihaz adı ara..." /></label>
+              <select value={passportBlock} onChange={(event) => { setPassportBlock(event.target.value); setPassportPage(1); }} className={inputClass}><option value="ALL">Tüm Bloklar</option>{roomBlocks.map((block) => <option key={block} value={block}>{block}</option>)}</select>
+              <select value={passportStatus} onChange={(event) => { setPassportStatus(event.target.value as 'ALL' | 'HEALTHY' | 'ISSUE'); setPassportPage(1); }} className={inputClass}><option value="ALL">Tüm Durumlar</option><option value="HEALTHY">Sağlam</option><option value="ISSUE">Sorunlu</option></select>
             </div>
             <div className="overflow-x-auto">
               <table className="min-w-[680px] w-full text-left text-xs">
                 <thead className="bg-slate-50 text-[10px] font-bold uppercase text-slate-500"><tr><th className="px-3 py-2">Oda</th><th className="px-3 py-2">Ürün Adı</th><th className="px-3 py-2">Adet</th><th className="px-3 py-2">Durum</th><th className="px-3 py-2">Arıza</th><th className="px-3 py-2 text-right">İşlem</th></tr></thead>
                 <tbody className="divide-y divide-slate-200">
-                  {passportModal.roomInventories.length === 0 ? <tr><td colSpan={6} className="p-8 text-center text-slate-500">Bu üründen odalarda bulunmuyor.</td></tr> : passportModal.roomInventories.map((assignment) => (
+                  {filteredRoomAssignments.length === 0 ? <tr><td colSpan={6} className="p-10 text-center text-slate-500">Aramanıza uygun oda veya cihaz bulunamadı.</td></tr> : filteredRoomAssignments.slice(pageStart, pageStart + pageSize).map((assignment) => (
                     <tr key={assignment.id} className="hover:bg-slate-50">
                       <td className="px-3 py-2.5 font-bold text-slate-900">{roomName(assignment)}</td>
                       <td className="px-3 py-2.5 font-bold text-blue-900">{assignment.itemName}</td>
                       <td className="px-3 py-2.5 font-bold">{assignment.quantity}</td>
                       <td className="px-3 py-2.5"><StatusBadge status={assignment.status} /></td>
                       <td className="px-3 py-2.5"><span className={`font-bold ${(assignment.maintenances?.length || 0) >= 2 ? 'text-rose-700' : 'text-slate-600'}`}>{assignment.maintenances?.length || 0}</span></td>
-                      <td className="px-3 py-2.5 text-right">{canManageLifecycle && <button type="button" onClick={() => { const item = passportModal; setPassportModal(null); openAssignment(item, assignment); }} className="rounded-md bg-[#1e3a8a] px-2 py-1 text-[10px] font-bold text-white">İşlem Yap</button>}</td>
+                      <td className="px-3 py-2.5 text-right"><div className="flex items-center justify-end gap-1.5"><button type="button" onClick={() => openRoomAssignmentDetail(assignment)} className="rounded-md border border-[#1e3a8a] bg-white px-2 py-1 text-[10px] font-bold text-[#1e3a8a] hover:bg-blue-50">Detay</button>{canManageLifecycle && <button type="button" onClick={() => { const item = passportModal; preparePassportAction(); openAssignment(item, assignment); }} className="rounded-md bg-[#1e3a8a] px-2 py-1 text-[10px] font-bold text-white">İşlem Yap</button>}</div></td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
+            {pageControls}
           </section>
+        </div>}
 
-          <section className="rounded-xl border border-slate-200 bg-white p-4">
+        {passportSection === 'coverage' && <section className="rounded-xl border border-slate-200 bg-white p-4">
             <h3 className="text-sm font-black text-slate-900">Oda Eksik Kontrolü</h3>
             <p className="mt-1 text-[11px] font-semibold text-slate-500">Örn. her odada 1 klima veya yatak kapasitesi kadar baza.</p>
             {canManageStock && passportModal.itemType !== 'SARF_MALZEME' && (
@@ -730,17 +1005,27 @@ export const WarehouseManagementView: React.FC<{ currentUser: User }> = ({ curre
               {!passportModal.roomCoverage ? <p className="rounded-lg bg-slate-50 p-3 text-xs font-semibold text-slate-500">Henüz oda standardı tanımlanmadı.</p> : (
                 <div>
                   <div className="grid grid-cols-3 gap-2 text-center"><div className="rounded-lg bg-blue-50 p-2"><p className="text-[10px] font-bold text-blue-700">Kapsanan Oda</p><p className="font-black text-blue-900">{passportModal.roomCoverage.totalRooms}</p></div><div className="rounded-lg bg-emerald-50 p-2"><p className="text-[10px] font-bold text-emerald-700">Tam</p><p className="font-black text-emerald-900">{passportModal.roomCoverage.completeRooms}</p></div><div className="rounded-lg bg-rose-50 p-2"><p className="text-[10px] font-bold text-rose-700">Eksik Adet</p><p className="font-black text-rose-900">{passportModal.roomCoverage.missingTotal}</p></div></div>
-                  <div className="mt-3 max-h-64 space-y-1.5 overflow-y-auto">{passportModal.roomCoverage.missingRooms.map((room) => <div key={room.roomId} className="flex items-center justify-between rounded-lg border border-rose-100 bg-rose-50/60 px-3 py-2 text-xs"><span className="font-bold text-slate-800">{room.blockName} / Oda {room.roomNumber}</span><span className="font-black text-rose-700">{room.missing} eksik</span></div>)}</div>
+                  <label className="relative mt-4 block"><Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" /><input value={passportSearch} onChange={(event) => { setPassportSearch(event.target.value); setPassportPage(1); }} className={`${inputClass} pl-9`} placeholder="Eksik odalarda ara..." /></label>
+                  <div className="mt-3 space-y-1.5">{filteredMissingRooms.length === 0 ? <p className="rounded-lg bg-emerald-50 p-4 text-center text-xs font-semibold text-emerald-800">Eksik oda bulunmuyor.</p> : filteredMissingRooms.slice(pageStart, pageStart + pageSize).map((room) => <div key={room.roomId} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-rose-100 bg-rose-50/60 px-3 py-2 text-xs"><span className="font-bold text-slate-800">{room.blockName} / Oda {room.roomNumber}</span><span className="text-[11px] font-semibold text-slate-500">Olması gereken: {room.required} · Mevcut: {room.assigned}</span><span className="font-black text-rose-700">{room.missing} eksik</span></div>)}</div>
+                  {pageControls}
                 </div>
               )}
             </div>
-          </section>
-        </div>
+          </section>}
 
-        <div className="grid gap-4 xl:grid-cols-2">
-          <section className="rounded-xl border border-slate-200 bg-white p-4"><h3 className="text-sm font-black text-slate-900">Arıza Geçmişi ({faultHistory.length})</h3><div className="mt-3 max-h-80 space-y-2 overflow-y-auto">{faultHistory.length === 0 ? <p className="rounded-lg bg-slate-50 p-4 text-center text-xs text-slate-500">Arıza kaydı bulunmuyor.</p> : faultHistory.map(({ assignment, maintenance }) => <div key={maintenance.id} className="rounded-lg border border-slate-200 p-3"><div className="flex justify-between gap-2"><p className="text-xs font-bold text-slate-900">{assignment.itemName} · {roomName(assignment)}</p><span className="text-[10px] font-semibold text-slate-500">{formatDateTime(maintenance.createdAt)}</span></div><p className="mt-1 text-[11px] font-semibold text-slate-600">{maintenance.description}</p><p className="mt-1 text-[10px] font-bold text-blue-800">{maintenance.status === 'OPEN' || maintenance.status === 'IN_PROGRESS' ? 'Açık' : `Kapalı${maintenance.resolutionNote ? `: ${maintenance.resolutionNote}` : ''}`}</p></div>)}</div></section>
-          <section className="rounded-xl border border-slate-200 bg-white p-4"><div className="flex items-center justify-between"><h3 className="text-sm font-black text-slate-900">Stok Hareket Geçmişi</h3><button type="button" onClick={() => { setMovementStockItemId(passportModal.id); setMovementPage(1); setPassportModal(null); setTab('movements'); }} className="text-xs font-bold text-blue-800">Tümünü Aç →</button></div><div className="mt-3 max-h-80 space-y-2 overflow-y-auto">{detailMovementsLoading ? <p className="p-4 text-center text-xs text-slate-500">Geçmiş yükleniyor...</p> : detailMovements.slice(0, 20).map((movement) => <div key={movement.id} className="flex items-start justify-between gap-3 rounded-lg border border-slate-200 p-3"><div><p className="text-xs font-bold text-slate-900">{movementLabels[movement.type] || movement.type}</p><p className="mt-0.5 text-[10px] font-semibold text-slate-500">{movement.roomLabelSnapshot || 'Ana Depo'}</p></div><span className="whitespace-nowrap text-[10px] font-semibold text-slate-500">{formatDateTime(movement.createdAt)}</span></div>)}</div></section>
-        </div>
+        {passportSection === 'faults' && <section className="overflow-hidden rounded-xl border border-slate-200 bg-white">
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 bg-slate-50 px-4 py-3"><div><h3 className="text-sm font-black text-slate-900">Arıza Geçmişi</h3><p className="text-[11px] font-semibold text-slate-500">Cihaz adı, oda veya arıza açıklamasına göre arayın.</p></div><span className="text-xs font-bold text-slate-600">{filteredFaults.length} kayıt</span></div>
+          <div className="border-b border-slate-200 p-3"><label className="relative block"><Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" /><input value={passportSearch} onChange={(event) => { setPassportSearch(event.target.value); setPassportPage(1); }} className={`${inputClass} pl-9`} placeholder="Oda, cihaz veya arıza açıklaması ara..." /></label></div>
+          <div className="overflow-x-auto"><table className="w-full min-w-[1200px] text-left text-xs"><thead className="border-b border-slate-200 bg-slate-50 text-[10px] font-black uppercase tracking-wider text-slate-600"><tr><th className="px-4 py-3">Blok / Oda</th><th className="px-4 py-3">Cihaz</th><th className="px-4 py-3">Arıza Açıklaması</th><th className="px-4 py-3">Öncelik</th><th className="px-4 py-3">Durum</th><th className="px-4 py-3">Bildiren</th><th className="px-4 py-3">Kapatan</th><th className="px-4 py-3">Açılış Tarihi</th><th className="px-4 py-3">Kapanış Tarihi</th><th className="px-4 py-3">Kapanış Notu</th></tr></thead><tbody className="divide-y divide-slate-200">{filteredFaults.length === 0 ? <tr><td colSpan={10} className="p-10 text-center font-semibold text-slate-500">Aramanıza uygun arıza kaydı bulunmuyor.</td></tr> : filteredFaults.slice(pageStart, pageStart + pageSize).map(({ assignment, maintenance }) => <tr key={maintenance.id} className="hover:bg-slate-50"><td className="whitespace-nowrap px-4 py-3"><p className="font-black text-[#1e3a8a]">{assignment.room.block.name}</p><p className="mt-0.5 font-semibold text-slate-600">Oda {assignment.room.roomNumber} ({assignment.room.floor}. kat)</p></td><td className="max-w-[220px] px-4 py-3"><button type="button" onClick={() => openRoomAssignmentDetail(assignment)} className="text-left font-black text-slate-900 hover:text-[#1e3a8a] hover:underline">{assignment.itemName}</button><p className="mt-1 text-[10px] font-semibold text-slate-500">{assignment.brand || 'Marka belirtilmedi'}</p></td><td className="max-w-[280px] px-4 py-3"><p className="font-black text-slate-900">{maintenance.description}</p><p className="mt-1 text-[10px] font-semibold text-slate-500">{maintenance.title}</p></td><td className="px-4 py-3"><FaultPriorityBadge priority={maintenance.priority} /></td><td className="px-4 py-3"><FaultStatusBadge status={maintenance.status} /></td><td className="px-4 py-3 font-semibold text-slate-700">{maintenance.reportedBy || 'Sistem'}</td><td className="px-4 py-3 font-semibold text-slate-700">{maintenance.assignedTo || '-'}</td><td className="whitespace-nowrap px-4 py-3 font-semibold text-slate-600">{formatDateTime(maintenance.createdAt)}</td><td className="whitespace-nowrap px-4 py-3 font-semibold text-slate-600">{maintenance.resolvedAt ? formatDateTime(maintenance.resolvedAt) : '-'}</td><td className="max-w-[260px] px-4 py-3 text-slate-600">{maintenance.resolutionNote || '-'}</td></tr>)}</tbody></table></div>
+          {pageControls}
+        </section>}
+
+        {passportSection === 'movements' && <section className="overflow-hidden rounded-xl border border-slate-200 bg-white">
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 bg-slate-50 px-4 py-3"><div><h3 className="text-sm font-black text-slate-900">Stok Hareket Geçmişi</h3><p className="text-[11px] font-semibold text-slate-500">Depo girişleri, oda atamaları ve durum değişiklikleri.</p></div><button type="button" onClick={() => navigateWarehouseTab('movements', 'push', passportModal.id)} className={secondaryButton}>Gelişmiş Hareket Listesi →</button></div>
+          <div className="border-b border-slate-200 p-3"><label className="relative block"><Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" /><input value={passportSearch} onChange={(event) => { setPassportSearch(event.target.value); setPassportPage(1); }} className={`${inputClass} pl-9`} placeholder="Hareket türü, oda veya açıklama ara..." /></label></div>
+          <div className="overflow-x-auto"><table className="w-full min-w-[1050px] text-left text-xs"><thead className="border-b border-slate-200 bg-slate-50 text-[10px] font-black uppercase tracking-wider text-slate-600"><tr><th className="px-4 py-3">Tarih</th><th className="px-4 py-3">İşlem Türü</th><th className="px-4 py-3">Ürün / Cihaz</th><th className="px-4 py-3">Konum / Oda</th><th className="px-4 py-3 text-center">Miktar</th><th className="px-4 py-3">İşlemi Yapan</th><th className="px-4 py-3">Gerekçe</th><th className="px-4 py-3">Açıklama</th></tr></thead><tbody className="divide-y divide-slate-200">{detailMovementsLoading ? <tr><td colSpan={8} className="p-10 text-center font-semibold text-slate-500">Geçmiş yükleniyor...</td></tr> : filteredDetailMovements.length === 0 ? <tr><td colSpan={8} className="p-10 text-center font-semibold text-slate-500">Aramanıza uygun stok hareketi bulunmuyor.</td></tr> : filteredDetailMovements.slice(pageStart, pageStart + pageSize).map((movement) => <tr key={movement.id} className="hover:bg-slate-50"><td className="whitespace-nowrap px-4 py-3 font-semibold text-slate-600">{formatDateTime(movement.createdAt)}</td><td className="px-4 py-3"><span className="inline-flex rounded-md border border-blue-200 bg-blue-50 px-2 py-1 text-[10px] font-black text-[#1e3a8a]">{movementLabels[movement.type] || movement.type}</span></td><td className="max-w-[220px] px-4 py-3 font-black text-slate-900">{movement.itemNameSnapshot}</td><td className="px-4 py-3 font-bold text-slate-700">{movement.roomLabelSnapshot || (movement.employee ? `${movement.employee.firstName} ${movement.employee.lastName}` : 'Ana Depo')}</td><td className={`px-4 py-3 text-center font-black ${movement.quantity < 0 ? 'text-rose-700' : 'text-emerald-700'}`}>{movement.quantity > 0 ? `+${movement.quantity}` : movement.quantity} {movement.stockItem.unit}</td><td className="px-4 py-3 font-semibold text-slate-700">{movement.createdBy?.fullName || 'Sistem'}</td><td className="max-w-[220px] px-4 py-3 text-slate-600">{movement.reason || '-'}</td><td className="max-w-[260px] px-4 py-3 text-slate-600">{movement.notes || '-'}</td></tr>)}</tbody></table></div>
+          {pageControls}
+        </section>}
       </div>
     );
   }
@@ -839,7 +1124,7 @@ export const WarehouseManagementView: React.FC<{ currentUser: User }> = ({ curre
 
             <button
               type="button"
-              onClick={() => setTab('rooms')}
+              onClick={() => navigateWarehouseTab('rooms')}
               className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-slate-300 bg-slate-50 px-2.5 text-xs font-bold text-slate-800 hover:bg-slate-100 transition cursor-pointer"
             >
               <RefreshCw className="h-3.5 w-3.5 text-amber-700" />
@@ -929,7 +1214,7 @@ export const WarehouseManagementView: React.FC<{ currentUser: User }> = ({ curre
           ] as Array<[MainTab, string, string, React.ElementType]>).map(([value, label, count, Icon]) => (
             <button
               key={String(value)}
-              onClick={() => setTab(value)}
+              onClick={() => navigateWarehouseTab(value)}
               className={`inline-flex h-8 items-center gap-2 whitespace-nowrap rounded-lg px-3 text-xs font-bold transition cursor-pointer ${tab === value ? 'bg-[#1e3a8a] text-white shadow-2xs' : 'text-slate-600 hover:bg-white hover:text-[#1e3a8a]'}`}
             >
               <Icon className="h-3.5 w-3.5" />{label}
@@ -970,7 +1255,7 @@ export const WarehouseManagementView: React.FC<{ currentUser: User }> = ({ curre
                         ? roomName(item.roomInventories[0])
                         : item.sharedAssets?.find((asset) => asset.status !== 'RETIRED')?.locationNote || item.locationNote || 'Ana Depo';
                       return (
-                        <tr key={item.id} className="cursor-pointer hover:bg-blue-50/60" onClick={() => setPassportModal(item)}>
+                        <tr key={item.id} className="cursor-pointer hover:bg-blue-50/60" onClick={() => openPassport(item)}>
                           <td className="px-3 py-3">
                             <p className="font-bold text-slate-900">{item.itemName}</p>
                             <p className="mt-0.5 font-mono text-[10px] font-semibold text-[#1e3a8a]">{item.itemCode || 'KODSUZ'} · {item.itemType || 'DEMİRBAŞ'}</p>
@@ -983,7 +1268,7 @@ export const WarehouseManagementView: React.FC<{ currentUser: User }> = ({ curre
                           <td className="px-3 py-3 text-center">{needsAttention > 0 ? <span className="inline-flex rounded-md bg-amber-50 px-2 py-1 font-bold text-amber-800">{needsAttention} {item.unit}</span> : <span className="font-semibold text-slate-400">Yok</span>}</td>
                           <td className="max-w-[240px] px-3 py-3 font-semibold text-slate-600">{latestRoom}</td>
                           <td className="px-3 py-3 text-right" onClick={(event) => event.stopPropagation()}>
-                            <button type="button" onClick={() => setPassportModal(item)} className="inline-flex h-7 items-center gap-1 rounded-md border border-[#1e3a8a] bg-white px-2 text-[11px] font-bold text-[#1e3a8a] hover:bg-blue-50">
+                            <button type="button" onClick={() => openPassport(item)} className="inline-flex h-7 items-center gap-1 rounded-md border border-[#1e3a8a] bg-white px-2 text-[11px] font-bold text-[#1e3a8a] hover:bg-blue-50">
                               İncele <ChevronRight className="h-3.5 w-3.5" />
                             </button>
                           </td>
@@ -1054,7 +1339,7 @@ export const WarehouseManagementView: React.FC<{ currentUser: User }> = ({ curre
                           <div className="mt-4 pt-2.5 border-t border-slate-100 flex items-center justify-between gap-1.5">
                             <button
                               type="button"
-                              onClick={() => setPassportModal(item)}
+                              onClick={() => openPassport(item)}
                               className="inline-flex h-7 items-center gap-1 rounded-md border border-slate-300 bg-white px-2 text-[11px] font-bold text-slate-700 hover:bg-slate-50 transition cursor-pointer"
                             >
                               <FileText className="w-3.5 h-3.5 text-[#1e3a8a]" />
@@ -1125,7 +1410,7 @@ export const WarehouseManagementView: React.FC<{ currentUser: User }> = ({ curre
                             <td className="px-2 py-2 border-r border-slate-200"><PhysicalStatusPill status={item.physicalStatus} /></td>
                             <td className="px-2 py-2 text-right">
                               <div className="flex items-center justify-end gap-1">
-                                <button type="button" onClick={() => setPassportModal(item)} className="p-1 text-[#1e3a8a] hover:bg-blue-50 rounded cursor-pointer" title="Ürün Pasaportu"><FileText className="w-4 h-4" /></button>
+                                <button type="button" onClick={() => openPassport(item)} className="p-1 text-[#1e3a8a] hover:bg-blue-50 rounded cursor-pointer" title="Ürün Pasaportu"><FileText className="w-4 h-4" /></button>
                                 {canManageStock && <button type="button" onClick={() => openEdit(item)} className="p-1 text-amber-700 hover:bg-amber-50 rounded cursor-pointer" title="Stok Kartını Düzenle"><Edit3 className="w-4 h-4" /></button>}
                                 {canManageStock && <button type="button" onClick={() => openReceive(item)} className="p-1 text-slate-700 hover:bg-slate-100 rounded cursor-pointer" title="Depoya Ekle"><ArrowDownToLine className="w-4 h-4" /></button>}
                                 {canManageStock && <button type="button" onClick={() => openAssign(item)} className="p-1 text-emerald-700 hover:bg-emerald-50 rounded cursor-pointer" title="Zimmetle"><Send className="w-4 h-4" /></button>}
@@ -1304,7 +1589,7 @@ export const WarehouseManagementView: React.FC<{ currentUser: User }> = ({ curre
       {/* MODAL: CREATE OR EDIT STOCK ITEM */}
       {(modal?.type === 'create' || modal?.type === 'edit') && (
         <ModalShell
-          onClose={() => setModal(null)}
+          onClose={closeModal}
           icon={modal.type === 'create' ? <Plus className="h-4 w-4" /> : <Edit3 className="h-4 w-4" />}
           title={modal.type === 'create' ? 'Yeni Stok Kartı Tanımla' : `Stok Kartını Düzenle: ${modal.item.itemName}`}
           wide
@@ -1399,7 +1684,7 @@ export const WarehouseManagementView: React.FC<{ currentUser: User }> = ({ curre
             </div>
 
             <div className="flex justify-end gap-2 border-t border-slate-200 pt-3">
-              <button type="button" onClick={() => setModal(null)} className={secondaryButton}>Vazgeç</button>
+              <button type="button" onClick={closeModal} className={secondaryButton}>Vazgeç</button>
               <button disabled={busy || !cardForm.itemName.trim()} className={primaryButton}>
                 {busy ? 'İşleniyor...' : modal?.type === 'create' ? 'Kartı Oluştur' : 'Değişiklikleri Kaydet'}
               </button>
@@ -1410,7 +1695,7 @@ export const WarehouseManagementView: React.FC<{ currentUser: User }> = ({ curre
 
       {/* MODAL: RECEIVE GOODS */}
       {modal?.type === 'receive' && (
-        <ModalShell onClose={() => setModal(null)} icon={<ArrowDownToLine className="h-4 w-4" />} title={`Depoya Giriş Yap: ${modal.item.itemName}`}>
+        <ModalShell onClose={closeModal} icon={<ArrowDownToLine className="h-4 w-4" />} title={`Depoya Giriş Yap: ${modal.item.itemName}`}>
           <form onSubmit={(e) => { e.preventDefault(); runAction(() => stockApi.receive(modal.item.id, receiveForm, operationKeyRef.current), 'Depo girişi tamamlandı.'); }} className="space-y-3.5">
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <label><span className={labelClass}>Giriş Miktarı ({modal.item.unit}) *</span><input type="number" min={1} required className={inputClass} value={receiveForm.quantity} onChange={(e) => setReceiveForm({ ...receiveForm, quantity: Number(e.target.value) })} /></label>
@@ -1418,7 +1703,7 @@ export const WarehouseManagementView: React.FC<{ currentUser: User }> = ({ curre
             </div>
             <label><span className={labelClass}>Not / Açıklama</span><textarea rows={2} className={`${inputClass} h-auto py-2`} value={receiveForm.notes} onChange={(e) => setReceiveForm({ ...receiveForm, notes: e.target.value })} placeholder="Yönetimsel açıklama..." /></label>
             <div className="flex justify-end gap-2 border-t border-slate-200 pt-3">
-              <button type="button" onClick={() => setModal(null)} className={secondaryButton}>Vazgeç</button>
+              <button type="button" onClick={closeModal} className={secondaryButton}>Vazgeç</button>
               <button disabled={busy || receiveForm.quantity < 1} className={primaryButton}>{busy ? 'İşleniyor...' : 'Depoya Ekle'}</button>
             </div>
           </form>
@@ -1427,7 +1712,7 @@ export const WarehouseManagementView: React.FC<{ currentUser: User }> = ({ curre
 
       {/* MODAL: ASSIGN TO ROOM OR EMPLOYEE */}
       {modal?.type === 'assign' && (
-        <ModalShell onClose={() => setModal(null)} icon={<Send className="h-4 w-4" />} title="Odaya veya Personele Zimmet Ver">
+        <ModalShell onClose={closeModal} icon={<Send className="h-4 w-4" />} title="Odaya veya Personele Zimmet Ver">
           <form onSubmit={(e) => {
             e.preventDefault();
             const itemId = assignForm.stockItemId || modal.item?.id;
@@ -1532,7 +1817,7 @@ export const WarehouseManagementView: React.FC<{ currentUser: User }> = ({ curre
             <label><span className={labelClass}>Zimmet Açıklaması</span><input className={inputClass} value={assignForm.notes} onChange={(e) => setAssignForm({ ...assignForm, notes: e.target.value })} placeholder="Not..." /></label>
 
             <div className="flex justify-end gap-2 border-t border-slate-200 pt-3">
-              <button type="button" onClick={() => setModal(null)} className={secondaryButton}>Vazgeç</button>
+              <button type="button" onClick={closeModal} className={secondaryButton}>Vazgeç</button>
               <button disabled={busy || (!assignForm.stockItemId && !modal.item?.id) || (assignForm.targetType === 'ROOM' ? !assignForm.roomId : !assignForm.employeeId)} className={primaryButton}>{busy ? 'İşleniyor...' : 'Zimmetle'}</button>
             </div>
           </form>
@@ -1541,7 +1826,7 @@ export const WarehouseManagementView: React.FC<{ currentUser: User }> = ({ curre
 
       {/* MODAL: ASSIGNMENT PROCESS (Transfer / Replacement / Return) */}
       {modal?.type === 'assignment' && (
-        <ModalShell onClose={() => setModal(null)} icon={<ClipboardCheck className="h-4 w-4" />} title="Oda Zimmet Sürecini Yönet" subtitle={`${roomName(modal.assignment)} · ${modal.item.itemName}`}>
+        <ModalShell onClose={closeModal} icon={<ClipboardCheck className="h-4 w-4" />} title="Oda Zimmet Sürecini Yönet" subtitle={`${roomName(modal.assignment)} · ${modal.item.itemName}`}>
           <form onSubmit={(event) => { event.preventDefault(); const { assignment } = modal; if (assignmentForm.action === 'TRANSFER') runAction(() => stockApi.transferAssignment(assignment.id, { roomId: assignmentForm.roomId, notes: assignmentForm.notes }, operationKeyRef.current), 'Zimmet transfer edildi.'); else if (assignmentForm.action === 'RETURN') runAction(() => stockApi.returnAssignment(assignment.id, { outcome: assignmentForm.outcome, notes: assignmentForm.notes }, operationKeyRef.current), 'İade tamamlandı.'); else if (assignmentForm.action === 'IDENTITY') runAction(() => stockApi.updateAssignmentIdentity(assignment.id, { brand: assignmentForm.brand, notes: assignmentForm.notes }, operationKeyRef.current), 'Bilgiler güncellendi.'); else runAction(() => stockApi.replaceAssignment(assignment.id, { brand: assignmentForm.brand, notes: assignmentForm.notes }, operationKeyRef.current), 'Ürün değiştirildi.'); }} className="space-y-3.5">
             <div className="grid grid-cols-2 gap-2 rounded-xl border border-slate-200 bg-slate-50 p-2.5 text-xs">
               <div><p className="font-semibold text-slate-500">Marka / Model</p><p className="font-bold text-slate-800">{modal.assignment.brand || '-'}</p></div>
@@ -1565,7 +1850,7 @@ export const WarehouseManagementView: React.FC<{ currentUser: User }> = ({ curre
             {assignmentForm.action === 'IDENTITY' && <label><span className={labelClass}>Marka / Model</span><input className={inputClass} value={assignmentForm.brand} onChange={(e) => setAssignmentForm({ ...assignmentForm, brand: e.target.value })} /></label>}
             {assignmentForm.action === 'REPLACE' && <label><span className={labelClass}>Yeni Marka / Model</span><input className={inputClass} value={assignmentForm.brand} onChange={(e) => setAssignmentForm({ ...assignmentForm, brand: e.target.value })} /></label>}
             <label><span className={labelClass}>İşlem Açıklaması *</span><textarea required rows={2} className={`${inputClass} h-auto py-2`} value={assignmentForm.notes} onChange={(e) => setAssignmentForm({ ...assignmentForm, notes: e.target.value })} placeholder="Açıklama yazın..." /></label>
-            <div className="flex justify-end gap-2 border-t border-slate-200 pt-3"><button type="button" onClick={() => setModal(null)} className={secondaryButton}>Vazgeç</button><button disabled={busy || !assignmentForm.notes.trim()} className={primaryButton}>{busy ? 'İşleniyor...' : 'Onayla'}</button></div>
+            <div className="flex justify-end gap-2 border-t border-slate-200 pt-3"><button type="button" onClick={closeModal} className={secondaryButton}>Vazgeç</button><button disabled={busy || !assignmentForm.notes.trim()} className={primaryButton}>{busy ? 'İşleniyor...' : 'Onayla'}</button></div>
           </form>
         </ModalShell>
       )}

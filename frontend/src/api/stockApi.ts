@@ -27,13 +27,14 @@ export interface RoomAssignment {
   status: AssignmentStatus;
   notes?: string | null;
   room: StockRoom;
-  maintenances?: Array<{ id: string; status: 'OPEN' | 'IN_PROGRESS' | 'RESOLVED' | 'CLOSED'; priority?: string; title: string; description: string; createdAt: string; resolvedAt?: string | null; resolutionNote?: string | null }>;
+  maintenances?: Array<{ id: string; status: 'OPEN' | 'IN_PROGRESS' | 'RESOLVED' | 'CLOSED'; priority?: 'LOW' | 'MEDIUM' | 'HIGH' | 'URGENT'; title: string; description: string; reportedBy?: string | null; assignedTo?: string | null; createdAt: string; resolvedAt?: string | null; resolutionNote?: string | null }>;
   stockItem?: { id: string; itemName: string; itemCode?: string | null; unit: string };
 }
 
 export interface StockMovement {
   id: string;
   stockItemId: string;
+  roomInventoryId?: string | null;
   type: MovementType;
   quantity: number;
   itemNameSnapshot: string;
@@ -120,10 +121,11 @@ const request = async <T>(path: string, init?: RequestInit): Promise<T> => {
 
 export const stockApi = {
   getOverview: () => request<StockOverview>(''),
-  getMovements: (filters: { search?: string; stockItemId?: string; type?: MovementType | 'ALL'; dateStart?: string; dateEnd?: string; page?: number; pageSize?: number } = {}) => {
+  getMovements: (filters: { search?: string; stockItemId?: string; roomInventoryId?: string; type?: MovementType | 'ALL'; dateStart?: string; dateEnd?: string; page?: number; pageSize?: number } = {}) => {
     const params = new URLSearchParams();
     if (filters.search) params.set('search', filters.search);
     if (filters.stockItemId) params.set('stockItemId', filters.stockItemId);
+    if (filters.roomInventoryId) params.set('roomInventoryId', filters.roomInventoryId);
     if (filters.type && filters.type !== 'ALL') params.set('type', filters.type);
     if (filters.dateStart) params.set('dateStart', filters.dateStart);
     if (filters.dateEnd) params.set('dateEnd', filters.dateEnd);
