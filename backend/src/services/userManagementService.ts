@@ -109,7 +109,7 @@ export class UserManagementService {
     const [items, total] = await prisma.$transaction([
       prisma.user.findMany({
         where,
-        orderBy: [{ isActive: 'desc' }, { fullName: 'asc' }],
+        orderBy: [{ isActive: 'desc' }, { fullName: 'asc' }, { id: 'asc' }],
         skip: (filters.page - 1) * filters.pageSize,
         take: filters.pageSize,
         select: userSummarySelect,

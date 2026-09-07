@@ -20,8 +20,6 @@ import {
   VolumeX,
   Lock,
   Eye,
-  ChevronLeft,
-  ChevronRight,
   Calendar,
   RotateCcw,
   ChevronDown,
@@ -43,6 +41,7 @@ import { EmployeeDetailView } from './EmployeeDetailView';
 import { EmployeeExportModal, EmployeeExportFilter } from './EmployeeExportModal';
 import { AssignRoomModal } from './AssignRoomModal';
 import { DateRangePicker } from './DateRangePicker';
+import { useInfiniteScroll } from '../hooks/useInfiniteScroll';
 
 /**
  * Formats ISO date time strings for Turkish display
@@ -213,8 +212,7 @@ export const EmployeeManagementView: React.FC<EmployeeManagementViewProps> = ({ 
     }
   };
 
-  const [currentPage, setCurrentPage] = useState(1);
-  const [pageSize, setPageSize] = useState(25);
+  const [visibleCount, setVisibleCount] = useState(25);
   const employeeRequestId = useRef(0);
 
   const fetchEmployees = async () => {
@@ -243,10 +241,10 @@ export const EmployeeManagementView: React.FC<EmployeeManagementViewProps> = ({ 
     return () => window.clearTimeout(timer);
   }, [search, statusFilter, departmentFilter, genderFilter, dateRangeStart, dateRangeEnd]);
 
-  // Reset pagination to page 1 on filter changes
+  // Reset progressive rendering when the backend query changes.
   useEffect(() => {
-    setCurrentPage(1);
-  }, [search, statusFilter, departmentFilter, genderFilter, dateRangeStart, dateRangeEnd]);
+    setVisibleCount(25);
+  }, [search, statusFilter, departmentFilter, genderFilter, dateRangeStart, dateRangeEnd, sortField, sortOrder]);
 
   // Restore saved active employee on initial load or after fetch
   useEffect(() => {
@@ -284,6 +282,16 @@ export const EmployeeManagementView: React.FC<EmployeeManagementViewProps> = ({ 
     }
 
     return 0;
+  });
+  const hasMoreEmployees = visibleCount < sortedEmployees.length;
+  const loadMoreEmployees = () => {
+    if (isLoading || !hasMoreEmployees) return;
+    setVisibleCount((current) => Math.min(current + 25, sortedEmployees.length));
+  };
+  const employeeSentinelRef = useInfiniteScroll({
+    hasMore: hasMoreEmployees,
+    isLoading,
+    onLoadMore: loadMoreEmployees,
   });
 
   const departmentsList = [
@@ -508,7 +516,7 @@ export const EmployeeManagementView: React.FC<EmployeeManagementViewProps> = ({ 
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-200 text-xs font-semibold text-slate-800">
-                {sortedEmployees.slice((currentPage - 1) * pageSize, currentPage * pageSize).map((emp) => {
+                {sortedEmployees.slice(0, visibleCount).map((emp) => {
                   const hasBed = emp.beds && emp.beds.length > 0;
                   const currentBed = hasBed ? emp.beds![0] : null;
 
@@ -659,55 +667,9 @@ export const EmployeeManagementView: React.FC<EmployeeManagementViewProps> = ({ 
             </table>
           </div>
 
-          {/* Table Pagination Bar */}
-          <div className="px-5 py-3.5 bg-slate-50 border-t border-slate-200 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs font-bold text-slate-600">
-            <div className="flex items-center gap-2">
-              <span>Göster:</span>
-              <select
-                value={pageSize}
-                onChange={(e) => {
-                  setPageSize(Number(e.target.value));
-                  setCurrentPage(1);
-                }}
-                className="px-2 py-1 bg-white border border-slate-300 rounded-lg text-xs font-bold text-slate-800 outline-none cursor-pointer"
-              >
-                <option value={10}>10</option>
-                <option value={25}>25</option>
-                <option value={50}>50</option>
-                <option value={100}>100</option>
-              </select>
-              <span>
-                (Toplam <strong className="text-slate-900">{sortedEmployees.length}</strong> personelden{' '}
-                {sortedEmployees.length > 0 ? (currentPage - 1) * pageSize + 1 : 0}-
-                {Math.min(currentPage * pageSize, sortedEmployees.length)} arası)
-              </span>
-            </div>
-
-            <div className="flex items-center gap-1.5">
-              <button
-                type="button"
-                disabled={currentPage <= 1}
-                onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
-                className="p-1.5 rounded-lg bg-white border border-slate-300 hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer transition-colors"
-                title="Önceki Sayfa"
-              >
-                <ChevronLeft className="w-4 h-4 text-slate-700" />
-              </button>
-
-              <span className="px-3 py-1 bg-white border border-slate-300 rounded-lg text-xs font-extrabold text-slate-900">
-                {currentPage} / {Math.ceil(sortedEmployees.length / pageSize) || 1}
-              </span>
-
-              <button
-                type="button"
-                disabled={currentPage >= Math.ceil(sortedEmployees.length / pageSize)}
-                onClick={() => setCurrentPage(prev => Math.min(prev + 1, Math.ceil(sortedEmployees.length / pageSize)))}
-                className="p-1.5 rounded-lg bg-white border border-slate-300 hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer transition-colors"
-                title="Sonraki Sayfa"
-              >
-                <ChevronRight className="w-4 h-4 text-slate-700" />
-              </button>
-            </div>
+          <div ref={employeeSentinelRef} role="status" aria-live="polite" className="px-5 py-3.5 bg-slate-50 border-t border-slate-200 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs font-bold text-slate-600">
+            <span><strong className="text-slate-900">{Math.min(visibleCount, sortedEmployees.length)}</strong> / {sortedEmployees.length} güncel backend kaydı gösteriliyor</span>
+            {hasMoreEmployees ? <button type="button" onClick={loadMoreEmployees} className="rounded-lg border border-slate-300 bg-white px-3 py-2 font-extrabold text-[#1e3a8a] hover:bg-slate-100">Daha fazla personel göster</button> : sortedEmployees.length > 0 ? <span>Tüm personel kayıtları gösteriliyor.</span> : null}
           </div>
         </div>
       )}

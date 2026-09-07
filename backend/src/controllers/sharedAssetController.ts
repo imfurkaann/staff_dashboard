@@ -24,6 +24,7 @@ export class SharedAssetController {
       const data = await SharedAssetService.getLogs({
         assetId,
         search: sharedAssetQuery(req.query.search, 'Arama filtresi'),
+        category: sharedAssetQuery(req.query.category, 'Kategori filtresi'),
         action: sharedAssetQuery(req.query.action, 'İşlem türü filtresi'),
         holderType: sharedAssetQuery(req.query.holderType, 'Zimmet türü filtresi'),
         dateStart: sharedAssetQuery(req.query.dateStart, 'Başlangıç tarihi'),

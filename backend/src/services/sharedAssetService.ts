@@ -111,10 +111,11 @@ export class SharedAssetService {
   }
 
   public static async getLogs(filters: {
-    search?: string; assetId?: string; action?: string; holderType?: string;
+    search?: string; assetId?: string; category?: string; action?: string; holderType?: string;
     dateStart?: string; dateEnd?: string; page?: number; pageSize?: number;
   }) {
     const search = boundedText(filters.search, 'Arama filtresi', 120, { casing: 'preserve' });
+    const category = boundedText(filters.category, 'Kategori filtresi', 100, { casing: 'upper' });
     const action = boundedText(filters.action, 'İşlem türü filtresi', 40, { casing: 'upper' });
     const holderType = boundedText(filters.holderType, 'Zimmet türü filtresi', 20, { casing: 'upper' });
     const allowedActions = ['CREATED','CHECK_OUT','CHECK_IN','MAINTENANCE_START','MAINTENANCE_END','FAULT_REPORTED','REPAIR_COMPLETED','STATUS_CHANGE','SYNC_CORRECTION'];
@@ -127,6 +128,7 @@ export class SharedAssetService {
     const pageSize = Math.min(filters.pageSize || 50, 100);
     const where: Prisma.SharedAssetLogWhereInput = {
       ...(filters.assetId && { assetId: filters.assetId }),
+      ...(category && { asset: { category } }),
       ...(action && { action }), ...(holderType && { holderType }),
       ...((start || end) && { createdAt: { ...(start && { gte: start }), ...(end && { lte: end }) } }),
       ...(search && { OR: [

@@ -195,6 +195,7 @@ export const maintenanceService = {
           { status: 'asc' },
           { priority: 'desc' },
           { createdAt: 'desc' },
+          { id: 'desc' },
         ],
         skip,
         take: limit,

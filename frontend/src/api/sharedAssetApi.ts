@@ -92,6 +92,7 @@ export interface SharedAssetOverview {
 const request = async <T>(path: string, init?: RequestInit): Promise<T> => {
   const response = await fetch(`${appConfig.apiBaseUrl}/shared-assets${path}`, {
     credentials: 'include',
+    cache: 'no-store',
     ...init,
     headers: { 'Content-Type': 'application/json', ...(init?.headers || {}) },
   });
@@ -100,7 +101,7 @@ const request = async <T>(path: string, init?: RequestInit): Promise<T> => {
   return data.data;
 };
 
-type SharedAssetLogFilters = { search?: string; assetId?: string; action?: string; holderType?: string; dateStart?: string; dateEnd?: string; page?: number; pageSize?: number };
+type SharedAssetLogFilters = { search?: string; assetId?: string; category?: string; action?: string; holderType?: string; dateStart?: string; dateEnd?: string; page?: number; pageSize?: number };
 
 const getLogs = (params: SharedAssetLogFilters) => {
   const query = new URLSearchParams();

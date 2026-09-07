@@ -214,7 +214,7 @@ export class NotificationService {
     const [notifications, totalFiltered, total, normalCount, importantCount, urgentCount] = await prisma.$transaction([
       prisma.notification.findMany({
         where,
-        orderBy: { createdAt: 'desc' },
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
         skip: (page - 1) * pageSize,
         take: pageSize,
         include: {

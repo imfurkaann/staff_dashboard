@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowLeft, Building2, CalendarDays, Car, FileSpreadsheet, Filter, Phone, RotateCcw, Search, Target, UserCheck } from 'lucide-react';
 import { User } from '../api/authApi';
 import { Visitor, VisitorQuery, visitorApi } from '../api/visitorApi';
@@ -7,6 +7,7 @@ import { DateRangePicker } from './DateRangePicker';
 import { VisitorRecordsTable } from './VisitorRecordsTable';
 import { VisitorExportModal, VisitorExportFilter } from './VisitorExportModal';
 import { can } from '../security/accessControl';
+import { mergeById } from '../utils/pagination';
 
 interface Props { currentUser: User; onBack: () => void }
 
@@ -15,8 +16,9 @@ export const VisitorHistoryView: React.FC<Props> = ({ currentUser, onBack }) => 
   const [loading, setLoading] = useState(true);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [page, setPage] = useState(1);
   const [pagination, setPagination] = useState({ page: 1, pageSize: 25, total: 0, totalPages: 0 });
+  const [loadingMore, setLoadingMore] = useState(false);
+  const requestIdRef = useRef(0);
   const [editing, setEditing] = useState<Visitor | null>(null);
   const [filters, setFilters] = useState({ visitorName: '', company: '', hostName: '', purpose: '', phone: '', vehiclePlate: '', dateStart: '', dateEnd: '', status: 'ALL' as NonNullable<VisitorQuery['status']> });
   
@@ -27,22 +29,45 @@ export const VisitorHistoryView: React.FC<Props> = ({ currentUser, onBack }) => 
   const canExport = can(currentUser.role, 'VISITOR_EXPORT');
   const query = useMemo<VisitorQuery>(() => ({
     ...filters,
-    page,
     pageSize: 25,
     sortBy: 'entryTime',
     sortOrder: 'desc',
     includeDeleted: filters.status === 'DELETED' || filters.status === 'WITH_DELETED',
-  }), [filters, page]);
+  }), [filters]);
 
-  const load = async () => {
-    setLoading(true); setError(null);
-    try { const result = await visitorApi.getVisitors(query); setVisitors(result.items); setPagination(result.pagination); }
-    catch (caught) { setError(caught instanceof Error ? caught.message : 'Geçmiş ziyaretçi kayıtları yüklenemedi.'); }
-    finally { setLoading(false); }
+  const load = async (pageToFetch = 1) => {
+    const requestId = ++requestIdRef.current;
+    if (pageToFetch === 1) setLoading(true);
+    else setLoadingMore(true);
+    setError(null);
+    try {
+      const result = await visitorApi.getVisitors({ ...query, page: pageToFetch });
+      if (requestId !== requestIdRef.current) return;
+      setVisitors((current) => pageToFetch === 1 ? result.items : mergeById(current, result.items));
+      setPagination(result.pagination);
+    } catch (caught) {
+      if (requestId === requestIdRef.current) setError(caught instanceof Error ? caught.message : 'Geçmiş ziyaretçi kayıtları yüklenemedi.');
+    } finally {
+      if (requestId === requestIdRef.current) {
+        setLoading(false);
+        setLoadingMore(false);
+      }
+    }
   };
-  useEffect(() => { const timer = window.setTimeout(load, 300); return () => window.clearTimeout(timer); }, [query]);
-  const update = (field: keyof typeof filters, value: string) => { setFilters((current) => ({ ...current, [field]: value })); setPage(1); };
-  const reset = () => { setFilters({ visitorName: '', company: '', hostName: '', purpose: '', phone: '', vehiclePlate: '', dateStart: '', dateEnd: '', status: 'ALL' }); setPage(1); };
+  useEffect(() => {
+    requestIdRef.current += 1;
+    setVisitors([]);
+    setPagination({ page: 1, pageSize: 25, total: 0, totalPages: 0 });
+    const timer = window.setTimeout(() => void load(1), 300);
+    return () => window.clearTimeout(timer);
+  }, [query]);
+  const update = (field: keyof typeof filters, value: string) => setFilters((current) => ({ ...current, [field]: value }));
+  const reset = () => setFilters({ visitorName: '', company: '', hostName: '', purpose: '', phone: '', vehiclePlate: '', dateStart: '', dateEnd: '', status: 'ALL' });
+  const hasMore = pagination.page < pagination.totalPages;
+  const loadMore = () => {
+    if (!hasMore || loading || loadingMore) return;
+    void load(pagination.page + 1);
+  };
 
   return <div className="space-y-5 animate-fadeIn">
     {error && <div className="rounded-2xl border border-rose-200 bg-rose-50 p-3 text-xs font-bold text-rose-800">{error}</div>}
@@ -176,7 +201,6 @@ export const VisitorHistoryView: React.FC<Props> = ({ currentUser, onBack }) => 
             endDate={filters.dateEnd}
             onChange={(start, end) => {
               setFilters((current) => ({ ...current, dateStart: start, dateEnd: end }));
-              setPage(1);
             }}
           />
         </div>
@@ -204,10 +228,9 @@ export const VisitorHistoryView: React.FC<Props> = ({ currentUser, onBack }) => 
       </div>
     </section>
 
-    <div className="flex items-center justify-between text-xs font-bold text-slate-500"><span>{pagination.total} kayıt bulundu</span><span>Sayfa {pagination.page} / {Math.max(1, pagination.totalPages)}</span></div>
-    <VisitorRecordsTable visitors={visitors} loading={loading} busyId={busyId} canManageArchive={canManageArchive} readOnly={true} />
-    {pagination.totalPages > 1 && <div className="flex justify-end gap-2"><button disabled={page <= 1} onClick={() => setPage((current) => current - 1)} className="px-4 py-2 rounded-xl border border-slate-300 bg-white text-xs font-bold disabled:opacity-40">Önceki</button><button disabled={page >= pagination.totalPages} onClick={() => setPage((current) => current + 1)} className="px-4 py-2 rounded-xl border border-slate-300 bg-white text-xs font-bold disabled:opacity-40">Sonraki</button></div>}
-    <AddVisitorModal isOpen={Boolean(editing)} visitor={editing} onClose={() => setEditing(null)} onSuccess={load} />
+    <div className="flex items-center justify-between text-xs font-bold text-slate-500"><span>{pagination.total} kayıt bulundu</span><span>{visitors.length} / {pagination.total} kayıt backend üzerinden yüklendi</span></div>
+    <VisitorRecordsTable visitors={visitors} loading={loading} loadingMore={loadingMore} hasMore={hasMore} onLoadMore={loadMore} busyId={busyId} canManageArchive={canManageArchive} readOnly={true} />
+    <AddVisitorModal isOpen={Boolean(editing)} visitor={editing} onClose={() => setEditing(null)} onSuccess={() => void load(1)} />
 
     {/* Visitor Export Modal */}
     {canExport && <VisitorExportModal

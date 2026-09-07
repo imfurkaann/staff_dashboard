@@ -65,7 +65,7 @@ export const notificationApi = {
     if (query.dateStart) params.append('dateStart', query.dateStart);
     if (query.dateEnd) params.append('dateEnd', query.dateEnd);
 
-    const res = await fetch(`${API_BASE_URL}/notifications?${params.toString()}`, { credentials: 'include' });
+    const res = await fetch(`${API_BASE_URL}/notifications?${params.toString()}`, { credentials: 'include', cache: 'no-store' });
     const data = await res.json();
     if (!res.ok) throw new Error(data.message || 'Gönderilen bildirimler alınamadı.');
     return { items: data.data, summary: data.summary, pagination: data.pagination };
@@ -85,7 +85,7 @@ export const notificationApi = {
   },
 
   getNotificationDetail: async (id: string): Promise<SentNotification> => {
-    const res = await fetch(`${API_BASE_URL}/notifications/${id}`, { credentials: 'include' });
+    const res = await fetch(`${API_BASE_URL}/notifications/${id}`, { credentials: 'include', cache: 'no-store' });
     const data = await res.json();
     if (!res.ok) throw new Error(data.message || 'Duyuru ayrıntısı alınamadı.');
     return data.data;

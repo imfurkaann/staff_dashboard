@@ -52,14 +52,14 @@ export const ticketApi = {
     if (filters?.search) params.append('search', filters.search);
 
     const query = params.toString() ? `?${params.toString()}` : '';
-    const res = await fetch(`${appConfig.apiBaseUrl}/tickets${query}`, { credentials: 'include' });
+    const res = await fetch(`${appConfig.apiBaseUrl}/tickets${query}`, { credentials: 'include', cache: 'no-store' });
     const json = await res.json();
     if (!res.ok) throw new Error(json.message || 'Talepler alınamadı.');
     return json.data;
   },
 
   async getMyTickets(): Promise<SupportTicket[]> {
-    const res = await fetch(`${appConfig.apiBaseUrl}/tickets/my-tickets`, { credentials: 'include' });
+    const res = await fetch(`${appConfig.apiBaseUrl}/tickets/my-tickets`, { credentials: 'include', cache: 'no-store' });
     const json = await res.json();
     if (!res.ok) throw new Error(json.message || 'Talepleriniz alınamadı.');
     return json.data || [];

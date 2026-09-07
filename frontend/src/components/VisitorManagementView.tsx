@@ -5,6 +5,7 @@ import { Visitor, VisitorQuery, visitorApi } from '../api/visitorApi';
 import { AddVisitorModal } from './AddVisitorModal';
 import { VisitorHistoryView } from './VisitorHistoryView';
 import { VisitorRecordsTable } from './VisitorRecordsTable';
+import { mergeById } from '../utils/pagination';
 import { can } from '../security/accessControl';
 import { managementUrl } from '../utils/navigationUrl';
 
@@ -59,7 +60,7 @@ export const VisitorManagementView: React.FC<Props> = ({ currentUser }) => {
       if (pageToFetch === 1) {
         setVisitors(result.items);
       } else {
-        setVisitors((prev) => [...prev, ...result.items]);
+        setVisitors((prev) => mergeById(prev, result.items));
       }
       setPage(pageToFetch);
       setHasMore(result.pagination.page < result.pagination.totalPages);

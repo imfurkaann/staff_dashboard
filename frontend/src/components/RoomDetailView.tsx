@@ -40,6 +40,7 @@ import { CompleteCleaningModal } from './CompleteCleaningModal';
 import { getInventoryStatusLabel } from '../utils/inventoryStatusLabels';
 import { User } from '../api/authApi';
 import { can } from '../security/accessControl';
+import { useInfiniteScroll } from '../hooks/useInfiniteScroll';
 
 interface RoomDetailViewProps {
   room: Room;
@@ -83,6 +84,7 @@ export const RoomDetailView: React.FC<RoomDetailViewProps> = ({
     const savedTab = localStorage.getItem('staff_app_room_detail_tab') as RoomTabType;
     return allowedTabs.includes(savedTab) ? savedTab : (allowedTabs[0] || 'overview');
   });
+  const [detailVisibleCount, setDetailVisibleCount] = useState(25);
   const [historySearchQuery, setHistorySearchQuery] = useState<string>('');
   const [showPrintModal, setShowPrintModal] = useState(false);
   const [printType, setPrintType] = useState<RoomPrintType>('all');
@@ -351,6 +353,7 @@ export const RoomDetailView: React.FC<RoomDetailViewProps> = ({
   const handleTabChange = (tab: RoomTabType) => {
     if (!allowedTabs.includes(tab)) return;
     setActiveTab(tab);
+    setDetailVisibleCount(25);
     localStorage.setItem('staff_app_room_detail_tab', tab);
   };
 
@@ -524,6 +527,38 @@ export const RoomDetailView: React.FC<RoomDetailViewProps> = ({
 
   // Cleaning logs for room
   const roomCleaningLogs = currentRoom.cleaningLogs || [];
+  const normalizedHistorySearch = historySearchQuery.trim().toLocaleLowerCase('tr-TR');
+  const filteredRoomOccupancyHistory = roomOccupancyHistory.filter((occupancy) => {
+    if (!normalizedHistorySearch) return true;
+    const fullName = `${occupancy.employee.firstName} ${occupancy.employee.lastName}`.toLocaleLowerCase('tr-TR');
+    return fullName.includes(normalizedHistorySearch);
+  });
+  const detailRecordTotal = activeTab === 'inventory'
+    ? roomInventories.length + roomSharedAssets.length
+    : activeTab === 'maintenance'
+      ? roomMaintenances.length
+      : activeTab === 'cleaning'
+        ? roomCleaningLogs.length
+        : activeTab === 'history'
+          ? filteredRoomOccupancyHistory.length
+          : 0;
+  const visibleDetailTotal = activeTab === 'inventory'
+    ? Math.min(detailVisibleCount, roomInventories.length) + Math.min(detailVisibleCount, roomSharedAssets.length)
+    : Math.min(detailVisibleCount, detailRecordTotal);
+  const hasMoreDetailRecords = visibleDetailTotal < detailRecordTotal;
+  const detailSentinelRef = useInfiniteScroll({
+    hasMore: hasMoreDetailRecords,
+    isLoading: false,
+    onLoadMore: () => setDetailVisibleCount((count) => count + 25),
+  });
+  const detailInfiniteFooter = detailRecordTotal > 0 && (
+    <div ref={detailSentinelRef} className="m-5 mt-0 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
+      <span className="text-[11px] font-bold text-slate-500">{visibleDetailTotal} / {detailRecordTotal} kayıt gösteriliyor</span>
+      {hasMoreDetailRecords
+        ? <button type="button" onClick={() => setDetailVisibleCount((count) => count + 25)} className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-bold text-slate-700 hover:bg-slate-100">Daha fazla göster</button>
+        : <span className="text-[11px] font-bold text-emerald-700">Tüm kayıtlar gösterildi</span>}
+    </div>
+  );
   const roomResidents = (currentRoom.beds || [])
     .filter((b) => b.isOccupied && b.currentEmployee)
     .map((b) => ({
@@ -1029,7 +1064,7 @@ export const RoomDetailView: React.FC<RoomDetailViewProps> = ({
                   </tr>
                 </thead>
                 <tbody>
-                  {roomInventories.map((inv) => (
+                  {roomInventories.slice(0, detailVisibleCount).map((inv) => (
                     <tr key={inv.id}>
                       <td className="font-extrabold text-slate-900">
                         <div className="flex items-center gap-2">
@@ -1065,7 +1100,7 @@ export const RoomDetailView: React.FC<RoomDetailViewProps> = ({
                     </tr>
                   ))}
 
-                  {roomSharedAssets.map((asset) => (
+                  {roomSharedAssets.slice(0, detailVisibleCount).map((asset) => (
                     <tr key={`sa-${asset.id}`} className="bg-blue-50/20 hover:bg-blue-50/50">
                       <td className="font-extrabold text-slate-900">
                         <div className="flex items-center gap-2">
@@ -1103,6 +1138,7 @@ export const RoomDetailView: React.FC<RoomDetailViewProps> = ({
               </table>
             </div>
           )}
+          {detailInfiniteFooter}
         </div>
       )}
 
@@ -1165,7 +1201,7 @@ export const RoomDetailView: React.FC<RoomDetailViewProps> = ({
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-200 text-xs font-bold text-slate-900">
-                  {roomMaintenances.map((log) => (
+                  {roomMaintenances.slice(0, detailVisibleCount).map((log) => (
                     <tr
                       key={log.id}
                       onClick={() => setSelectedMaintenanceDetail(log)}
@@ -1299,6 +1335,7 @@ export const RoomDetailView: React.FC<RoomDetailViewProps> = ({
               </table>
             </div>
           )}
+          {detailInfiniteFooter}
         </div>
       )}
 
@@ -1365,7 +1402,7 @@ export const RoomDetailView: React.FC<RoomDetailViewProps> = ({
                   </tr>
                 </thead>
                 <tbody>
-                  {roomCleaningLogs.map((log) => {
+                  {roomCleaningLogs.slice(0, detailVisibleCount).map((log) => {
                     const isCleaned = log.status === 'CLEANED';
                     const isInProgress = log.status === 'IN_PROGRESS';
                     const isNeedsCleaning = log.status === 'NEEDS_CLEANING';
@@ -1521,6 +1558,7 @@ export const RoomDetailView: React.FC<RoomDetailViewProps> = ({
               </table>
             </div>
           )}
+          {detailInfiniteFooter}
         </div>
       )}
 
@@ -1545,11 +1583,11 @@ export const RoomDetailView: React.FC<RoomDetailViewProps> = ({
                 type="text"
                 placeholder="Sakin adı ve soyadı ile ara..."
                 value={historySearchQuery}
-                onChange={(e) => setHistorySearchQuery(e.target.value)}
+                onChange={(e) => { setHistorySearchQuery(e.target.value); setDetailVisibleCount(25); }}
                 className="bg-transparent text-xs font-bold text-slate-800 focus:outline-none w-full placeholder:text-slate-400"
               />
               {historySearchQuery && (
-                <button onClick={() => setHistorySearchQuery('')} className="text-slate-400 hover:text-slate-600">
+                <button onClick={() => { setHistorySearchQuery(''); setDetailVisibleCount(25); }} className="text-slate-400 hover:text-slate-600">
                   <X className="w-3.5 h-3.5" />
                 </button>
               )}
@@ -1574,14 +1612,8 @@ export const RoomDetailView: React.FC<RoomDetailViewProps> = ({
                   </tr>
                 </thead>
                 <tbody>
-                  {roomOccupancyHistory
-                    .filter((occupancy) => {
-                      const emp = occupancy.employee;
-                      if (!historySearchQuery.trim()) return true;
-                      const q = historySearchQuery.toLowerCase().trim();
-                      const fullName = `${emp.firstName} ${emp.lastName}`.toLowerCase();
-                      return fullName.includes(q);
-                    })
+                  {filteredRoomOccupancyHistory
+                    .slice(0, detailVisibleCount)
                     .map((occupancy) => {
                       const emp = occupancy.employee;
 
@@ -1651,6 +1683,7 @@ export const RoomDetailView: React.FC<RoomDetailViewProps> = ({
               </table>
             </div>
           )}
+          {detailInfiniteFooter}
         </div>
       )}
       {showPrintModal && (

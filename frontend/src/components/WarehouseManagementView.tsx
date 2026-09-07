@@ -11,6 +11,8 @@ import { can } from '../security/accessControl';
 import { generateUUID } from '../utils/cryptoHelpers';
 import { managementUrl } from '../utils/navigationUrl';
 import { StockDetailExportModal } from './StockDetailExportModal';
+import { useInfiniteScroll } from '../hooks/useInfiniteScroll';
+import { mergeById } from '../utils/pagination';
 
 type MainTab = 'quick' | 'stock' | 'rooms' | 'personnel' | 'movements';
 type PassportSection = 'overview' | 'rooms' | 'coverage' | 'faults' | 'movements';
@@ -102,6 +104,26 @@ const inputClass = 'w-full min-h-10 px-3 rounded-lg border border-slate-300 bg-s
 const labelClass = 'block mb-1 text-[11px] font-bold uppercase tracking-wider text-slate-700';
 const primaryButton = 'inline-flex h-8 items-center justify-center gap-1.5 rounded-lg border border-[#1e3a8a] bg-[#1e3a8a] px-3 text-xs font-bold text-white shadow-xs transition hover:bg-[#172554] disabled:cursor-not-allowed disabled:opacity-50 cursor-pointer';
 const secondaryButton = 'inline-flex h-8 items-center justify-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 text-xs font-bold text-slate-700 shadow-xs transition hover:border-slate-400 hover:bg-slate-50 disabled:opacity-50 cursor-pointer';
+
+const ProgressivePassportFooter: React.FC<{
+  visible: number;
+  total: number;
+  onLoadMore: () => void;
+}> = ({ visible, total, onLoadMore }) => {
+  const hasMore = visible < total;
+  const sentinelRef = useInfiniteScroll({ hasMore, isLoading: false, onLoadMore });
+
+  if (total === 0) return null;
+
+  return (
+    <div ref={sentinelRef} className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-200 px-4 py-3">
+      <p className="text-[11px] font-semibold text-slate-500">{visible} / {total} kayıt gösteriliyor</p>
+      {hasMore
+        ? <button type="button" onClick={onLoadMore} className={secondaryButton}>Daha fazla göster</button>
+        : <span className="text-[11px] font-bold text-emerald-700">Tüm kayıtlar gösterildi</span>}
+    </div>
+  );
+};
 
 // Clean Enterprise Status Badges (Monochrome Dot Indicators, No Emojis)
 const StatusBadge = ({ status }: { status: AssignmentStatus }) => {
@@ -472,8 +494,11 @@ export const WarehouseManagementView: React.FC<{ currentUser: User }> = ({ curre
   const [movementPage, setMovementPage] = useState(1);
   const [movementResult, setMovementResult] = useState<StockMovementList>({ items: [], pagination: { page: 1, pageSize: 50, total: 0, totalPages: 1 } });
   const [movementsLoading, setMovementsLoading] = useState(false);
+  const [movementsLoadingMore, setMovementsLoadingMore] = useState(false);
+  const movementRequestIdRef = useRef(0);
   const [detailMovements, setDetailMovements] = useState<StockMovement[]>([]);
   const [detailMovementsLoading, setDetailMovementsLoading] = useState(false);
+  const [mainVisibleCount, setMainVisibleCount] = useState(25);
   const [standardForm, setStandardForm] = useState({ fixedQuantity: 0, quantityPerBed: 0, roomType: 'PERSONEL_ODASI' });
   const [cardForm, setCardForm] = useState({
     itemName: '',
@@ -621,15 +646,39 @@ export const WarehouseManagementView: React.FC<{ currentUser: User }> = ({ curre
 
   useEffect(() => {
     if (tab !== 'movements') return;
+    const requestId = ++movementRequestIdRef.current;
     const timer = window.setTimeout(() => {
-      setMovementsLoading(true);
+      if (movementPage === 1) setMovementsLoading(true);
+      else setMovementsLoadingMore(true);
       stockApi.getMovements({ search, stockItemId: movementStockItemId || undefined, type: movementType, dateStart: movementDateStart || undefined, dateEnd: movementDateEnd || undefined, page: movementPage, pageSize: 50 })
-        .then(setMovementResult)
-        .catch((caught) => setError(caught instanceof Error ? caught.message : 'Hareket geçmişi yüklenemedi.'))
-        .finally(() => setMovementsLoading(false));
+        .then((result) => {
+          if (requestId !== movementRequestIdRef.current) return;
+          setMovementResult((current) => movementPage === 1
+            ? result
+            : { items: mergeById(current.items, result.items), pagination: result.pagination });
+        })
+        .catch((caught) => { if (requestId === movementRequestIdRef.current) setError(caught instanceof Error ? caught.message : 'Hareket geçmişi yüklenemedi.'); })
+        .finally(() => {
+          if (requestId === movementRequestIdRef.current) {
+            setMovementsLoading(false);
+            setMovementsLoadingMore(false);
+          }
+        });
     }, 250);
     return () => window.clearTimeout(timer);
   }, [tab, search, movementStockItemId, movementType, movementDateStart, movementDateEnd, movementPage]);
+
+  const movementHasMore = movementResult.pagination.page < movementResult.pagination.totalPages;
+  const loadMoreMovements = () => {
+    if (tab !== 'movements' || !movementHasMore || movementsLoading || movementsLoadingMore) return;
+    setMovementPage((current) => current + 1);
+  };
+  const movementSentinelRef = useInfiniteScroll({
+    enabled: tab === 'movements',
+    hasMore: movementHasMore,
+    isLoading: movementsLoading || movementsLoadingMore,
+    onLoadMore: loadMoreMovements,
+  });
 
   useEffect(() => {
     if (!passportModal) { setDetailMovements([]); return; }
@@ -678,6 +727,23 @@ export const WarehouseManagementView: React.FC<{ currentUser: User }> = ({ curre
     const employeeName = `${assignment.employee.firstName} ${assignment.employee.lastName}`;
     return !query || [assignment.itemName, assignment.itemCode, employeeName, assignment.employee.registrationNo, assignment.employee.department].some((value) => value?.toLocaleLowerCase('tr-TR').includes(query));
   }), [filteredItems, search]);
+  const activeMainTotal = tab === 'rooms'
+    ? assignments.length
+    : tab === 'personnel'
+      ? personnelAssignments.length
+      : filteredItems.length;
+  useEffect(() => { setMainVisibleCount(25); }, [tab, search, category, itemTypeFilter, stockFilter, overview]);
+  const hasMoreMainRecords = tab !== 'movements' && mainVisibleCount < activeMainTotal;
+  const loadMoreMainRecords = () => {
+    if (loading || !hasMoreMainRecords) return;
+    setMainVisibleCount((current) => Math.min(current + 25, activeMainTotal));
+  };
+  const mainRecordSentinelRef = useInfiniteScroll({
+    enabled: tab !== 'movements',
+    hasMore: hasMoreMainRecords,
+    isLoading: loading,
+    onLoadMore: loadMoreMainRecords,
+  });
 
   const runAction = async (action: () => Promise<unknown>, _message: string) => {
     try {
@@ -803,7 +869,7 @@ export const WarehouseManagementView: React.FC<{ currentUser: User }> = ({ curre
     const pageSize = passportSection === 'rooms' ? 25 : 20;
     const totalPages = Math.max(1, Math.ceil(activeCollection.length / pageSize));
     const safePage = Math.min(passportPage, totalPages);
-    const pageStart = (safePage - 1) * pageSize;
+    const visiblePassportCount = Math.min(safePage * pageSize, activeCollection.length);
     const changePassportSection = (section: PassportSection) => {
       setPassportSection(section);
       setSelectedRoomAssignmentId(null);
@@ -813,15 +879,12 @@ export const WarehouseManagementView: React.FC<{ currentUser: User }> = ({ curre
       setPassportPage(1);
       writeWarehouseUrl(tab, passportModal.id, section, 'replace');
     };
-    const pageControls = activeCollection.length > pageSize && (
-      <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-200 px-4 py-3">
-        <p className="text-[11px] font-semibold text-slate-500">{pageStart + 1}-{Math.min(pageStart + pageSize, activeCollection.length)} / {activeCollection.length} kayıt</p>
-        <div className="flex items-center gap-2">
-          <button type="button" disabled={safePage === 1} onClick={() => setPassportPage((page) => Math.max(1, page - 1))} className={secondaryButton}>← Önceki</button>
-          <span className="text-xs font-bold text-slate-700">{safePage} / {totalPages}</span>
-          <button type="button" disabled={safePage === totalPages} onClick={() => setPassportPage((page) => Math.min(totalPages, page + 1))} className={secondaryButton}>Sonraki →</button>
-        </div>
-      </div>
+    const pageControls = (
+      <ProgressivePassportFooter
+        visible={visiblePassportCount}
+        total={activeCollection.length}
+        onLoadMore={() => setPassportPage((page) => Math.min(totalPages, page + 1))}
+      />
     );
 
     const selectedAssignment = selectedRoomAssignmentId ? passportModal.roomInventories.find((assignment) => assignment.id === selectedRoomAssignmentId) : undefined;
@@ -996,7 +1059,7 @@ export const WarehouseManagementView: React.FC<{ currentUser: User }> = ({ curre
               <table className="min-w-[680px] w-full text-left text-xs">
                 <thead className="bg-slate-50 text-[10px] font-bold uppercase text-slate-500"><tr><th className="px-3 py-2">Oda</th><th className="px-3 py-2">Ürün Adı</th><th className="px-3 py-2">Adet</th><th className="px-3 py-2">Durum</th><th className="px-3 py-2">Arıza</th><th className="px-3 py-2 text-right">İşlem</th></tr></thead>
                 <tbody className="divide-y divide-slate-200">
-                  {filteredRoomAssignments.length === 0 ? <tr><td colSpan={6} className="p-10 text-center text-slate-500">Aramanıza uygun oda veya cihaz bulunamadı.</td></tr> : filteredRoomAssignments.slice(pageStart, pageStart + pageSize).map((assignment) => (
+                  {filteredRoomAssignments.length === 0 ? <tr><td colSpan={6} className="p-10 text-center text-slate-500">Aramanıza uygun oda veya cihaz bulunamadı.</td></tr> : filteredRoomAssignments.slice(0, visiblePassportCount).map((assignment) => (
                     <tr key={assignment.id} className="hover:bg-slate-50">
                       <td className="px-3 py-2.5 font-bold text-slate-900">{roomName(assignment)}</td>
                       <td className="px-3 py-2.5 font-bold text-blue-900">{assignment.itemName}</td>
@@ -1040,7 +1103,7 @@ export const WarehouseManagementView: React.FC<{ currentUser: User }> = ({ curre
                 <div>
                   <div className="grid grid-cols-3 gap-2 text-center"><div className="rounded-lg bg-blue-50 p-2"><p className="text-[10px] font-bold text-blue-700">Kapsanan Oda</p><p className="font-black text-blue-900">{passportModal.roomCoverage.totalRooms}</p></div><div className="rounded-lg bg-emerald-50 p-2"><p className="text-[10px] font-bold text-emerald-700">Tam</p><p className="font-black text-emerald-900">{passportModal.roomCoverage.completeRooms}</p></div><div className="rounded-lg bg-rose-50 p-2"><p className="text-[10px] font-bold text-rose-700">Eksik Adet</p><p className="font-black text-rose-900">{passportModal.roomCoverage.missingTotal}</p></div></div>
                   <label className="relative mt-4 block"><Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" /><input value={passportSearch} onChange={(event) => { setPassportSearch(event.target.value); setPassportPage(1); }} className={`${inputClass} pl-9`} placeholder="Eksik odalarda ara..." /></label>
-                  <div className="mt-3 space-y-1.5">{filteredMissingRooms.length === 0 ? <p className="rounded-lg bg-emerald-50 p-4 text-center text-xs font-semibold text-emerald-800">Eksik oda bulunmuyor.</p> : filteredMissingRooms.slice(pageStart, pageStart + pageSize).map((room) => <div key={room.roomId} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-rose-100 bg-rose-50/60 px-3 py-2 text-xs"><span className="font-bold text-slate-800">{room.blockName} / Oda {room.roomNumber}</span><span className="text-[11px] font-semibold text-slate-500">Olması gereken: {room.required} · Mevcut: {room.assigned}</span><span className="font-black text-rose-700">{room.missing} eksik</span></div>)}</div>
+                  <div className="mt-3 space-y-1.5">{filteredMissingRooms.length === 0 ? <p className="rounded-lg bg-emerald-50 p-4 text-center text-xs font-semibold text-emerald-800">Eksik oda bulunmuyor.</p> : filteredMissingRooms.slice(0, visiblePassportCount).map((room) => <div key={room.roomId} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-rose-100 bg-rose-50/60 px-3 py-2 text-xs"><span className="font-bold text-slate-800">{room.blockName} / Oda {room.roomNumber}</span><span className="text-[11px] font-semibold text-slate-500">Olması gereken: {room.required} · Mevcut: {room.assigned}</span><span className="font-black text-rose-700">{room.missing} eksik</span></div>)}</div>
                   {pageControls}
                 </div>
               )}
@@ -1050,14 +1113,14 @@ export const WarehouseManagementView: React.FC<{ currentUser: User }> = ({ curre
         {passportSection === 'faults' && <section className="overflow-hidden rounded-xl border border-slate-200 bg-white">
           <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 bg-slate-50 px-4 py-3"><div><h3 className="text-sm font-black text-slate-900">Arıza Geçmişi</h3><p className="text-[11px] font-semibold text-slate-500">Cihaz adı, oda veya arıza açıklamasına göre arayın.</p></div><span className="text-xs font-bold text-slate-600">{filteredFaults.length} kayıt</span></div>
           <div className="border-b border-slate-200 p-3"><label className="relative block"><Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" /><input value={passportSearch} onChange={(event) => { setPassportSearch(event.target.value); setPassportPage(1); }} className={`${inputClass} pl-9`} placeholder="Oda, cihaz veya arıza açıklaması ara..." /></label></div>
-          <div className="overflow-x-auto"><table className="w-full min-w-[1200px] text-left text-xs"><thead className="border-b border-slate-200 bg-slate-50 text-[10px] font-black uppercase tracking-wider text-slate-600"><tr><th className="px-4 py-3">Blok / Oda</th><th className="px-4 py-3">Cihaz</th><th className="px-4 py-3">Arıza Açıklaması</th><th className="px-4 py-3">Öncelik</th><th className="px-4 py-3">Durum</th><th className="px-4 py-3">Bildiren</th><th className="px-4 py-3">Kapatan</th><th className="px-4 py-3">Açılış Tarihi</th><th className="px-4 py-3">Kapanış Tarihi</th><th className="px-4 py-3">Kapanış Notu</th></tr></thead><tbody className="divide-y divide-slate-200">{filteredFaults.length === 0 ? <tr><td colSpan={10} className="p-10 text-center font-semibold text-slate-500">Aramanıza uygun arıza kaydı bulunmuyor.</td></tr> : filteredFaults.slice(pageStart, pageStart + pageSize).map(({ assignment, maintenance }) => <tr key={maintenance.id} className="hover:bg-slate-50"><td className="whitespace-nowrap px-4 py-3"><p className="font-black text-[#1e3a8a]">{assignment.room.block.name}</p><p className="mt-0.5 font-semibold text-slate-600">Oda {assignment.room.roomNumber} ({assignment.room.floor}. kat)</p></td><td className="max-w-[220px] px-4 py-3"><button type="button" onClick={() => openRoomAssignmentDetail(assignment)} className="text-left font-black text-slate-900 hover:text-[#1e3a8a] hover:underline">{assignment.itemName}</button><p className="mt-1 text-[10px] font-semibold text-slate-500">{assignment.brand || 'Marka belirtilmedi'}</p></td><td className="max-w-[280px] px-4 py-3"><p className="font-black text-slate-900">{maintenance.description}</p><p className="mt-1 text-[10px] font-semibold text-slate-500">{maintenance.title}</p></td><td className="px-4 py-3"><FaultPriorityBadge priority={maintenance.priority} /></td><td className="px-4 py-3"><FaultStatusBadge status={maintenance.status} /></td><td className="px-4 py-3 font-semibold text-slate-700">{maintenance.reportedBy || 'Sistem'}</td><td className="px-4 py-3 font-semibold text-slate-700">{maintenance.assignedTo || '-'}</td><td className="whitespace-nowrap px-4 py-3 font-semibold text-slate-600">{formatDateTime(maintenance.createdAt)}</td><td className="whitespace-nowrap px-4 py-3 font-semibold text-slate-600">{maintenance.resolvedAt ? formatDateTime(maintenance.resolvedAt) : '-'}</td><td className="max-w-[260px] px-4 py-3 text-slate-600">{maintenance.resolutionNote || '-'}</td></tr>)}</tbody></table></div>
+          <div className="overflow-x-auto"><table className="w-full min-w-[1200px] text-left text-xs"><thead className="border-b border-slate-200 bg-slate-50 text-[10px] font-black uppercase tracking-wider text-slate-600"><tr><th className="px-4 py-3">Blok / Oda</th><th className="px-4 py-3">Cihaz</th><th className="px-4 py-3">Arıza Açıklaması</th><th className="px-4 py-3">Öncelik</th><th className="px-4 py-3">Durum</th><th className="px-4 py-3">Bildiren</th><th className="px-4 py-3">Kapatan</th><th className="px-4 py-3">Açılış Tarihi</th><th className="px-4 py-3">Kapanış Tarihi</th><th className="px-4 py-3">Kapanış Notu</th></tr></thead><tbody className="divide-y divide-slate-200">{filteredFaults.length === 0 ? <tr><td colSpan={10} className="p-10 text-center font-semibold text-slate-500">Aramanıza uygun arıza kaydı bulunmuyor.</td></tr> : filteredFaults.slice(0, visiblePassportCount).map(({ assignment, maintenance }) => <tr key={maintenance.id} className="hover:bg-slate-50"><td className="whitespace-nowrap px-4 py-3"><p className="font-black text-[#1e3a8a]">{assignment.room.block.name}</p><p className="mt-0.5 font-semibold text-slate-600">Oda {assignment.room.roomNumber} ({assignment.room.floor}. kat)</p></td><td className="max-w-[220px] px-4 py-3"><button type="button" onClick={() => openRoomAssignmentDetail(assignment)} className="text-left font-black text-slate-900 hover:text-[#1e3a8a] hover:underline">{assignment.itemName}</button><p className="mt-1 text-[10px] font-semibold text-slate-500">{assignment.brand || 'Marka belirtilmedi'}</p></td><td className="max-w-[280px] px-4 py-3"><p className="font-black text-slate-900">{maintenance.description}</p><p className="mt-1 text-[10px] font-semibold text-slate-500">{maintenance.title}</p></td><td className="px-4 py-3"><FaultPriorityBadge priority={maintenance.priority} /></td><td className="px-4 py-3"><FaultStatusBadge status={maintenance.status} /></td><td className="px-4 py-3 font-semibold text-slate-700">{maintenance.reportedBy || 'Sistem'}</td><td className="px-4 py-3 font-semibold text-slate-700">{maintenance.assignedTo || '-'}</td><td className="whitespace-nowrap px-4 py-3 font-semibold text-slate-600">{formatDateTime(maintenance.createdAt)}</td><td className="whitespace-nowrap px-4 py-3 font-semibold text-slate-600">{maintenance.resolvedAt ? formatDateTime(maintenance.resolvedAt) : '-'}</td><td className="max-w-[260px] px-4 py-3 text-slate-600">{maintenance.resolutionNote || '-'}</td></tr>)}</tbody></table></div>
           {pageControls}
         </section>}
 
         {passportSection === 'movements' && <section className="overflow-hidden rounded-xl border border-slate-200 bg-white">
           <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 bg-slate-50 px-4 py-3"><div><h3 className="text-sm font-black text-slate-900">Stok Hareket Geçmişi</h3><p className="text-[11px] font-semibold text-slate-500">Depo girişleri, oda atamaları ve durum değişiklikleri.</p></div><button type="button" onClick={() => navigateWarehouseTab('movements', 'push', passportModal.id)} className={secondaryButton}>Gelişmiş Hareket Listesi →</button></div>
           <div className="border-b border-slate-200 p-3"><label className="relative block"><Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" /><input value={passportSearch} onChange={(event) => { setPassportSearch(event.target.value); setPassportPage(1); }} className={`${inputClass} pl-9`} placeholder="Hareket türü, oda veya açıklama ara..." /></label></div>
-          <div className="overflow-x-auto"><table className="w-full min-w-[1050px] text-left text-xs"><thead className="border-b border-slate-200 bg-slate-50 text-[10px] font-black uppercase tracking-wider text-slate-600"><tr><th className="px-4 py-3">Tarih</th><th className="px-4 py-3">İşlem Türü</th><th className="px-4 py-3">Ürün / Cihaz</th><th className="px-4 py-3">Konum / Oda</th><th className="px-4 py-3 text-center">Miktar</th><th className="px-4 py-3">İşlemi Yapan</th><th className="px-4 py-3">Gerekçe</th><th className="px-4 py-3">Açıklama</th></tr></thead><tbody className="divide-y divide-slate-200">{detailMovementsLoading ? <tr><td colSpan={8} className="p-10 text-center font-semibold text-slate-500">Geçmiş yükleniyor...</td></tr> : filteredDetailMovements.length === 0 ? <tr><td colSpan={8} className="p-10 text-center font-semibold text-slate-500">Aramanıza uygun stok hareketi bulunmuyor.</td></tr> : filteredDetailMovements.slice(pageStart, pageStart + pageSize).map((movement) => <tr key={movement.id} className="hover:bg-slate-50"><td className="whitespace-nowrap px-4 py-3 font-semibold text-slate-600">{formatDateTime(movement.createdAt)}</td><td className="px-4 py-3"><span className="inline-flex rounded-md border border-blue-200 bg-blue-50 px-2 py-1 text-[10px] font-black text-[#1e3a8a]">{movementLabels[movement.type] || movement.type}</span></td><td className="max-w-[220px] px-4 py-3 font-black text-slate-900">{movement.itemNameSnapshot}</td><td className="px-4 py-3 font-bold text-slate-700">{movement.roomLabelSnapshot || (movement.employee ? `${movement.employee.firstName} ${movement.employee.lastName}` : 'Ana Depo')}</td><td className={`px-4 py-3 text-center font-black ${movement.quantity < 0 ? 'text-rose-700' : 'text-emerald-700'}`}>{movement.quantity > 0 ? `+${movement.quantity}` : movement.quantity} {movement.stockItem.unit}</td><td className="px-4 py-3 font-semibold text-slate-700">{movement.createdBy?.fullName || 'Sistem'}</td><td className="max-w-[220px] px-4 py-3 text-slate-600">{movement.reason || '-'}</td><td className="max-w-[260px] px-4 py-3 text-slate-600">{movement.notes || '-'}</td></tr>)}</tbody></table></div>
+          <div className="overflow-x-auto"><table className="w-full min-w-[1050px] text-left text-xs"><thead className="border-b border-slate-200 bg-slate-50 text-[10px] font-black uppercase tracking-wider text-slate-600"><tr><th className="px-4 py-3">Tarih</th><th className="px-4 py-3">İşlem Türü</th><th className="px-4 py-3">Ürün / Cihaz</th><th className="px-4 py-3">Konum / Oda</th><th className="px-4 py-3 text-center">Miktar</th><th className="px-4 py-3">İşlemi Yapan</th><th className="px-4 py-3">Gerekçe</th><th className="px-4 py-3">Açıklama</th></tr></thead><tbody className="divide-y divide-slate-200">{detailMovementsLoading ? <tr><td colSpan={8} className="p-10 text-center font-semibold text-slate-500">Geçmiş yükleniyor...</td></tr> : filteredDetailMovements.length === 0 ? <tr><td colSpan={8} className="p-10 text-center font-semibold text-slate-500">Aramanıza uygun stok hareketi bulunmuyor.</td></tr> : filteredDetailMovements.slice(0, visiblePassportCount).map((movement) => <tr key={movement.id} className="hover:bg-slate-50"><td className="whitespace-nowrap px-4 py-3 font-semibold text-slate-600">{formatDateTime(movement.createdAt)}</td><td className="px-4 py-3"><span className="inline-flex rounded-md border border-blue-200 bg-blue-50 px-2 py-1 text-[10px] font-black text-[#1e3a8a]">{movementLabels[movement.type] || movement.type}</span></td><td className="max-w-[220px] px-4 py-3 font-black text-slate-900">{movement.itemNameSnapshot}</td><td className="px-4 py-3 font-bold text-slate-700">{movement.roomLabelSnapshot || (movement.employee ? `${movement.employee.firstName} ${movement.employee.lastName}` : 'Ana Depo')}</td><td className={`px-4 py-3 text-center font-black ${movement.quantity < 0 ? 'text-rose-700' : 'text-emerald-700'}`}>{movement.quantity > 0 ? `+${movement.quantity}` : movement.quantity} {movement.stockItem.unit}</td><td className="px-4 py-3 font-semibold text-slate-700">{movement.createdBy?.fullName || 'Sistem'}</td><td className="max-w-[220px] px-4 py-3 text-slate-600">{movement.reason || '-'}</td><td className="max-w-[260px] px-4 py-3 text-slate-600">{movement.notes || '-'}</td></tr>)}</tbody></table></div>
           {pageControls}
         </section>}
         {stockDetailExportModal}
@@ -1282,7 +1345,7 @@ export const WarehouseManagementView: React.FC<{ currentUser: User }> = ({ curre
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-200">
-                    {filteredItems.map((item) => {
+                    {filteredItems.slice(0, mainVisibleCount).map((item) => {
                       const healthy = item.roomInventories.filter((assignment) => assignment.status === 'HEALTHY').reduce((sum, assignment) => sum + assignment.quantity, 0);
                       const needsAttention = item.roomInventories.filter((assignment) => assignment.status !== 'HEALTHY').reduce((sum, assignment) => sum + assignment.quantity, 0);
                       const sharedCount = item.sharedAssets?.filter((asset) => asset.status !== 'RETIRED').length || 0;
@@ -1328,7 +1391,7 @@ export const WarehouseManagementView: React.FC<{ currentUser: User }> = ({ curre
                   <div className="p-12 text-center text-xs font-semibold text-slate-500">Eşleşen stok kaydı bulunamadı.</div>
                 ) : (
                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3.5">
-                    {filteredItems.map((item) => {
+                    {filteredItems.slice(0, mainVisibleCount).map((item) => {
                       const usedTotal = item.usedStock + item.usedInRooms;
 
                       return (
@@ -1430,7 +1493,7 @@ export const WarehouseManagementView: React.FC<{ currentUser: User }> = ({ curre
                     ) : filteredItems.length === 0 ? (
                       <tr><td colSpan={9} className="p-8 text-center font-semibold text-slate-600">Kayıt bulunamadı.</td></tr>
                     ) : (
-                      filteredItems.map((item, idx) => {
+                      filteredItems.slice(0, mainVisibleCount).map((item, idx) => {
                         const usedTotal = item.usedStock + item.usedInRooms;
 
                         return (
@@ -1481,7 +1544,7 @@ export const WarehouseManagementView: React.FC<{ currentUser: User }> = ({ curre
                 {assignments.length === 0 ? (
                   <tr><td colSpan={7} className="p-8 text-center font-semibold text-slate-500">Aktif oda zimmeti bulunamadı.</td></tr>
                 ) : (
-                  assignments.map(({ item, assignment }, idx) => (
+                  assignments.slice(0, mainVisibleCount).map(({ item, assignment }, idx) => (
                     <tr key={assignment.id} className="hover:bg-slate-50 transition">
                       <td className="px-2 py-2 text-center text-[11px] font-semibold text-slate-400 border-r border-slate-200">{idx + 1}</td>
                       <td className="px-3 py-2 border-r border-slate-200 font-bold text-slate-900">{roomName(assignment)}</td>
@@ -1524,7 +1587,7 @@ export const WarehouseManagementView: React.FC<{ currentUser: User }> = ({ curre
                 {personnelAssignments.length === 0 ? (
                   <tr><td colSpan={6} className="p-8 text-center font-semibold text-slate-500">Aktif personel zimmeti bulunamadı.</td></tr>
                 ) : (
-                  personnelAssignments.map(({ assignment }, idx) => (
+                  personnelAssignments.slice(0, mainVisibleCount).map(({ assignment }, idx) => (
                     <tr key={assignment.id} className="hover:bg-slate-50 transition">
                       <td className="px-2 py-2 text-center text-[11px] font-semibold text-slate-400 border-r border-slate-200">{idx + 1}</td>
                       <td className="px-3 py-2 border-r border-slate-200 font-bold text-slate-900">{assignment.employee.firstName} {assignment.employee.lastName}</td>
@@ -1575,6 +1638,16 @@ export const WarehouseManagementView: React.FC<{ currentUser: User }> = ({ curre
                 )}
               </tbody>
             </table>
+            <div ref={movementSentinelRef} role="status" aria-live="polite" className="flex min-h-12 items-center justify-between gap-3 border-t border-slate-200 bg-slate-50 px-4 py-3 text-xs font-bold text-slate-600">
+              <span>{movementResult.items.length} / {movementResult.pagination.total} hareket backend üzerinden yüklendi</span>
+              {movementsLoadingMore ? <span className="inline-flex items-center gap-2"><RefreshCw className="h-4 w-4 animate-spin" />Daha fazla hareket yükleniyor...</span> : movementHasMore ? <button type="button" onClick={loadMoreMovements} className={secondaryButton}>Daha fazla yükle</button> : movementResult.items.length > 0 ? <span>Tüm güncel hareketler yüklendi.</span> : null}
+            </div>
+          </div>
+        )}
+        {tab !== 'movements' && !loading && (
+          <div ref={mainRecordSentinelRef} role="status" aria-live="polite" className="flex min-h-12 items-center justify-between gap-3 border-t border-slate-200 bg-slate-50 px-4 py-3 text-xs font-bold text-slate-600">
+            <span>{Math.min(mainVisibleCount, activeMainTotal)} / {activeMainTotal} güncel backend kaydı gösteriliyor</span>
+            {hasMoreMainRecords ? <button type="button" onClick={loadMoreMainRecords} className={secondaryButton}>Daha fazla kayıt göster</button> : activeMainTotal > 0 ? <span>Tüm kayıtlar gösteriliyor.</span> : null}
           </div>
         )}
       </div>

@@ -65,6 +65,7 @@ const request = async <T>(path = '', init?: RequestInit): Promise<T> => {
     response = await fetch(`${appConfig.apiBaseUrl}/users${path}`, {
       credentials: 'include',
       ...init,
+      cache: 'no-store',
       headers: { 'Content-Type': 'application/json', ...(init?.headers || {}) },
     });
   } catch {

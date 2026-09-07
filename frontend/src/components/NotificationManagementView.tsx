@@ -25,6 +25,8 @@ import { notificationApi, SentNotification, RecipientInfo, NotificationQuery, No
 import { employeeApi, Employee } from '../api/employeeApi';
 import { User } from '../api/authApi';
 import { can } from '../security/accessControl';
+import { useInfiniteScroll } from '../hooks/useInfiniteScroll';
+import { mergeById } from '../utils/pagination';
 
 interface NotificationManagementViewProps {
   currentUser: User;
@@ -60,7 +62,6 @@ export const NotificationManagementView: React.FC<NotificationManagementViewProp
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const sentinelRef = useRef<HTMLDivElement | null>(null);
   const requestIdRef = useRef(0);
 
   // Modal Detail State
@@ -123,7 +124,7 @@ export const NotificationManagementView: React.FC<NotificationManagementViewProp
       if (pageToFetch === 1) {
         setHistory(result.items);
       } else {
-        setHistory((prev) => [...prev, ...result.items]);
+        setHistory((prev) => mergeById(prev, result.items));
       }
 
       setPage(pageToFetch);
@@ -151,29 +152,12 @@ export const NotificationManagementView: React.FC<NotificationManagementViewProp
     return () => window.clearTimeout(timer);
   }, [queryParams]);
 
-  // Intersection Observer for Infinite Scroll
-  useEffect(() => {
-    const observer = new IntersectionObserver(
-      (entries) => {
-        const first = entries[0];
-        if (first && first.isIntersecting && hasMore && !isLoadingMore && !isFetching) {
-          void loadData(false, page + 1);
-        }
-      },
-      { threshold: 0.2 }
-    );
-
-    const currentSentinel = sentinelRef.current;
-    if (currentSentinel) {
-      observer.observe(currentSentinel);
-    }
-
-    return () => {
-      if (currentSentinel) {
-        observer.unobserve(currentSentinel);
-      }
-    };
-  }, [hasMore, isLoadingMore, isFetching, page]);
+  const sentinelRef = useInfiniteScroll({
+    hasMore,
+    isLoading: isLoadingMore || isFetching,
+    onLoadMore: () => void loadData(false, page + 1),
+    threshold: 0.2,
+  });
 
   const fetchOptions = async () => {
     try {
@@ -745,12 +729,17 @@ export const NotificationManagementView: React.FC<NotificationManagementViewProp
             </div>
 
             {/* Infinite Scroll Sentinel & Loading Indicator matching Maintenance */}
-            <div ref={sentinelRef} className="py-4 text-center">
+            <div ref={sentinelRef} role="status" aria-live="polite" className="py-4 text-center">
               {isLoadingMore && (
                 <div className="inline-flex items-center gap-2 text-xs font-bold text-slate-500 bg-slate-100 px-4 py-2 rounded-full border border-slate-200 shadow-2xs">
                   <div className="w-4 h-4 border-2 border-[#1e3a8a]/20 border-t-[#1e3a8a] rounded-full animate-spin" />
                   Daha fazla duyuru kaydı yükleniyor...
                 </div>
+              )}
+              {hasMore && !isLoadingMore && !isFetching && (
+                <button type="button" onClick={() => void loadData(false, page + 1)} className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-xs font-extrabold text-[#1e3a8a] hover:bg-slate-50">
+                  Daha fazla duyuru kaydı yükle
+                </button>
               )}
               {!hasMore && history.length > 0 && (
                 <p className="text-[11px] font-semibold text-slate-400">

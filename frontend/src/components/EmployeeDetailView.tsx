@@ -48,6 +48,7 @@ import { VisitorRecordsTable } from './VisitorRecordsTable';
 import { AddVisitorModal } from './AddVisitorModal';
 import { User as UserEntity } from '../api/authApi';
 import { can } from '../security/accessControl';
+import { useInfiniteScroll } from '../hooks/useInfiniteScroll';
 
 interface EmployeeDetailViewProps {
   employee: Employee;
@@ -131,9 +132,11 @@ export const EmployeeDetailView: React.FC<EmployeeDetailViewProps> = ({
     }
     return 'general';
   });
+  const [detailVisibleCount, setDetailVisibleCount] = useState(25);
 
   const handleTabSwitch = (tab: TabType) => {
     setActiveTab(tab);
+    setDetailVisibleCount(25);
     localStorage.setItem('staff_app_emp_detail_tab', tab);
   };
   useEffect(() => {
@@ -426,6 +429,32 @@ export const EmployeeDetailView: React.FC<EmployeeDetailViewProps> = ({
   const [visitorRecordsLoading, setVisitorRecordsLoading] = useState(false);
   const [visitorRecordsError, setVisitorRecordsError] = useState<string | null>(null);
   const [isVisitorModalOpen, setIsVisitorModalOpen] = useState(false);
+  const detailRecordTotal = activeTab === 'inventory'
+    ? deliveredInventories.length + personalBelongings.length
+    : activeTab === 'complaints'
+      ? complaints.length
+      : activeTab === 'visitors'
+        ? visitorRecords.length
+        : activeTab === 'occupancyHistory'
+          ? (currentEmp.occupancies?.length || 0)
+          : 0;
+  const visibleDetailTotal = activeTab === 'inventory'
+    ? Math.min(detailVisibleCount, deliveredInventories.length) + Math.min(detailVisibleCount, personalBelongings.length)
+    : Math.min(detailVisibleCount, detailRecordTotal);
+  const hasMoreDetailRecords = visibleDetailTotal < detailRecordTotal;
+  const detailSentinelRef = useInfiniteScroll({
+    hasMore: hasMoreDetailRecords,
+    isLoading: activeTab === 'visitors' && visitorRecordsLoading,
+    onLoadMore: () => setDetailVisibleCount((count) => count + 25),
+  });
+  const detailInfiniteFooter = detailRecordTotal > 0 && (
+    <div ref={detailSentinelRef} className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
+      <span className="text-[11px] font-bold text-slate-500">{visibleDetailTotal} / {detailRecordTotal} kayıt gösteriliyor</span>
+      {hasMoreDetailRecords
+        ? <button type="button" onClick={() => setDetailVisibleCount((count) => count + 25)} className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-bold text-slate-700 hover:bg-slate-100">Daha fazla göster</button>
+        : <span className="text-[11px] font-bold text-emerald-700">Tüm kayıtlar gösterildi</span>}
+    </div>
+  );
 
   const loadVisitorRecords = async () => {
     setVisitorRecordsLoading(true);
@@ -1998,7 +2027,7 @@ export const EmployeeDetailView: React.FC<EmployeeDetailViewProps> = ({
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-200">
-                      {deliveredInventories.map((inv) => (
+                      {deliveredInventories.slice(0, detailVisibleCount).map((inv) => (
                         <tr key={inv.id} className="hover:bg-slate-50 transition-colors">
                           <td className="py-1.5 px-3 font-extrabold text-slate-900 border-r border-slate-200 flex items-center gap-2">
                             <Key className="w-3.5 h-3.5 text-[#1e3a8a] shrink-0" />
@@ -2127,7 +2156,7 @@ export const EmployeeDetailView: React.FC<EmployeeDetailViewProps> = ({
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-purple-200/60">
-                      {personalBelongings.map((pb) => (
+                      {personalBelongings.slice(0, detailVisibleCount).map((pb) => (
                         <tr key={pb.id} className="hover:bg-purple-50/40 transition-colors">
                           <td className="py-1 px-2 border-r border-purple-200 text-center">
                             {(pb as any).photoUrl ? (
@@ -2205,6 +2234,8 @@ export const EmployeeDetailView: React.FC<EmployeeDetailViewProps> = ({
                 </div>
               </div>
 
+              {detailInfiniteFooter}
+
             </div>
           )}
 
@@ -2236,7 +2267,7 @@ export const EmployeeDetailView: React.FC<EmployeeDetailViewProps> = ({
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-amber-200/60">
-                      {complaints.map((cmp) => (
+                      {complaints.slice(0, detailVisibleCount).map((cmp) => (
                         <tr key={cmp.id} className="hover:bg-amber-50/40 transition-colors">
                           <td className="py-2 px-3 font-extrabold text-slate-900 border-r border-amber-200 align-top">
                             <div className="flex items-center gap-1.5">
@@ -2287,6 +2318,7 @@ export const EmployeeDetailView: React.FC<EmployeeDetailViewProps> = ({
                   Bu personel hakkında verilmiş herhangi bir şikayet veya disiplin notu bulunmamaktadır.
                 </div>
               )}
+              {detailInfiniteFooter}
             </div>
           )}
 
@@ -2300,10 +2332,11 @@ export const EmployeeDetailView: React.FC<EmployeeDetailViewProps> = ({
               </div>
               {visitorRecordsError && <div className="rounded-xl border border-rose-200 bg-rose-50 p-3 text-xs font-bold text-rose-800">{visitorRecordsError}</div>}
               <VisitorRecordsTable
-                visitors={visitorRecords}
+                visitors={visitorRecords.slice(0, detailVisibleCount)}
                 loading={visitorRecordsLoading}
                 readOnly={true}
               />
+              {detailInfiniteFooter}
               {canManageVisitors && <AddVisitorModal isOpen={isVisitorModalOpen} fixedHostEmployeeId={employee.id} onClose={() => setIsVisitorModalOpen(false)} onSuccess={loadVisitorRecords} />}
             </div>
           )}
@@ -2331,7 +2364,7 @@ export const EmployeeDetailView: React.FC<EmployeeDetailViewProps> = ({
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-200">
-                      {currentEmp.occupancies.map((log: any) => {
+                      {currentEmp.occupancies.slice(0, detailVisibleCount).map((log: any) => {
                         const blockName = log.bed?.room?.block?.name || '-';
                         const roomNumber = log.bed?.room?.roomNumber || '-';
                         const bedLabel = log.bed?.bedLabel || '-';
@@ -2370,6 +2403,7 @@ export const EmployeeDetailView: React.FC<EmployeeDetailViewProps> = ({
                   Bu personel için henüz bir konaklama geçmişi kaydı bulunmamaktadır.
                 </div>
               )}
+              {detailInfiniteFooter}
             </div>
           )}
 

@@ -2,8 +2,6 @@ import React, { useEffect, useMemo, useState } from 'react';
 import {
   AlertTriangle,
   Check,
-  ChevronLeft,
-  ChevronRight,
   Clock3,
   ExternalLink,
   Eye,
@@ -26,6 +24,8 @@ import {
 } from '../api/userManagementApi';
 import { APP_ROLES, AppRole, ROLE_LABELS } from '../security/accessControl';
 import { authApi } from '../api/authApi';
+import { useInfiniteScroll } from '../hooks/useInfiniteScroll';
+import { mergeById } from '../utils/pagination';
 
 interface UserManagementViewProps {
   currentUserId: string;
@@ -73,6 +73,8 @@ export const UserManagementView: React.FC<UserManagementViewProps> = ({ currentU
   const [pageSize] = useState(25);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [hasMore, setHasMore] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [modal, setModal] = useState<ModalType>(null);
@@ -95,26 +97,40 @@ export const UserManagementView: React.FC<UserManagementViewProps> = ({ currentU
   useEffect(() => {
     let active = true;
     const timer = window.setTimeout(async () => {
+      const firstPage = page === 1;
       try {
-        setLoading(true);
+        if (firstPage) setLoading(true);
+        else setLoadingMore(true);
         setError(null);
         const result = await userManagementApi.list({ search, role: roleFilter, status: statusFilter, page, pageSize });
         if (!active) return;
-        setUsers(result.items);
+        setUsers((current) => firstPage ? result.items : mergeById(current, result.items));
         setTotal(result.total);
+        setHasMore(result.page * result.pageSize < result.total);
       } catch (reason) {
         if (active) setError(reason instanceof Error ? reason.message : 'Kullanıcılar yüklenemedi.');
       } finally {
-        if (active) setLoading(false);
+        if (active) {
+          setLoading(false);
+          setLoadingMore(false);
+        }
       }
     }, 250);
     return () => { active = false; window.clearTimeout(timer); };
   }, [search, roleFilter, statusFilter, page, pageSize, refreshKey]);
 
-  useEffect(() => { setPage(1); }, [search, roleFilter, statusFilter]);
+  useEffect(() => {
+    setPage(1);
+    setUsers([]);
+    setTotal(0);
+    setHasMore(false);
+  }, [search, roleFilter, statusFilter, refreshKey]);
 
-  const totalPages = Math.max(1, Math.ceil(total / pageSize));
-  useEffect(() => { if (page > totalPages) setPage(totalPages); }, [page, totalPages]);
+  const loadMore = () => {
+    if (!hasMore || loading || loadingMore) return;
+    setPage((current) => current + 1);
+  };
+  const sentinelRef = useInfiniteScroll({ hasMore, isLoading: loading || loadingMore, onLoadMore: loadMore });
 
   const pageStats = useMemo(() => ({
     active: users.filter((user) => user.isActive).length,
@@ -239,7 +255,7 @@ export const UserManagementView: React.FC<UserManagementViewProps> = ({ currentU
 
       <section className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <div className="rounded-2xl border border-slate-200 bg-white p-4"><Users className="h-5 w-5 text-blue-800" /><strong className="mt-2 block text-xl text-slate-900">{total}</strong><span className="text-[10px] font-bold uppercase text-slate-500">Filtrelenen hesap</span></div>
-        <div className="rounded-2xl border border-slate-200 bg-white p-4"><ShieldCheck className="h-5 w-5 text-emerald-700" /><strong className="mt-2 block text-xl text-slate-900">{pageStats.active}</strong><span className="text-[10px] font-bold uppercase text-slate-500">Bu sayfada aktif</span></div>
+        <div className="rounded-2xl border border-slate-200 bg-white p-4"><ShieldCheck className="h-5 w-5 text-emerald-700" /><strong className="mt-2 block text-xl text-slate-900">{pageStats.active}</strong><span className="text-[10px] font-bold uppercase text-slate-500">Yüklenen aktif</span></div>
         <div className="rounded-2xl border border-slate-200 bg-white p-4"><KeyRound className="h-5 w-5 text-amber-700" /><strong className="mt-2 block text-xl text-slate-900">{pageStats.temporary}</strong><span className="text-[10px] font-bold uppercase text-slate-500">Parola değişimi bekliyor</span></div>
         <div className="rounded-2xl border border-slate-200 bg-white p-4"><Link2 className="h-5 w-5 text-violet-700" /><strong className="mt-2 block text-xl text-slate-900">{pageStats.linked}</strong><span className="text-[10px] font-bold uppercase text-slate-500">Personel bağlantılı</span></div>
       </section>
@@ -268,7 +284,16 @@ export const UserManagementView: React.FC<UserManagementViewProps> = ({ currentU
             </tbody>
           </table>
         </div>
-        <div className="flex items-center justify-between border-t border-slate-200 bg-slate-50 px-3 py-2 text-[10px] font-bold text-slate-600"><span>{total === 0 ? '0 kayıt' : `${(page - 1) * pageSize + 1}-${Math.min(page * pageSize, total)} / ${total}`}</span><div className="flex items-center gap-2"><button onClick={() => setPage((value) => Math.max(1, value - 1))} disabled={page <= 1 || loading} className="rounded-lg border border-slate-200 bg-white p-2 disabled:opacity-40"><ChevronLeft className="h-4 w-4" /></button><span>Sayfa {page} / {totalPages}</span><button onClick={() => setPage((value) => Math.min(totalPages, value + 1))} disabled={page >= totalPages || loading} className="rounded-lg border border-slate-200 bg-white p-2 disabled:opacity-40"><ChevronRight className="h-4 w-4" /></button></div></div>
+        <div ref={sentinelRef} role="status" aria-live="polite" className="flex min-h-12 items-center justify-between gap-3 border-t border-slate-200 bg-slate-50 px-3 py-2 text-[10px] font-bold text-slate-600">
+          <span>{users.length} / {total} kayıt backend üzerinden yüklendi</span>
+          {loadingMore ? (
+            <span className="inline-flex items-center gap-2"><RefreshCw className="h-3.5 w-3.5 animate-spin" />Yeni kayıtlar yükleniyor...</span>
+          ) : hasMore ? (
+            <button type="button" onClick={loadMore} className="rounded-lg border border-slate-300 bg-white px-3 py-2 font-extrabold text-blue-900">Daha fazla yükle</button>
+          ) : users.length > 0 ? (
+            <span>Tüm güncel kayıtlar yüklendi.</span>
+          ) : null}
+        </div>
       </div>
 
       {modal && (

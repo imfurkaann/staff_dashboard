@@ -119,6 +119,7 @@ export interface StockMovementList {
 const request = async <T>(path: string, init?: RequestInit): Promise<T> => {
   const response = await fetch(`${appConfig.apiBaseUrl}/stock${path}`, {
     credentials: 'include',
+    cache: 'no-store',
     ...init,
     headers: { 'Content-Type': 'application/json', ...(init?.headers || {}) },
   });
