@@ -219,7 +219,7 @@ export const roomApi = {
     return response.data.data;
   },
 
-  updateMaintenance: async (maintenanceId: string, payload: { title?: string; description?: string; priority?: string; status?: string; assignedTo?: string | null; category?: string | null; location?: string | null; resolutionNote?: string | null }): Promise<RoomMaintenance> => {
+  updateMaintenance: async (maintenanceId: string, payload: { title?: string; description?: string; priority?: string; status?: string; category?: string | null; location?: string | null; resolutionNote?: string | null }): Promise<RoomMaintenance> => {
     const response = await api.patch<{ success: boolean; data: RoomMaintenance; message: string }>(`/maintenance/${maintenanceId}`, payload);
     return response.data.data;
   },
@@ -252,7 +252,7 @@ export const roomApi = {
     await api.delete(`/${roomId}`);
   },
 
-  createRoomInventory: async (roomId: string, payload: { itemName: string; brand?: string; serialNo?: string; quantity?: number; status?: RoomInventoryStatus; stockItemId?: string }): Promise<RoomInventory> => {
+  createRoomInventory: async (roomId: string, payload: { itemName: string; brand?: string; quantity?: number; status?: RoomInventoryStatus; stockItemId?: string }): Promise<RoomInventory> => {
     const response = await api.post<{ success: boolean; data: RoomInventory; message: string }>(`/${roomId}/inventories`, payload);
     return response.data.data;
   },

@@ -21,7 +21,7 @@
 - Oda başına yalnızca bir aktif temizlik kaydı; oda demirbaşı başına yalnızca bir aktif arıza kaydı bulunabilir.
 - Tamamlanan temizlik kayıtları fiziksel olarak silinmez, denetim için arşivlenir.
 - Oda türü sonradan değiştirilemez. Kapasite düşürme, dolu veya konaklama geçmişi bulunan yatakları silemez.
-- Aktif oda demirbaşlarında seri numarası tektir. Demirbaş başka odaya aitse arıza kaydı açılamaz.
+- Aktif oda demirbaşları sistemin otomatik ürettiği oda ve ürün bazlı adlarla ayrılır. Demirbaş başka odaya aitse arıza kaydı açılamaz.
 
 ## Güvenlik ve canlı önlemleri
 

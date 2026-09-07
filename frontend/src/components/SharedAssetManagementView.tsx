@@ -3,7 +3,7 @@ import {
   AlertTriangle, Archive, ArrowRightLeft, Boxes, Building2, Check,
   ChevronDown, ChevronRight, ClipboardCheck, Download, Edit3, Eye, Filter, History,
   MapPin, Package, Pencil, Plus, RefreshCw, RotateCcw, Search, Send, ShieldAlert, Sparkles, Trash2,
-  UserCheck, Users, Wrench, X, Layers, Clock, AlertCircle, HardHat, Hammer, ShieldCheck,
+  UserCheck, Users, Wrench, X, Layers, AlertCircle, HardHat, Hammer,
 } from 'lucide-react';
 import {
   SharedAsset, SharedAssetLog, SharedAssetOverview, SharedAssetStatus, sharedAssetApi,
@@ -128,7 +128,7 @@ const CustomLocationSelector: React.FC<{
             onChange(e.target.value);
             setOpen(true);
           }}
-          placeholder="Konum yazın veya seçin (Örn: Ana Depo, Teknik Servis Deposu)..."
+          placeholder="Konum yazın veya seçin (Örn: Ana Depo, Yönetim Ofisi)..."
         />
         <button
           type="button"
@@ -300,36 +300,6 @@ const AssetStatusBadge = ({ status }: { status: SharedAssetStatus }) => {
   );
 };
 
-const WarrantyBadge = ({ dateStr }: { dateStr?: string | null }) => {
-  if (!dateStr) return <span className="text-[10px] text-slate-400 font-semibold">-</span>;
-  const warrantyDate = new Date(dateStr);
-  const now = new Date();
-  const isExpired = warrantyDate < now;
-  const daysDiff = Math.ceil((warrantyDate.getTime() - now.getTime()) / (1000 * 3600 * 24));
-
-  if (isExpired) {
-    return (
-      <span className="inline-flex items-center gap-1 rounded-md border border-rose-300 bg-rose-50 px-2 py-0.5 text-[9px] font-extrabold text-rose-800" title={`Garanti ${formatDateOnly(dateStr)} tarihinde bitti.`}>
-        <AlertTriangle className="h-3 w-3 text-rose-600" /> Bitti ({formatDateOnly(dateStr)})
-      </span>
-    );
-  }
-
-  if (daysDiff <= 30) {
-    return (
-      <span className="inline-flex items-center gap-1 rounded-md border border-amber-300 bg-amber-50 px-2 py-0.5 text-[9px] font-extrabold text-amber-800" title={`Garanti bitimine ${daysDiff} gün kaldı.`}>
-        <Clock className="h-3 w-3 text-amber-600" /> {daysDiff} Gün Kaldı
-      </span>
-    );
-  }
-
-  return (
-    <span className="inline-flex items-center gap-1 rounded-md border border-emerald-300 bg-emerald-50 px-2 py-0.5 text-[9px] font-extrabold text-emerald-800">
-      <ShieldCheck className="h-3 w-3 text-emerald-600" /> {formatDateOnly(dateStr)}
-    </span>
-  );
-};
-
 const ModalShell: React.FC<{ title: string; subtitle: string; icon: React.ReactNode; onClose: () => void; wide?: boolean; children: React.ReactNode }> = ({ title, subtitle, icon, onClose, wide, children }) => (
   <div className="fixed inset-0 z-[200] flex items-center justify-center bg-slate-950/70 p-4 backdrop-blur-sm animate-fadeIn" onMouseDown={onClose}>
     <div className={`max-h-[94vh] w-full overflow-hidden rounded-3xl border border-slate-300 bg-white shadow-2xl ${wide ? 'max-w-7xl' : 'max-w-4xl'}`} onMouseDown={(event) => event.stopPropagation()}>
@@ -372,7 +342,6 @@ export const SharedAssetManagementView: React.FC = () => {
     assetCode: '',
     category: 'ELEKTRİKLİ EV ALETLERİ',
     brandModel: '',
-    serialNo: '',
     locationNote: 'ANA DEPO',
     notes: '',
   });
@@ -585,7 +554,6 @@ export const SharedAssetManagementView: React.FC = () => {
       const textMatches = !q || [
         row.asset.assetName,
         row.asset.assetCode,
-        row.asset.serialNo,
         row.asset.category,
         row.asset.brandModel,
         row.locationDisplay,
@@ -669,7 +637,6 @@ export const SharedAssetManagementView: React.FC = () => {
       assetCode: '',
       category: 'ELEKTRİKLİ EV ALETLERİ',
       brandModel: '',
-      serialNo: '',
       locationNote: 'ANA DEPO',
       notes: '',
     });
@@ -1027,7 +994,7 @@ export const SharedAssetManagementView: React.FC = () => {
               <Sparkles className="h-4 w-4 text-emerald-700 shrink-0 mt-0.5" />
               <div>
                 <span className="font-extrabold block">Ortak Eşya Tanımlama Kılavuzu:</span>
-                Önce depoda kayıtlı olan stok kartını seçin. Cihazın ismi, kategorisi ve kodu otomatik doldurulacaktır. İsterseniz markasını ve seri numarasını özelleştirebilirsiniz.
+                Önce depoda kayıtlı olan stok kartını seçin. Cihazın ismi, kategorisi ve kodu otomatik doldurulacaktır. İsterseniz marka/model bilgisini özelleştirebilirsiniz.
               </div>
             </div>
 
@@ -1229,7 +1196,7 @@ export const SharedAssetManagementView: React.FC = () => {
                 <span className={labelClass}>Fiziksel Kontrol / Teslim Durumu *</span>
                 <select className={inputClass} value={checkInForm.newStatus} onChange={(e) => setCheckInForm({ ...checkInForm, newStatus: e.target.value as SharedAssetStatus })}>
                   <option value="AVAILABLE">✅ SAĞLAM TESLİM ALINDI — (Müsait / Depoya Koy)</option>
-                  <option value="MAINTENANCE">⚠️ BOZUK / ARIZALI TESLİM ALINDI — (Bakıma / Servise Gönder)</option>
+                  <option value="MAINTENANCE">⚠️ BOZUK / ARIZALI TESLİM ALINDI</option>
                 </select>
               </label>
 
@@ -1258,7 +1225,7 @@ export const SharedAssetManagementView: React.FC = () => {
                   const newStat = act === 'REPAIR_COMPLETED' || act === 'MAINTENANCE_END' ? 'AVAILABLE' : 'MAINTENANCE';
                   setMaintForm({ ...maintForm, action: act, newStatus: newStat });
                 }}>
-                  <option value="FAULT_REPORTED">Arıza Bildirimi (Bozuk - Servise Gönderildi)</option>
+                  <option value="FAULT_REPORTED">Arıza Bildirimi (Bozuk / Arızalı)</option>
                   <option value="MAINTENANCE_START">Periyodik Bakıma Alındı</option>
                   <option value="REPAIR_COMPLETED">Tamir / Onarım Tamamlandı (Sağlam - Müsait Yap)</option>
                   <option value="MAINTENANCE_END">Bakım Tamamlandı (Sağlam - Müsait Yap)</option>
@@ -1266,8 +1233,8 @@ export const SharedAssetManagementView: React.FC = () => {
               </label>
 
               <label className="sm:col-span-2">
-                <span className={labelClass}>Bakım / Arıza Notu & Servis Açıklaması *</span>
-                <textarea required minLength={5} maxLength={1000} rows={4} className={`${inputClass} h-auto py-3`} value={maintForm.notes} onChange={(e) => setMaintForm({ ...maintForm, notes: e.target.value })} placeholder="Arızanın belirtisi, yapılan kontrol, servis ve değişen parça bilgisini açıklayın." />
+                <span className={labelClass}>Arıza Notu *</span>
+                <textarea required minLength={5} maxLength={1000} rows={4} className={`${inputClass} h-auto py-3`} value={maintForm.notes} onChange={(e) => setMaintForm({ ...maintForm, notes: e.target.value })} placeholder="Arızanın belirtisini ve yönetim notunu açıklayın." />
               </label>
             </div>
             <div className="flex justify-end gap-2 border-t border-slate-200 pt-4">
@@ -1287,9 +1254,7 @@ export const SharedAssetManagementView: React.FC = () => {
                 <h4 className="text-lg font-black text-slate-900">{modal.asset.assetName}</h4>
                 <p className="mt-0.5 text-[11px] font-semibold text-slate-600">{modal.asset.category} · Marka/Model: <span className="font-bold text-slate-800">{modal.asset.brandModel || 'Belirtilmemiş'}</span></p>
                 <div className="mt-2 flex items-center gap-2">
-                  <span className="text-[10px] font-bold text-slate-500">Garanti:</span>
-                  <WarrantyBadge dateStr={modal.asset.warrantyEndDate} />
-                  <span className="text-[10px] font-bold text-slate-500 ml-2">Konum:</span>
+                  <span className="text-[10px] font-bold text-slate-500">Konum:</span>
                   <span className="text-[10px] font-extrabold text-slate-800 bg-white border px-2 py-0.5 rounded">{modal.asset.locationNote || 'Ana Depo'}</span>
                 </div>
               </div>

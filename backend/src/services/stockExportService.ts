@@ -57,13 +57,12 @@ export async function createStockWorkbook(items: any[], generatedBy: string): Pr
     [
       'MALZEME KODU', 'MALZEME ADI', 'KATEGORİ', 'TİP', 'ÖZELLİK / DETAY',
       'DEPO (YEDEK)', 'ZİMMETLİ', 'TOPLAM MİKTAR', 'BİRİM', 'FİZİKSEL DURUM',
-      'KRİTİK SEVİYE', 'GARANTİ BİTİŞ', 'KONUM / DEPO', 'SON SAYIM'
+      'KONUM / DEPO', 'SON SAYIM'
     ],
-    [16, 28, 22, 16, 28, 14, 14, 14, 10, 18, 16, 16, 22, 18], generatedBy);
+    [16, 28, 22, 16, 28, 14, 14, 14, 10, 18, 22, 18], generatedBy);
   items.forEach((item) => {
     const available = item.totalStock - item.usedStock - item.usedInRooms;
     const usedTotal = item.usedStock + item.usedInRooms;
-    const warrantyStr = item.warrantyEndDate ? new Date(item.warrantyEndDate).toLocaleDateString('tr-TR') : '-';
     addSafeRow(summary, [
       item.itemCode || '-',
       item.itemName,
@@ -75,13 +74,11 @@ export async function createStockWorkbook(items: any[], generatedBy: string): Pr
       item.totalStock,
       item.unit,
       item.physicalStatus || 'KULLANILABİLİR',
-      item.minimumStock,
-      warrantyStr,
       item.locationNote || '-',
       item.lastCountedAt || '',
     ]);
   });
-  summary.getColumn(14).numFmt = 'dd.mm.yyyy hh:mm'; styleRows(summary);
+  summary.getColumn(12).numFmt = 'dd.mm.yyyy hh:mm'; styleRows(summary);
 
   const activeRooms = workbook.addWorksheet('Aktif Oda Zimmetleri', { views: [{ state: 'frozen', ySplit: 4 }] });
   setupSheet(activeRooms, 'AKTİF ODA ZİMMETLERİ',

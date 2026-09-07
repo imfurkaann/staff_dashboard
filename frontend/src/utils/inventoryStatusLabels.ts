@@ -3,7 +3,7 @@ export const inventoryStatusLabels: Record<string, string> = {
   MAINTENANCE_REQUIRED: 'Arızalı / Bakım Bekliyor',
   DAMAGED: 'Kırık / Hasarlı',
   LOST: 'Kayıp / Zayi',
-  IN_SERVICE: 'Tamirde / Serviste',
+  IN_SERVICE: 'Arızalı / Bakım Bekliyor',
   REPLACEMENT_REQUIRED: 'Değişim Bekliyor',
   RETIRED: 'İade Edildi / Düşüm Yapıldı',
 };

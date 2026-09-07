@@ -105,7 +105,6 @@ export interface CreateMaintenanceInput {
   category?: string;
   location?: string;
   reportedBy: string;
-  assignedTo?: string;
   createdById?: string;
 }
 
@@ -119,13 +118,6 @@ export interface UpdateMaintenanceInput {
   assignedTo?: string | null;
   resolutionNote?: string | null;
   inventoryStatus?: RoomInventoryStatus;
-  serviceProvider?: string | null;
-  serviceReference?: string | null;
-  laborCost?: number;
-  partsCost?: number;
-  warrantyCovered?: boolean;
-  sentToServiceAt?: string | Date | null;
-  returnedFromServiceAt?: string | Date | null;
   performedBy: string;
   performedById?: string;
   canFullUpdate?: boolean;
@@ -141,7 +133,11 @@ export const maintenanceService = {
     const whereCondition: Prisma.MaintenanceLogWhereInput = {};
 
     if (status && status !== 'ALL') {
-      whereCondition.status = status;
+      whereCondition.status = status === 'OPEN'
+        ? { in: ['OPEN', 'IN_PROGRESS'] }
+        : status === 'CLOSED'
+          ? { in: ['RESOLVED', 'CLOSED'] }
+          : status;
     }
 
     if (priority && priority !== 'ALL') {
@@ -174,10 +170,6 @@ export const maintenanceService = {
         { assignedTo: { contains: query, mode: 'insensitive' } },
         { category: { contains: query, mode: 'insensitive' } },
         { location: { contains: query, mode: 'insensitive' } },
-        { inventorySerialNoSnapshot: { contains: query, mode: 'insensitive' } },
-        { inventoryAssetTagSnapshot: { contains: query, mode: 'insensitive' } },
-        { serviceProvider: { contains: query, mode: 'insensitive' } },
-        { serviceReference: { contains: query, mode: 'insensitive' } },
         { room: { roomNumber: { contains: query, mode: 'insensitive' } } },
         { room: { block: { name: { contains: query, mode: 'insensitive' } } } },
       ];
@@ -264,7 +256,6 @@ export const maintenanceService = {
       category,
       location,
       reportedBy,
-      assignedTo,
       createdById,
     } = data;
 
@@ -314,7 +305,7 @@ export const maintenanceService = {
               reportedBy: (reportedBy?.trim() || 'Lojman Yönetimi').toLocaleUpperCase('tr-TR'),
               category: category?.trim().toLocaleUpperCase('tr-TR') || null,
               location: location?.trim().toLocaleUpperCase('tr-TR') || null,
-              assignedTo: assignedTo?.trim().toLocaleUpperCase('tr-TR') || null,
+              assignedTo: null,
               createdById: createdById || null,
               updatedById: createdById || null,
             },
@@ -359,8 +350,8 @@ export const maintenanceService = {
             status: 'OPEN',
             reportedBy: (reportedBy?.trim() || 'Lojman Yönetimi').toLocaleUpperCase('tr-TR'),
             category: (category?.trim() || 'Demirbaş Arızası').toLocaleUpperCase('tr-TR'),
-            location: (location?.trim() || `${inventory.itemName}${inventory.serialNo ? ` / ${inventory.serialNo}` : ''}`).toLocaleUpperCase('tr-TR'),
-            assignedTo: assignedTo?.trim().toLocaleUpperCase('tr-TR') || null,
+            location: (location?.trim() || inventory.itemName).toLocaleUpperCase('tr-TR'),
+            assignedTo: null,
             createdById: createdById || null,
             updatedById: createdById || null,
           },
@@ -455,15 +446,6 @@ export const maintenanceService = {
         throw new AppError('Sonuçlanan demirbaş arızasında cihaz durumu Sağlam / Kullanımda olmalıdır. Hurda ve değişim için kontrollü stok sürecini kullanın.', 400);
       }
     }
-    const sentAt = data.sentToServiceAt === undefined ? existing.sentToServiceAt : (data.sentToServiceAt ? new Date(data.sentToServiceAt) : null);
-    const returnedAt = data.returnedFromServiceAt === undefined ? existing.returnedFromServiceAt : (data.returnedFromServiceAt ? new Date(data.returnedFromServiceAt) : null);
-    if ((sentAt && isNaN(sentAt.getTime())) || (returnedAt && isNaN(returnedAt.getTime()))) throw new AppError('Servis tarihleri geçersiz.', 400);
-    if (returnedAt && !sentAt) throw new AppError('Servisten dönüş tarihi girilmeden önce servise gönderilme tarihi kaydedilmelidir.', 400);
-    if (sentAt && returnedAt && returnedAt < sentAt) throw new AppError('Servisten dönüş tarihi gönderilme tarihinden önce olamaz.', 400);
-    if (['RESOLVED', 'CLOSED'].includes(nextMaintenanceStatus) && sentAt && !returnedAt) {
-      throw new AppError('Servise gönderilmiş bir arıza, servisten dönüş tarihi kaydedilmeden sonuçlandırılamaz.', 400);
-    }
-
     if (existing.type === 'ROOM_INVENTORY' && data.status && ['OPEN', 'IN_PROGRESS'].includes(data.status)) {
       const conflictingFault = await prisma.maintenanceLog.findFirst({
         where: { roomInventoryId: existing.roomInventoryId, id: { not: id }, status: { in: ['OPEN', 'IN_PROGRESS'] } },
@@ -481,13 +463,6 @@ export const maintenanceService = {
     if (data.location !== undefined) updateData.location = data.location?.trim().toLocaleUpperCase('tr-TR') || null;
     if (data.assignedTo !== undefined) updateData.assignedTo = data.assignedTo?.trim().toLocaleUpperCase('tr-TR') || null;
     if (data.resolutionNote !== undefined) updateData.resolutionNote = data.resolutionNote?.trim().toLocaleUpperCase('tr-TR') || null;
-    if (data.serviceProvider !== undefined) updateData.serviceProvider = data.serviceProvider?.trim().toLocaleUpperCase('tr-TR') || null;
-    if (data.serviceReference !== undefined) updateData.serviceReference = data.serviceReference?.trim().toLocaleUpperCase('tr-TR') || null;
-    if (data.laborCost !== undefined) updateData.laborCost = Math.max(0, Number(data.laborCost) || 0);
-    if (data.partsCost !== undefined) updateData.partsCost = Math.max(0, Number(data.partsCost) || 0);
-    if (data.warrantyCovered !== undefined) updateData.warrantyCovered = Boolean(data.warrantyCovered);
-    if (data.sentToServiceAt !== undefined) updateData.sentToServiceAt = data.sentToServiceAt ? new Date(data.sentToServiceAt) : null;
-    if (data.returnedFromServiceAt !== undefined) updateData.returnedFromServiceAt = data.returnedFromServiceAt ? new Date(data.returnedFromServiceAt) : null;
     updateData.updatedById = data.performedById || null;
 
     if (data.status) {
@@ -551,11 +526,6 @@ export const maintenanceService = {
         toStatus: data.status || existing.status,
         inventoryStatus: nextInventoryStatus,
         notes: data.resolutionNote?.trim().toLocaleUpperCase('tr-TR') || data.description?.trim().toLocaleUpperCase('tr-TR') || null,
-        serviceProvider: data.serviceProvider?.trim().toLocaleUpperCase('tr-TR') || null,
-        serviceReference: data.serviceReference?.trim().toLocaleUpperCase('tr-TR') || null,
-        laborCost: data.laborCost,
-        partsCost: data.partsCost,
-        warrantyCovered: data.warrantyCovered,
         performedBy: data.performedBy.trim().toLocaleUpperCase('tr-TR'),
         performedById: data.performedById || null,
       } });

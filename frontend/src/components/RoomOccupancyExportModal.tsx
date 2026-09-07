@@ -158,12 +158,12 @@ export const RoomOccupancyExportModal: React.FC<RoomOccupancyExportModalProps> =
                     className="w-full pl-9 pr-3 py-2.5 rounded-xl border border-slate-300 bg-slate-50 focus:bg-white focus:border-[#1e3a8a] outline-none text-xs font-bold appearance-none cursor-pointer text-slate-900"
                   >
                     <option value="ALL">Tüm Oda Demirbaşları (Tüm Bloklar & Odalar)</option>
-                    <option value="PROBLEMATIC_ALL">Tüm Sorunlu Demirbaşlar (Bakım, Hasarlı, Kayıp, Serviste vb.)</option>
+                    <option value="PROBLEMATIC_ALL">Tüm Sorunlu Demirbaşlar (Arızalı, Hasarlı, Kayıp vb.)</option>
                     <option value="HEALTHY">Sadece Sağlam & Çalışır Demirbaşlar</option>
                     <option value="MAINTENANCE_REQUIRED">Sadece Arızalı / Bakım Bekleyenler</option>
                     <option value="DAMAGED">Sadece Kırık / Hasarlı Demirbaşlar</option>
                     <option value="LOST">Sadece Kayıp / Zayi Olanlar</option>
-                    <option value="IN_SERVICE">Sadece Tamirde / Servistekiler</option>
+                    <option value="IN_SERVICE">Sadece Arızalı / Bakım Bekleyenler</option>
                     <option value="REPLACEMENT_REQUIRED">Sadece Değişim Bekleyenler</option>
                     <option value="RETIRED">Sadece İade Edilen / Düşümü Yapılanlar</option>
                   </select>

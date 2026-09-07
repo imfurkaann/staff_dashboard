@@ -29,7 +29,6 @@ export interface SharedAsset {
   assetName: string;
   category: string;
   brandModel?: string | null;
-  serialNo?: string | null;
   status: SharedAssetStatus;
   currentHolderType?: 'EMPLOYEE' | 'ROOM' | null;
   currentEmployeeId?: string | null;
@@ -53,7 +52,6 @@ export interface SharedAsset {
   } | null;
   borrowedAt?: string | null;
   expectedReturnDate?: string | null;
-  warrantyEndDate?: string | null;
   locationNote?: string | null;
   notes?: string | null;
   logs?: SharedAssetLog[];

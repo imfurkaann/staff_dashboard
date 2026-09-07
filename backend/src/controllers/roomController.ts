@@ -425,7 +425,7 @@ export const roomController = {
   createRoomInventory: async (req: Request, res: Response, next: NextFunction) => {
     try {
        const { id } = req.params;
-      const { itemName, stockItemId, brand, serialNo, quantity, status } = req.body;
+      const { itemName, stockItemId, brand, quantity, status } = req.body;
       if (!isUuid(id)) return res.status(400).json({ success: false, message: 'Geçersiz oda kimliği.' });
 
       if (!isUuid(stockItemId)) return res.status(400).json({ success: false, message: 'Geçerli bir depo stok kartı seçilmelidir.' });
@@ -436,7 +436,6 @@ export const roomController = {
       const newInventory = await roomService.createRoomInventory(id, {
         itemName: cleanString(itemName, 100) || 'STOK KARTI',
         brand: cleanString(brand, 100) || undefined,
-        serialNo: cleanString(serialNo, 120) || undefined,
         quantity: parsedQuantity,
         status: status || 'HEALTHY',
         stockItemId,

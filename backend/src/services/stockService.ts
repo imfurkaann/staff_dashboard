@@ -36,16 +36,19 @@ const positiveInteger = (value: unknown, field: string) => {
   return parsed;
 };
 
-const optionalDate = (value: string | Date | null | undefined, field: string) => {
-  if (value === undefined) return undefined;
-  if (value === null || value === '') return null;
-  const parsed = value instanceof Date ? value : new Date(value);
-  if (Number.isNaN(parsed.getTime())) throw new AppError(`${field} geçerli bir tarih olmalıdır.`, 400);
-  return parsed;
-};
-
 const roomLabel = (room: { roomNumber: string; block: { name: string } }) => `${room.block.name} / ODA ${room.roomNumber}`;
 const assetTagFor = (itemCode: string | null, id: string) => `${itemCode || 'ENV'}-${id.replace(/-/g, '').slice(0, 10).toUpperCase()}`;
+const nextRoomInventoryName = async (tx: Prisma.TransactionClient, roomId: string, roomNumber: string, stockItemId: string, baseName: string) => {
+  await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`ROOM_ITEM_NAME:${roomId}:${stockItemId}`}))`;
+  const prior = await tx.roomInventory.findMany({ where: { roomId, stockItemId }, select: { itemName: true } });
+  const prefix = `${roomNumber} NOLU ODA - ${baseName} `;
+  const max = prior.reduce((current, entry) => {
+    if (!entry.itemName.startsWith(prefix)) return current;
+    const value = Number(entry.itemName.slice(prefix.length));
+    return Number.isSafeInteger(value) && value > current ? value : current;
+  }, 0);
+  return `${prefix}${max + 1}`;
+};
 
 const categoryPrefixes: Record<string, string> = {
   'TEMİZLİK & BAKIM MAKİNELERİ': 'MAK',
@@ -186,9 +189,8 @@ export class StockService {
       result.inRooms += item.usedInRooms;
       result.inService += item.serviceCount;
       result.issues += item.issueCount;
-      if (item.isActive && item.availableStock <= item.minimumStock) result.criticalCards++;
       return result;
-    }, { totalRegistered: 0, available: 0, inRooms: 0, inService: 0, issues: 0, criticalCards: 0 });
+    }, { totalRegistered: 0, available: 0, inRooms: 0, inService: 0, issues: 0 });
 
     return { items: enriched, rooms, movements, summary };
   }
@@ -214,43 +216,6 @@ export class StockService {
     });
   }
 
-  public static async getDeviceHistory(serialInput: string) {
-    const serialNo = cleanOptional(serialInput, 'Seri numarası', 100);
-    if (!serialNo) throw new AppError('Aranacak seri numarasını yazın.', 400);
-    const [assignments, sharedAssets, movements] = await Promise.all([
-      prisma.roomInventory.findMany({
-        where: { serialNo: { equals: serialNo, mode: 'insensitive' } },
-        orderBy: { installedAt: 'desc' },
-        include: {
-          room: { include: { block: true } },
-          stockItem: { select: { id: true, itemName: true, itemCode: true, unit: true } },
-          maintenances: { orderBy: { createdAt: 'desc' }, select: { id: true, title: true, description: true, status: true, priority: true, createdAt: true, resolvedAt: true, resolutionNote: true } },
-        },
-      }),
-      prisma.sharedAsset.findMany({
-        where: { serialNo: { equals: serialNo, mode: 'insensitive' } },
-        orderBy: { createdAt: 'desc' },
-        include: { logs: { orderBy: { createdAt: 'desc' }, include: { createdBy: { select: { fullName: true } } } } },
-      }),
-      prisma.stockMovement.findMany({
-        where: { serialNo: { equals: serialNo, mode: 'insensitive' } },
-        orderBy: { createdAt: 'desc' },
-        include: { stockItem: { select: { id: true, itemName: true, itemCode: true, unit: true } }, createdBy: { select: { fullName: true } } },
-      }),
-    ]);
-    return {
-      serialNo,
-      assignments,
-      sharedAssets,
-      movements,
-      summary: {
-        assignmentCount: assignments.length,
-        faultCount: assignments.reduce((sum, assignment) => sum + assignment.maintenances.length, 0),
-        activeAssignmentCount: assignments.filter((assignment) => !assignment.returnedAt).length,
-      },
-    };
-  }
-
   public static async getMovements(filters: {
     search?: string; stockItemId?: string; type?: StockMovementType; dateStart?: string; dateEnd?: string; page?: number; pageSize?: number;
   } = {}) {
@@ -267,18 +232,17 @@ export class StockService {
     }
     const search = cleanOptional(filters.search, 'Hareket araması', 100);
     if (search) {
-      where.OR = [
-        { itemNameSnapshot: { contains: search, mode: 'insensitive' } },
-        { roomLabelSnapshot: { contains: search, mode: 'insensitive' } },
-        { serialNo: { contains: search, mode: 'insensitive' } },
-        { reason: { contains: search, mode: 'insensitive' } },
-        { notes: { contains: search, mode: 'insensitive' } },
-        { stockItem: { itemCode: { contains: search, mode: 'insensitive' } } },
-        { employee: { firstName: { contains: search, mode: 'insensitive' } } },
-        { employee: { lastName: { contains: search, mode: 'insensitive' } } },
-        { employee: { registrationNo: { contains: search, mode: 'insensitive' } } },
-        { createdBy: { fullName: { contains: search, mode: 'insensitive' } } },
-      ];
+      where.AND = search.split(/\s+/).map((token) => ({ OR: [
+        { itemNameSnapshot: { contains: token, mode: 'insensitive' } },
+        { roomLabelSnapshot: { contains: token, mode: 'insensitive' } },
+        { reason: { contains: token, mode: 'insensitive' } },
+        { notes: { contains: token, mode: 'insensitive' } },
+        { stockItem: { itemCode: { contains: token, mode: 'insensitive' } } },
+        { employee: { firstName: { contains: token, mode: 'insensitive' } } },
+        { employee: { lastName: { contains: token, mode: 'insensitive' } } },
+        { employee: { registrationNo: { contains: token, mode: 'insensitive' } } },
+        { createdBy: { fullName: { contains: token, mode: 'insensitive' } } },
+      ] }));
     }
     const [items, total] = await Promise.all([
       prisma.stockMovement.findMany({
@@ -295,9 +259,9 @@ export class StockService {
   }
 
   public static async createStockItem(data: {
-    itemName: string; itemCode?: string; category?: string; itemType?: string; unit?: string;
-    specifications?: string; physicalStatus?: string; warrantyEndDate?: string | Date | null;
-    locationNote?: string; minimumStock?: number; totalStock?: number; createdById?: string; requestKey?: string;
+    itemName: string; category?: string; itemType?: string; unit?: string;
+    specifications?: string; physicalStatus?: string;
+    locationNote?: string; totalStock?: number; createdById?: string; requestKey?: string;
   }) {
     if (typeof data.itemName !== 'string' || data.itemName.trim().length > 120) throw new AppError('Stok kalemi adı zorunlu ve en fazla 120 karakter olmalıdır.', 400);
     const itemName = normalizeInventoryItemName(data.itemName);
@@ -305,8 +269,7 @@ export class StockService {
     const category = cleanOptional(data.category) || 'GENEL';
     if (!stockCategories.has(category)) throw new AppError('Geçersiz stok kategorisi seçildi.', 400);
 
-    let itemCode = cleanOptional(data.itemCode, 'Stok kodu', 40);
-    if (itemCode && !/^[A-Z0-9ÇĞİÖŞÜ._/-]+$/u.test(itemCode)) throw new AppError('Stok kodu yalnızca harf, rakam, nokta, alt çizgi, eğik çizgi ve tire içerebilir.', 400);
+    let itemCode: string;
 
     const itemType = cleanOptional(data.itemType) || 'DEMİRBAŞ';
     if (!allowedItemTypes.has(itemType)) throw new AppError('Geçersiz stok kalemi tipi.', 400);
@@ -316,16 +279,12 @@ export class StockService {
     if (!allowedUnits.has(unit)) throw new AppError('Geçersiz ölçü birimi.', 400);
     const specifications = cleanOptional(data.specifications, 'Teknik detay', 500);
     const locationNote = cleanOptional(data.locationNote, 'Konum bilgisi', 200);
-    const warrantyEndDate = optionalDate(data.warrantyEndDate, 'Garanti bitiş tarihi') ?? null;
-
     let totalStock = Number(data.totalStock || 0);
     if ((itemType === 'ORTAK_EKİPMAN' || itemType === 'ORTAK_KULLANIM') && totalStock === 0) {
       totalStock = 1;
     }
-    const minimumStock = Number(data.minimumStock ?? 1);
     if (!Number.isInteger(totalStock) || totalStock < 0) throw new AppError('Başlangıç miktarı negatif olamaz.', 400);
     if ((itemType === 'ORTAK_EKİPMAN' || itemType === 'ORTAK_KULLANIM') && totalStock !== 1) throw new AppError('Takip edilen ortak eşyalar her fiziksel cihaz için ayrı stok kartında 1 adet olarak açılmalıdır.', 400);
-    if (!Number.isInteger(minimumStock) || minimumStock < 0) throw new AppError('Kritik stok seviyesi negatif olamaz.', 400);
     if (physicalStatus === 'HURDA' && totalStock > 0) throw new AppError('Hurda durumundaki yeni stok kartında başlangıç bakiyesi bulunamaz.', 400);
 
     try {
@@ -338,20 +297,18 @@ export class StockService {
         }
       }
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`STOCK_CARD:${category}`}))`;
-      if (!itemCode) {
-        const prefix = getCategoryPrefix(category);
-        const existingCodes = await tx.stockItem.findMany({ where: { itemCode: { startsWith: `${prefix}-` } }, select: { itemCode: true } });
-        const maxIndex = existingCodes.reduce((max, entry) => {
-          const parsed = Number(entry.itemCode?.split('-').at(-1));
-          return Number.isInteger(parsed) && parsed > max ? parsed : max;
-        }, 0);
-        itemCode = `${prefix}-${String(maxIndex + 1).padStart(3, '0')}`;
-      }
+      const prefix = getCategoryPrefix(category);
+      const existingCodes = await tx.stockItem.findMany({ where: { itemCode: { startsWith: `${prefix}-` } }, select: { itemCode: true } });
+      const maxIndex = existingCodes.reduce((max, entry) => {
+        const parsed = Number(entry.itemCode?.split('-').at(-1));
+        return Number.isInteger(parsed) && parsed > max ? parsed : max;
+      }, 0);
+      itemCode = `${prefix}-${String(maxIndex + 1).padStart(3, '0')}`;
       const item = await tx.stockItem.create({
         data: {
           requestKey: data.requestKey || null, createdById: data.createdById || null,
           itemName, itemCode, category, itemType, specifications, physicalStatus,
-          warrantyEndDate, locationNote, totalStock, minimumStock,
+          warrantyEndDate: null, locationNote, totalStock, minimumStock: 0,
           unit,
         },
       });
@@ -419,19 +376,11 @@ export class StockService {
       const available = item.totalStock - item.usedStock - item.usedInRooms;
       if (available < quantity) throw new AppError(`Yetersiz müsait stok. Depoda ${available} ${item.unit} bulunuyor.`, 409);
 
-      const serialNo = cleanOptional(data.serialNo, 'Üretici seri numarası', 100);
-      if (serialNo) {
-        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`INVENTORY_SERIAL:${serialNo}`}))`;
-        const [roomDuplicate, personnelDuplicate] = await Promise.all([
-          tx.roomInventory.findFirst({ where: { serialNo, returnedAt: null }, select: { id: true } }),
-          tx.inventoryItem.findFirst({ where: { serialNo, returnedDate: null, isDeleted: false }, select: { id: true } }),
-        ]);
-        if (roomDuplicate || personnelDuplicate) throw new AppError('Bu seri numarası halen başka bir aktif zimmette kullanılıyor.', 409);
-      }
+      const inventoryName = await nextRoomInventoryName(tx, room.id, room.roomNumber, item.id, item.itemName);
 
       let assignment = await tx.roomInventory.create({ data: {
-        roomId: room.id, stockItemId: item.id, itemName: item.itemName,
-        brand: cleanOptional(data.brand, 'Marka / model', 150), serialNo, quantity, status: 'HEALTHY', notes: cleanOptional(data.notes, 'Dağıtım notu', 1000),
+        roomId: room.id, stockItemId: item.id, itemName: inventoryName,
+        brand: cleanOptional(data.brand, 'Marka / model', 150), serialNo: null, quantity, status: 'HEALTHY', notes: cleanOptional(data.notes, 'Dağıtım notu', 1000),
       } });
       assignment = await tx.roomInventory.update({ where: { id: assignment.id }, data: { assetTag: assetTagFor(item.itemCode, assignment.id) } });
       await reserveRoomStock(tx, item.id, quantity);
@@ -476,7 +425,7 @@ export class StockService {
       if (sharedAssetItemTypes.has(item.itemType)) {
         throw new AppError('Ortak eşyalar toplu oda zimmetiyle dağıtılamaz. Cihazı Ortak Eşya sayfasından tanımlayıp konumunu güncelleyin.', 400);
       }
-      if (item.itemType !== 'SARF_MALZEME') throw new AppError('Demirbaşlar benzersiz seri numarasıyla tek tek zimmetlenmelidir; toplu dağıtım yalnızca sarf malzemelerinde kullanılabilir.', 400);
+      if (item.itemType !== 'SARF_MALZEME') throw new AppError('Demirbaşlar cihaz geçmişinin korunması için tek tek zimmetlenmelidir; toplu dağıtım yalnızca sarf malzemelerinde kullanılabilir.', 400);
       if (rooms.length !== roomIds.length) throw new AppError('Seçilen odalardan biri veya birkaçı artık mevcut değil.', 409);
       const available = item.totalStock - item.usedStock - item.usedInRooms;
       if (available < totalQuantity) {
@@ -535,7 +484,7 @@ export class StockService {
       });
       if (!assignment || assignment.returnedAt || !assignment.stockItem) throw new AppError('Aktif oda zimmeti bulunamadı.', 404);
       const activeFault = await tx.maintenanceLog.findFirst({ where: { roomInventoryId: assignment.id, status: { in: ['OPEN', 'IN_PROGRESS'] } }, select: { id: true } });
-      if (activeFault) throw new AppError('Bu cihazın açık arıza süreci var. Depoya iade etmeden önce Arıza Yönetimi üzerinden süreci sonuçlandırın.', 409);
+      if (activeFault) throw new AppError('Bu cihazın açık arıza kaydı var. Depoya iade etmeden önce Arıza Yönetimi üzerinden kaydı kapatın.', 409);
       const isRetired = data.outcome !== 'RETURNED';
       const status: RoomInventoryStatus = 'RETIRED';
       const changed = await tx.roomInventory.updateMany({ where: { id: inventoryId, returnedAt: null, updatedAt: assignment.updatedAt }, data: {
@@ -575,15 +524,16 @@ export class StockService {
       if (!targetRoom) throw new AppError('Hedef oda bulunamadı.', 404);
       if (assignment.roomId === targetRoom.id) throw new AppError('Hedef oda mevcut odadan farklı olmalıdır.', 400);
       const activeFault = await tx.maintenanceLog.findFirst({ where: { roomInventoryId: assignment.id, status: { in: ['OPEN', 'IN_PROGRESS'] } }, select: { id: true } });
-      if (activeFault) throw new AppError('Açık arıza kaydı bulunan cihaz transfer edilemez. Önce Arıza Yönetimi sürecini sonuçlandırın.', 409);
+      if (activeFault) throw new AppError('Açık arıza kaydı bulunan cihaz transfer edilemez. Önce Arıza Yönetimi üzerinden kaydı kapatın.', 409);
       const sourceLabel = roomLabel(assignment.room);
-      const changed = await tx.roomInventory.updateMany({ where: { id: inventoryId, roomId: assignment.roomId, returnedAt: null, updatedAt: assignment.updatedAt }, data: { roomId: targetRoom.id, notes: processNote } });
+      const targetName = await nextRoomInventoryName(tx, targetRoom.id, targetRoom.roomNumber, assignment.stockItem.id, assignment.stockItem.itemName);
+      const changed = await tx.roomInventory.updateMany({ where: { id: inventoryId, roomId: assignment.roomId, returnedAt: null, updatedAt: assignment.updatedAt }, data: { roomId: targetRoom.id, itemName: targetName, notes: processNote } });
       if (changed.count !== 1) throw new AppError('Zimmet başka bir işlemde değişti. Güncel listeyi yenileyin.', 409);
       const sharedAssetId = await syncSharedAssetRoomTransfer(tx, assignment.stockItem.id, assignment.id, targetRoom.id, processNote, data.createdById, data.requestKey);
       await tx.stockMovement.create({ data: {
         requestKey: data.requestKey || null, stockItemId: assignment.stockItem.id, roomId: targetRoom.id, roomInventoryId: assignment.id,
         sharedAssetId,
-        type: 'ROOM_TRANSFER', quantity: 0, itemNameSnapshot: assignment.itemName,
+        type: 'ROOM_TRANSFER', quantity: 0, itemNameSnapshot: targetName,
         roomLabelSnapshot: `${sourceLabel} → ${roomLabel(targetRoom)}`, brand: assignment.brand,
         serialNo: assignment.serialNo, reason: 'ODA DEĞİŞİMİ', notes: processNote, createdById: data.createdById,
       } });
@@ -609,24 +559,14 @@ export class StockService {
       });
       if (!assignment || assignment.returnedAt) throw new AppError('Aktif oda zimmeti bulunamadı.', 404);
 
-      const serialNo = cleanOptional(data.serialNo, 'Üretici seri numarası', 100);
-      if (serialNo) {
-        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`INVENTORY_SERIAL:${serialNo}`}))`;
-        const [roomDuplicate, personnelDuplicate] = await Promise.all([
-          tx.roomInventory.findFirst({ where: { serialNo, returnedAt: null, NOT: { id: assignment.id } }, select: { id: true } }),
-          tx.inventoryItem.findFirst({ where: { serialNo, returnedDate: null, isDeleted: false }, select: { id: true } }),
-        ]);
-        if (roomDuplicate || personnelDuplicate) throw new AppError('Bu seri numarası başka bir aktif demirbaşta kullanılıyor.', 409);
-      }
-
       const brand = cleanOptional(data.brand, 'Marka / model', 150);
       const changed = await tx.roomInventory.updateMany({
         where: { id: assignment.id, returnedAt: null, updatedAt: assignment.updatedAt },
-        data: { brand, serialNo, notes: processNote },
+        data: { brand, notes: processNote },
       });
       if (changed.count !== 1) throw new AppError('Zimmet başka bir kullanıcı tarafından güncellendi. Listeyi yenileyip tekrar deneyin.', 409);
 
-      const sharedAssetId = await syncSharedAssetIdentity(tx, assignment.stockItemId, serialNo, brand, processNote, data.createdById);
+      const sharedAssetId = await syncSharedAssetIdentity(tx, assignment.stockItemId, null, brand, processNote, data.createdById);
 
       await tx.stockMovement.create({ data: {
         stockItemId: assignment.stockItemId,
@@ -638,10 +578,10 @@ export class StockService {
         itemNameSnapshot: assignment.itemName,
         roomLabelSnapshot: roomLabel(assignment.room),
         brand,
-        serialNo,
+        serialNo: null,
         requestKey: data.requestKey || null,
         reason: 'CİHAZ KİMLİK BİLGİSİ GÜNCELLEMESİ',
-        notes: `${processNote} / ÖNCEKİ SERİ NO: ${assignment.serialNo || 'KAYITLI DEĞİL'} / ÖNCEKİ MARKA: ${assignment.brand || 'KAYITLI DEĞİL'}`,
+        notes: `${processNote} / ÖNCEKİ MARKA: ${assignment.brand || 'KAYITLI DEĞİL'}`,
         createdById: data.createdById,
       } });
 
@@ -666,15 +606,6 @@ export class StockService {
       if (!assignment || assignment.returnedAt || !assignment.stockItem) throw new AppError('Aktif oda zimmeti bulunamadı.', 404);
       const activeFault = await tx.maintenanceLog.findFirst({ where: { roomInventoryId: assignment.id, status: { in: ['OPEN', 'IN_PROGRESS'] } } });
       if (!activeFault) throw new AppError('Cihaz değişimi için önce Arıza Yönetimi sayfasından aktif bir demirbaş arızası açılmalıdır.', 409);
-      const replacementSerialNo = cleanOptional(data.serialNo, 'Yeni üretici seri numarası', 100);
-      if (replacementSerialNo) {
-        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`INVENTORY_SERIAL:${replacementSerialNo}`}))`;
-        const [roomDuplicate, personnelDuplicate] = await Promise.all([
-          tx.roomInventory.findFirst({ where: { serialNo: replacementSerialNo, returnedAt: null, NOT: { id: assignment.id } }, select: { id: true } }),
-          tx.inventoryItem.findFirst({ where: { serialNo: replacementSerialNo, returnedDate: null, isDeleted: false }, select: { id: true } }),
-        ]);
-        if (roomDuplicate || personnelDuplicate) throw new AppError('Bu seri numarası halen başka bir aktif demirbaşta kullanılıyor.', 409);
-      }
       const available = assignment.stockItem.totalStock - assignment.stockItem.usedStock - assignment.stockItem.usedInRooms;
       if (available < assignment.quantity) throw new AppError('Değişim için depoda yeterli sağlam ürün bulunmuyor.', 409);
 
@@ -689,34 +620,32 @@ export class StockService {
       if (retired !== 1) throw new AppError('Değişim sırasında müsait stok başka bir işlemde kullanıldı. İşlem geri alındı.', 409);
       let replacement = await tx.roomInventory.create({ data: {
         roomId: assignment.roomId, stockItemId: assignment.stockItem.id, itemName: assignment.itemName,
-        brand: cleanOptional(data.brand, 'Yeni marka / model', 150), serialNo: replacementSerialNo, quantity: assignment.quantity,
+        brand: cleanOptional(data.brand, 'Yeni marka / model', 150), serialNo: null, quantity: assignment.quantity,
         status: 'HEALTHY', notes: processNote,
       } });
       replacement = await tx.roomInventory.update({ where: { id: replacement.id }, data: { assetTag: assetTagFor(assignment.stockItem.itemCode, replacement.id) } });
-      const resolution = `${processNote} / ARIZALI CİHAZ: ${assignment.serialNo || assignment.assetTag || assignment.id} / YENİ CİHAZ: ${replacement.serialNo || replacement.assetTag}`;
-      await tx.maintenanceLog.update({ where: { id: activeFault.id }, data: { status: 'RESOLVED', resolvedAt: new Date(), resolutionNote: resolution, assignedTo: cleanOptional(data.performedBy) || activeFault.assignedTo || 'DEPO YÖNETİMİ', updatedById: data.createdById || null } });
-      await tx.maintenanceEvent.create({ data: { maintenanceId: activeFault.id, action: 'DEVICE_REPLACED', fromStatus: activeFault.status, toStatus: 'RESOLVED', inventoryStatus: 'RETIRED', notes: resolution, performedBy: cleanOptional(data.performedBy) || 'DEPO YÖNETİMİ', performedById: data.createdById || null } });
+      const resolution = `${processNote} / ${assignment.itemName} YENİ CİHAZLA DEĞİŞTİRİLDİ`;
+      await tx.maintenanceLog.update({ where: { id: activeFault.id }, data: { status: 'CLOSED', resolvedAt: new Date(), resolutionNote: resolution, assignedTo: cleanOptional(data.performedBy) || activeFault.assignedTo || 'DEPO YÖNETİMİ', updatedById: data.createdById || null } });
+      await tx.maintenanceEvent.create({ data: { maintenanceId: activeFault.id, action: 'DEVICE_REPLACED', fromStatus: activeFault.status, toStatus: 'CLOSED', inventoryStatus: 'RETIRED', notes: resolution, performedBy: cleanOptional(data.performedBy) || 'DEPO YÖNETİMİ', performedById: data.createdById || null } });
       const sharedAssetId = await syncSharedAssetReplacement(tx, assignment.stockItem.id, assignment.id, replacement.id, replacement.serialNo, replacement.brand, resolution, data.createdById, data.requestKey);
       await tx.stockMovement.create({ data: {
         stockItemId: assignment.stockItem.id, roomId: assignment.roomId, roomInventoryId: replacement.id,
         sharedAssetId,
         type: 'REPLACEMENT', quantity: -assignment.quantity, itemNameSnapshot: assignment.itemName,
         roomLabelSnapshot: roomLabel(assignment.room), brand: replacement.brand, serialNo: replacement.serialNo,
-        requestKey: data.requestKey || null, maintenanceId: activeFault.id, reason: `ARIZALI ÜRÜN DEĞİŞİMİ / ESKİ: ${assignment.serialNo || assignment.assetTag || assignment.id}`, notes: resolution, createdById: data.createdById,
+        requestKey: data.requestKey || null, maintenanceId: activeFault.id, reason: `ARIZALI ÜRÜN DEĞİŞİMİ / ${assignment.itemName}`, notes: resolution, createdById: data.createdById,
       } });
       return replacement;
     });
   }
 
   public static async updateStockItem(stockItemId: string, data: {
-    itemName?: string; itemCode?: string; category?: string; itemType?: string; unit?: string;
-    specifications?: string; physicalStatus?: string; warrantyEndDate?: string | Date | null;
-    locationNote?: string; minimumStock?: number; isActive?: boolean; createdById?: string; requestKey?: string;
+    itemName?: string; category?: string; itemType?: string; unit?: string;
+    specifications?: string; physicalStatus?: string;
+    locationNote?: string; isActive?: boolean; createdById?: string; requestKey?: string;
   }) {
     const existing = await prisma.stockItem.findUnique({ where: { id: stockItemId }, include: { _count: { select: { movements: true, roomInventories: true, inventories: true } } } });
     if (!existing) throw new AppError('Stok kartı bulunamadı.', 404);
-    const minimumStock = data.minimumStock === undefined ? undefined : Number(data.minimumStock);
-    if (minimumStock !== undefined && (!Number.isInteger(minimumStock) || minimumStock < 0)) throw new AppError('Kritik stok seviyesi geçersiz.', 400);
     const category = data.category === undefined ? undefined : (cleanOptional(data.category) || 'GENEL');
     if (category !== undefined && !stockCategories.has(category)) throw new AppError('Geçersiz stok kategorisi seçildi.', 400);
     const nextItemType = data.itemType === undefined ? existing.itemType : (cleanOptional(data.itemType) || 'DEMİRBAŞ');
@@ -724,9 +653,6 @@ export class StockService {
     if (nextItemType !== existing.itemType && (existing._count.movements > 0 || existing._count.roomInventories > 0 || existing._count.inventories > 0)) {
       throw new AppError('Hareket veya zimmet geçmişi bulunan stok kartının tipi değiştirilemez. Yeni bir stok kartı açılmalıdır.', 409);
     }
-    const nextItemCode = data.itemCode === undefined ? existing.itemCode : cleanOptional(data.itemCode, 'Stok kodu', 40);
-    if (nextItemCode && !/^[A-Z0-9ÇĞİÖŞÜ._/-]+$/u.test(nextItemCode)) throw new AppError('Stok kodu biçimi geçersiz.', 400);
-    if (nextItemCode !== existing.itemCode && existing._count.movements > 0) throw new AppError('Hareket geçmişi bulunan stok kartının kodu değiştirilemez.', 409);
     if (data.itemName !== undefined && (typeof data.itemName !== 'string' || data.itemName.trim().length > 120)) throw new AppError('Stok kalemi adı en fazla 120 karakter olmalıdır.', 400);
     const nextItemName = data.itemName === undefined ? existing.itemName : normalizeInventoryItemName(data.itemName);
     if (!nextItemName) throw new AppError('Stok kalemi adı zorunludur.', 400);
@@ -748,8 +674,6 @@ export class StockService {
       throw new AppError('Bakiyesi veya aktif zimmeti bulunan stok kartı hurda durumuna alınamaz. Önce sayım/iade/düşüm süreçleriyle bakiyeyi sıfırlayın.', 409);
     }
 
-    const warrantyEndDate = optionalDate(data.warrantyEndDate, 'Garanti bitiş tarihi');
-
     return prisma.$transaction(async (tx) => {
       if (data.requestKey) {
         const prior = await tx.stockMovement.findUnique({ where: { requestKey: data.requestKey } });
@@ -760,15 +684,12 @@ export class StockService {
       }
       const changed = await tx.stockItem.updateMany({ where: { id: stockItemId, updatedAt: existing.updatedAt }, data: {
       ...(data.itemName !== undefined && { itemName: nextItemName }),
-      ...(data.itemCode !== undefined && { itemCode: nextItemCode }),
       ...(category !== undefined && { category }),
       ...(data.itemType !== undefined && { itemType: nextItemType }),
       ...(data.unit !== undefined && { unit: nextUnit }),
       ...(data.specifications !== undefined && { specifications: cleanOptional(data.specifications, 'Teknik detay', 500) }),
       ...(data.physicalStatus !== undefined && { physicalStatus: nextPhysicalStatus }),
       ...(data.locationNote !== undefined && { locationNote: cleanOptional(data.locationNote, 'Konum bilgisi', 200) }),
-      ...(warrantyEndDate !== undefined && { warrantyEndDate }),
-      ...(minimumStock !== undefined && { minimumStock }),
       ...(data.isActive !== undefined && { isActive: data.isActive }),
     } });
     if (changed.count !== 1) throw new AppError('Stok kartı başka bir kullanıcı tarafından güncellendi. Listeyi yenileyip tekrar deneyin.', 409);
@@ -788,7 +709,6 @@ export class StockService {
           assetName: updatedItem.itemName,
           category: updatedItem.category,
           brandModel: updatedItem.specifications || null,
-          warrantyEndDate: updatedItem.warrantyEndDate || null,
           locationNote: updatedItem.locationNote || 'Ana Depo',
         },
       });

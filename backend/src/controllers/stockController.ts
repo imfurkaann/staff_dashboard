@@ -45,14 +45,6 @@ export const stockController = {
     } catch (error) { next(error); }
   },
 
-  getDeviceHistory: async (req: Request, res: Response, next: NextFunction) => {
-    try {
-      const serialNo = stockSingleQuery(req.query.serialNo, 'Seri numarası');
-      const data = await StockService.getDeviceHistory(serialNo || '');
-      res.status(200).json({ success: true, data });
-    } catch (error) { next(error); }
-  },
-
   setRoomStandard: async (req: Request, res: Response, next: NextFunction) => {
     try {
       validateStockId(req.params.id);

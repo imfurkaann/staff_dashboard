@@ -26,7 +26,6 @@ async function main() {
           assetName: item.itemName,
           category: item.category,
           brandModel: item.specifications || null,
-          warrantyEndDate: item.warrantyEndDate || null,
           locationNote: item.locationNote || sharedAsset.locationNote,
         },
       });

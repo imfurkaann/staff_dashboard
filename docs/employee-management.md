@@ -24,7 +24,7 @@
 - Oda çıkışı aktif depo zimmeti veya içeride ziyaretçi varken yapılamaz.
 - Oda çıkışı yatağı boşaltır, açık konaklamayı kapatır ve bağlı portal hesabını pasifleştirir.
 - Ayrılmış personelin yeniden yatağa atanması durumunu `RESIDENT` yapar, eski çıkış yapan kullanıcı bilgisini temizler ve portal hesabını yeniden etkinleştirir.
-- Aynı seri numarası eşzamanlı olarak başka bir personel veya oda zimmetinde kullanılamaz. Kontrol, veritabanı işlemi ve ortak danışma kilidiyle yarış koşullarına karşı korunur.
+- Yönetim kullanıcılarından lojman zimmeti verirken seri numarası istenmez; ürün stok kartı ve zimmet adı üzerinden izlenir.
 - Stok zimmeti iadesi tek sefer yapılabilir; eşzamanlı ikinci istek stok sayacını değiştiremez.
 - Personel ve hassas bağlı kayıtlar denetim geçmişini korumak amacıyla yumuşak silinir.
 - Personel oluşturulurken açıkça portal hesabı istenmediyse kullanıcı hesabı oluşturulmaz.
@@ -52,7 +52,7 @@ flowchart LR
 - Docker imajları yeniden oluşturuldu; migration `20260811190000_harden_employee_management` uygulandı.
 - Geçici verilerle 18 adımlı canlı PostgreSQL senaryosu başarılı oldu ve tüm geçici kayıtlar temizlendi.
 - Üretim bağımlılık taramalarında backend ve frontend için bilinen açık bulunmadı.
-- Tutarlılık taramasında oda/personel durumu, açık konaklama, aktif zimmet, ziyaretçi, seri numarası ve arşiv tutarsızlığı bulunmadı.
+- Tutarlılık taramasında oda/personel durumu, açık konaklama, aktif zimmet, ziyaretçi ve arşiv tutarsızlığı bulunmadı.
 
 ## Operasyon notu
 

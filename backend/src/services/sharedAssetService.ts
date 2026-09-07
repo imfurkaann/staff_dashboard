@@ -2,7 +2,7 @@ import { Prisma, SharedAssetStatus } from '@prisma/client';
 import prisma from '../db/prisma';
 import { AppError } from '../middleware/errorHandler';
 import { assertDateRange, parseIstanbulDateBoundary } from '../utils/dateTime';
-import { boundedText, normalizeIdentifier, normalizeInventoryItemName, normalizeUpper } from '../utils/normalization';
+import { boundedText, normalizeInventoryItemName, normalizeUpper } from '../utils/normalization';
 import { releaseRoomStock } from '../utils/stockBalance';
 import { broadcastSharedAssetEvent } from '../websocket/sharedAssetSocket';
 
@@ -90,7 +90,7 @@ export class SharedAssetService {
         ? prisma.sharedAsset.findMany({ include: assetInclude, orderBy: [{ status: 'asc' }, { assetName: 'asc' }], take: 5000 })
         : prisma.sharedAsset.findMany({ select: {
           id: true, assetCode: true, assetName: true, category: true, brandModel: true,
-          status: true, warrantyEndDate: true, createdAt: true, updatedAt: true,
+          status: true, createdAt: true, updatedAt: true,
         }, orderBy: [{ status: 'asc' }, { assetName: 'asc' }], take: 5000 }),
       canManage ? prisma.employee.findMany({
         where: { isDeleted: false, status: 'RESIDENT' },
@@ -153,7 +153,7 @@ export class SharedAssetService {
 
   public static async createAsset(data: {
     stockItemId?: string; assetName?: string; assetCode?: string; category?: string; brandModel?: string;
-    serialNo?: string; warrantyEndDate?: string | Date; locationNote?: string; notes?: string;
+    serialNo?: string; locationNote?: string; notes?: string;
     createdById?: string; requestKey?: string;
   }) {
     if (!data.stockItemId) throw new AppError('Ortak eşya kaydı bir depo stok kartına bağlı olmalıdır.', 400);
@@ -184,8 +184,7 @@ export class SharedAssetService {
         const assetCode = requestedCode && requestedCode !== code(stock.itemCode)
           ? requestedCode
           : await this.generateNextAssetCode(tx, category);
-        const serialNo = normalizeIdentifier(data.serialNo);
-        const warrantyEndDate = data.warrantyEndDate === undefined ? stock.warrantyEndDate : dateOnly(data.warrantyEndDate, 'Garanti bitiş tarihi');
+        const serialNo = null;
 
         const unlinkedRoomInventories = await tx.roomInventory.findMany({
           where: { stockItemId: stock.id, returnedAt: null, sharedAsset: null },
@@ -211,7 +210,7 @@ export class SharedAssetService {
           requestKey: data.requestKey || null, stockItemId: stock.id, createdById: data.createdById || null,
           assetName, assetCode, category, serialNo,
           brandModel: boundedText(data.brandModel ?? stock.specifications, 'Marka / model', 150, { casing: 'upper' }),
-          warrantyEndDate, locationNote,
+          warrantyEndDate: null, locationNote,
           notes: boundedText(data.notes, 'Açıklama', 1000, { casing: 'upper' }), status: 'AVAILABLE',
         } });
         if (unlinkedRoomInventory) {

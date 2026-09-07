@@ -63,13 +63,13 @@ test('room scoping hides occupants from technical and housekeeping roles', () =>
   assert.deepEqual(housekeeping.inventories, []);
 });
 
-test('maintenance financial values require full-update permission', () => {
+test('retired maintenance service fields are hidden from every role', () => {
   const record = { id: 'm1', laborCost: 1500, partsCost: 500, serviceProvider: 'SERVİS A' };
   const technician = scopeMaintenanceData(record, 'TECHNICIAN') as Record<string, unknown>;
   assert.equal('laborCost' in technician, false);
   assert.equal('partsCost' in technician, false);
-  assert.equal(technician.serviceProvider, 'SERVİS A');
-  assert.equal((scopeMaintenanceData(record, 'TECHNICAL_MANAGER') as typeof record).laborCost, 1500);
+  assert.equal('serviceProvider' in technician, false);
+  assert.equal('laborCost' in (scopeMaintenanceData(record, 'TECHNICAL_MANAGER') as Record<string, unknown>), false);
 });
 
 test('role catalog is exhaustive and exposes the enforced permission matrix', () => {

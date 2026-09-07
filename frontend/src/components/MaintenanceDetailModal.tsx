@@ -13,7 +13,6 @@ import {
   RotateCcw,
   Trash2,
   User,
-  Wrench,
   X,
 } from 'lucide-react';
 import { MaintenanceLog, MaintenancePriority, MaintenanceStatus } from '../api/maintenanceApi';
@@ -27,7 +26,6 @@ interface MaintenanceDetailModalProps {
   onEdit?: (log: MaintenanceLog) => void;
   onStatusChange?: (log: MaintenanceLog, newStatus: MaintenanceStatus) => void;
   onDelete?: (log: MaintenanceLog) => void;
-  currentUserFullName?: string;
   currentUserRole?: string;
 }
 
@@ -38,7 +36,6 @@ export const MaintenanceDetailModal: React.FC<MaintenanceDetailModalProps> = ({
   onEdit,
   onStatusChange,
   onDelete,
-  currentUserFullName = 'Lojman Yönetimi',
   currentUserRole,
 }) => {
   if (!isOpen || !log) return null;
@@ -91,17 +88,11 @@ export const MaintenanceDetailModal: React.FC<MaintenanceDetailModalProps> = ({
 
   const renderStatusBadge = (status: MaintenanceStatus) => {
     switch (status) {
-      case 'RESOLVED':
       case 'CLOSED':
+      case 'RESOLVED':
         return (
           <span className="px-3 py-1 rounded-full text-xs font-black bg-emerald-100 text-emerald-800 border border-emerald-300 flex items-center gap-1.5 w-fit">
-            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" /> Çözüldü / Tamamlandı
-          </span>
-        );
-      case 'IN_PROGRESS':
-        return (
-          <span className="px-3 py-1 rounded-full text-xs font-bold bg-blue-100 text-blue-800 border border-blue-300 flex items-center gap-1.5 w-fit">
-            <Wrench className="w-3.5 h-3.5 text-blue-600" /> İşlemde (Teknisyen İlgileniyor)
+            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" /> Kapalı
           </span>
         );
       default:
@@ -172,9 +163,9 @@ export const MaintenanceDetailModal: React.FC<MaintenanceDetailModalProps> = ({
               <h4 className="text-xs font-extrabold text-amber-900 uppercase tracking-wider flex items-center gap-1.5">
                 <Package className="w-4 h-4 text-amber-700" /> Bağlı Oda Demirbaşı
               </h4>
-              <p className="text-sm font-black text-slate-950">{log.inventoryAssetTagSnapshot ? `[${log.inventoryAssetTagSnapshot}] ` : ''}{log.inventoryItemNameSnapshot || 'Demirbaş'}</p>
+              <p className="text-sm font-black text-slate-950">{log.inventoryItemNameSnapshot || 'Demirbaş'}</p>
               <p className="text-xs text-slate-700">
-                {log.inventoryBrandSnapshot || 'Marka yok'} · {log.inventorySerialNoSnapshot ? `S/N ${log.inventorySerialNoSnapshot}` : 'Seri no yok'} · {log.inventoryQuantitySnapshot || 1} adet
+                {log.inventoryBrandSnapshot || 'Marka yok'} · {log.inventoryQuantitySnapshot || 1} adet
               </p>
               <p className={`font-extrabold ${log.inventoryStatus === 'LOST' ? 'text-rose-700' : 'text-amber-800'}`}>
                 Kayıt anındaki demirbaş durumu: {getInventoryStatusLabel(log.inventoryStatus)}
@@ -204,22 +195,15 @@ export const MaintenanceDetailModal: React.FC<MaintenanceDetailModalProps> = ({
             </div>
           )}
 
-          {/* Çözüm Notu */}
+          {/* Kapanış Notu */}
           {log.resolutionNote && (
             <div className="space-y-1.5 bg-emerald-50 p-4 rounded-2xl border border-emerald-200 text-emerald-950">
               <h4 className="text-xs font-extrabold uppercase tracking-wider flex items-center gap-1.5 text-emerald-800">
-                <CheckCircle2 className="w-4 h-4 text-emerald-600" /> Çözüm & Yapılan İşlem Notu
+                <CheckCircle2 className="w-4 h-4 text-emerald-600" /> Kapanış / Sonuç Notu
               </h4>
               <p className="text-emerald-900 leading-relaxed font-semibold whitespace-pre-wrap break-words">
                 {log.resolutionNote}
               </p>
-            </div>
-          )}
-
-          {log.type === 'ROOM_INVENTORY' && (log.serviceProvider || log.serviceReference || log.sentToServiceAt || log.returnedFromServiceAt || (log.laborCost || 0) > 0 || (log.partsCost || 0) > 0 || log.warrantyCovered) && (
-            <div className="space-y-3 rounded-2xl border border-blue-200 bg-blue-50/60 p-4">
-              <h4 className="text-xs font-extrabold uppercase tracking-wider text-blue-900">Servis, Garanti ve Maliyet Özeti</h4>
-              <div className="grid grid-cols-2 gap-3 text-xs"><div><span className="block text-[10px] font-bold text-slate-500">Servis Firması</span><strong>{log.serviceProvider || '-'}</strong></div><div><span className="block text-[10px] font-bold text-slate-500">İş Emri / Servis No</span><strong>{log.serviceReference || '-'}</strong></div><div><span className="block text-[10px] font-bold text-slate-500">Servise Gönderilme</span><strong>{formatDateWithTime(log.sentToServiceAt)}</strong></div><div><span className="block text-[10px] font-bold text-slate-500">Servisten Dönüş</span><strong>{formatDateWithTime(log.returnedFromServiceAt)}</strong></div><div><span className="block text-[10px] font-bold text-slate-500">Garanti</span><strong>{log.warrantyCovered ? 'Garanti kapsamında' : 'Garanti dışı'}</strong></div>{(log.laborCost !== undefined || log.partsCost !== undefined) && <div><span className="block text-[10px] font-bold text-slate-500">Toplam Maliyet</span><strong>{((log.laborCost || 0) + (log.partsCost || 0)).toLocaleString('tr-TR', { style: 'currency', currency: 'TRY' })}</strong></div>}</div>
             </div>
           )}
 
@@ -235,13 +219,13 @@ export const MaintenanceDetailModal: React.FC<MaintenanceDetailModalProps> = ({
               <p className="text-sm font-extrabold text-slate-900">{reportedByName}</p>
             </div>
 
-            {/* Çözümleyen Personel */}
+            {/* Kapatan Kullanıcı */}
             <div className="p-3.5 rounded-2xl bg-white border border-slate-200 shadow-2xs space-y-1">
               <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block flex items-center gap-1">
-                <User className="w-3.5 h-3.5 text-slate-500" /> Çözümleyen Personel
+                <User className="w-3.5 h-3.5 text-slate-500" /> Kapatan Kullanıcı
               </span>
               <p className="text-sm font-extrabold text-slate-900">
-                {resolvedByName || <span className="text-slate-400 font-semibold italic">Henüz Çözülmedi</span>}
+                {resolvedByName || <span className="text-slate-400 font-semibold italic">Kayıt açık</span>}
               </p>
             </div>
 
@@ -286,20 +270,20 @@ export const MaintenanceDetailModal: React.FC<MaintenanceDetailModalProps> = ({
                     className="px-4 py-2 rounded-xl bg-amber-50 text-amber-700 hover:bg-amber-600 hover:text-white border border-amber-300 text-xs font-extrabold flex items-center gap-1.5 transition-colors cursor-pointer"
                   >
                     <RotateCcw className="w-4 h-4" />
-                    <span>Çözümü Geri Al (Açık Yap)</span>
+                    <span>Kaydı Yeniden Aç</span>
                   </button>
                 )
               ) : (
                 <button
                   type="button"
                   onClick={() => {
-                    onStatusChange(log, 'RESOLVED');
+                    onStatusChange(log, 'CLOSED');
                     onClose();
                   }}
                   className="px-4 py-2 rounded-xl bg-emerald-50 text-emerald-700 hover:bg-emerald-600 hover:text-white border border-emerald-300 text-xs font-extrabold flex items-center gap-1.5 transition-colors cursor-pointer"
                 >
                   <CheckCircle2 className="w-4 h-4" />
-                  <span>Çözüldü Olarak İşaretle</span>
+                  <span>Arızayı Kapat</span>
                 </button>
               ))}
           </div>

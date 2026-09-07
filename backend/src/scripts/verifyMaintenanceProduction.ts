@@ -54,8 +54,8 @@ async function main() {
     );
 
     const stock = await StockService.createStockItem({
-      itemName: `TEST KLİMA ${suffix}`, itemCode: `MNT-${suffix}`, category: 'ELEKTRONİK',
-      itemType: 'DEMİRBAŞ', totalStock: 3, minimumStock: 0, createdById: actor.id,
+      itemName: `TEST KLİMA ${suffix}`, category: 'ELEKTRONİK',
+      itemType: 'DEMİRBAŞ', totalStock: 3, createdById: actor.id,
     });
     stockItemId = stock.id;
     const firstAssignment = await StockService.assignToRoom(stock.id, {
@@ -64,24 +64,17 @@ async function main() {
 
     const inventoryFault = await maintenanceService.createMaintenance({
       requestKey: randomUUID(), roomId, type: 'ROOM_INVENTORY', roomInventoryId: firstAssignment.id,
-      inventoryStatus: 'IN_SERVICE', description: 'CİHAZ SERVİS SÜRECİ TESTİ', priority: 'MEDIUM',
+      inventoryStatus: 'MAINTENANCE_REQUIRED', description: 'CİHAZ ARIZA KAYDI TESTİ', priority: 'MEDIUM',
       reportedBy: actor.fullName, createdById: actor.id,
     });
-    assert.equal((await prisma.roomInventory.findUniqueOrThrow({ where: { id: firstAssignment.id } })).status, 'IN_SERVICE');
+    assert.equal((await prisma.roomInventory.findUniqueOrThrow({ where: { id: firstAssignment.id } })).status, 'MAINTENANCE_REQUIRED');
     await expectStatus(409, () => maintenanceService.createMaintenance({
       roomId: roomId!, type: 'ROOM_INVENTORY', roomInventoryId: firstAssignment.id,
       inventoryStatus: 'DAMAGED', description: 'İKİNCİ AKTİF ARIZA', reportedBy: actor.fullName, createdById: actor.id,
     }));
 
-    const sentAt = new Date(Date.now() - 60_000);
-    await maintenanceService.updateMaintenance(inventoryFault.id, {
-      status: 'IN_PROGRESS', sentToServiceAt: sentAt, performedBy: actor.fullName, performedById: actor.id, canFullUpdate: true,
-    });
-    await expectStatus(400, () => maintenanceService.updateMaintenance(inventoryFault.id, {
-      status: 'RESOLVED', resolutionNote: 'SERVİS TAMAMLADI', performedBy: actor.fullName, performedById: actor.id,
-    }));
     const resolved = await maintenanceService.updateMaintenance(inventoryFault.id, {
-      status: 'RESOLVED', resolutionNote: 'SERVİS TAMAMLADI', returnedFromServiceAt: new Date(),
+      status: 'CLOSED', resolutionNote: 'ARIZA KAYDI KAPATILDI',
       inventoryStatus: 'HEALTHY', performedBy: actor.fullName, performedById: actor.id, canFullUpdate: true,
     });
     assert.ok(resolved.resolvedAt);
@@ -95,7 +88,7 @@ async function main() {
     assert.equal((await prisma.roomInventory.findUniqueOrThrow({ where: { id: firstAssignment.id } })).status, 'MAINTENANCE_REQUIRED');
 
     await maintenanceService.updateMaintenance(inventoryFault.id, {
-      status: 'RESOLVED', resolutionNote: 'YENİDEN KONTROL EDİLDİ', inventoryStatus: 'HEALTHY',
+      status: 'CLOSED', resolutionNote: 'YENİDEN KONTROL EDİLDİ', inventoryStatus: 'HEALTHY',
       performedBy: actor.fullName, performedById: actor.id, canFullUpdate: true,
     });
 

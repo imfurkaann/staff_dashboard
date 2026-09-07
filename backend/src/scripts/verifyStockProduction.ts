@@ -28,13 +28,13 @@ async function main() {
 
     const createKey = randomUUID();
     const card = await StockService.createStockItem({
-      requestKey: createKey, itemName: `ZZ STOK DOĞRULAMA DEMİRBAŞ ${suffix}`, itemCode: `ZZD-${suffix}`,
-      category: 'ELEKTRONİK', itemType: 'DEMİRBAŞ', unit: 'ADET', totalStock: 2, minimumStock: 0, createdById: actor.id,
+      requestKey: createKey, itemName: `ZZ STOK DOĞRULAMA DEMİRBAŞ ${suffix}`,
+      category: 'ELEKTRONİK', itemType: 'DEMİRBAŞ', unit: 'ADET', totalStock: 2, createdById: actor.id,
     });
     stockItemIds.push(card.id);
     const repeatedCard = await StockService.createStockItem({
-      requestKey: createKey, itemName: `ZZ STOK DOĞRULAMA DEMİRBAŞ ${suffix}`, itemCode: `ZZD-${suffix}`,
-      category: 'ELEKTRONİK', itemType: 'DEMİRBAŞ', unit: 'ADET', totalStock: 2, minimumStock: 0, createdById: actor.id,
+      requestKey: createKey, itemName: `ZZ STOK DOĞRULAMA DEMİRBAŞ ${suffix}`,
+      category: 'ELEKTRONİK', itemType: 'DEMİRBAŞ', unit: 'ADET', totalStock: 2, createdById: actor.id,
     });
     assert.equal(repeatedCard.id, card.id);
     assert.equal(await prisma.stockMovement.count({ where: { stockItemId: card.id, type: 'OPENING' } }), 1);

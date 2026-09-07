@@ -9,6 +9,18 @@ test('HTTP IP deployment derives origins and usable cookies', () => {
   });
 });
 
+test('public deployment may explicitly allow local Docker test origins', () => {
+  assert.deepEqual(resolvePublicAccess({
+    PUBLIC_URL: 'http://169.58.124.2:3335',
+    CORS_ADDITIONAL_ORIGINS: 'http://localhost:3335,http://127.0.0.1:3335',
+  }), {
+    clientUrl: 'http://169.58.124.2:3335',
+    allowedOrigins: ['http://169.58.124.2:3335', 'http://localhost:3335', 'http://127.0.0.1:3335'],
+    secure: false,
+    allowInsecureHttp: true,
+  });
+});
+
 test('domain migration overrides stale legacy settings and normalizes origin', () => {
   assert.deepEqual(resolvePublicAccess({
     PUBLIC_URL: 'https://Portal.Example.com/', CLIENT_URL: 'http://old.example',

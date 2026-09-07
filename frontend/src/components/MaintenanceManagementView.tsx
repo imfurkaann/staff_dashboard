@@ -9,14 +9,12 @@ import {
   FilePenLine,
   FileSpreadsheet,
   Filter,
-  Pencil,
   Plus,
   Printer,
   RefreshCw,
   RotateCcw,
   Search,
   Trash2,
-  User,
   Wrench,
   X,
 } from 'lucide-react';
@@ -118,7 +116,6 @@ export const MaintenanceManagementView: React.FC<MaintenanceManagementViewProps>
   const canManage = can(currentUser.role, 'MAINTENANCE_UPDATE');
   const canCreate = can(currentUser.role, 'MAINTENANCE_CREATE');
   const canExport = can(currentUser.role, 'MAINTENANCE_EXPORT');
-  const canManageServiceDetails = can(currentUser.role, 'MAINTENANCE_FULL_UPDATE');
   const canDelete = can(currentUser.role, 'MAINTENANCE_DELETE');
   const canRetireInventory = currentUser.role === 'ADMIN' || currentUser.role === 'HOUSING_MANAGER';
   const [deletingLog, setDeletingLog] = useState<MaintenanceLog | null>(null);
@@ -218,10 +215,8 @@ export const MaintenanceManagementView: React.FC<MaintenanceManagementViewProps>
     setBusyId(log.id);
     setError(null);
     try {
-      const solverName = currentUser.role === 'TECHNICIAN' ? currentUser.fullName : (log.assignedTo || currentUser.fullName || 'Teknik Personel');
       await maintenanceApi.updateMaintenance(log.id, {
         status: newStatus,
-        assignedTo: newStatus === 'RESOLVED' || newStatus === 'CLOSED' || newStatus === 'IN_PROGRESS' ? solverName : log.assignedTo,
       });
       await loadData(false);
     } catch (caught) {
@@ -295,30 +290,19 @@ export const MaintenanceManagementView: React.FC<MaintenanceManagementViewProps>
   const renderStatusBadge = (s: MaintenanceStatus) => {
     switch (s) {
       case 'OPEN':
+      case 'IN_PROGRESS':
         return (
           <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-xl text-[11px] font-extrabold bg-amber-50 text-amber-800 border border-amber-200">
             <Clock className="w-3 h-3 text-amber-600 shrink-0" />
             Açık Bildirim
           </span>
         );
-      case 'IN_PROGRESS':
-        return (
-          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-xl text-[11px] font-extrabold bg-blue-50 text-[#1e3a8a] border border-blue-200">
-            <Wrench className="w-3 h-3 text-[#1e3a8a] shrink-0" />
-            İşlemde (Teknik)
-          </span>
-        );
       case 'RESOLVED':
+      case 'CLOSED':
         return (
           <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-xl text-[11px] font-extrabold bg-emerald-50 text-emerald-800 border border-emerald-200">
             <CheckCircle2 className="w-3 h-3 text-emerald-600 shrink-0" />
-            Çözüldü
-          </span>
-        );
-      case 'CLOSED':
-        return (
-          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-xl text-[11px] font-bold bg-slate-100 text-slate-700 border border-slate-200">
-            Kapatıldı
+            Kapalı
           </span>
         );
     }
@@ -350,29 +334,7 @@ export const MaintenanceManagementView: React.FC<MaintenanceManagementViewProps>
                 : 'text-slate-700 hover:text-slate-900 hover:bg-slate-200/60'
             }`}
           >
-            Açık Bildirimler ({summary.openCount})
-          </button>
-          <button
-            type="button"
-            onClick={() => setSelectedStatus('IN_PROGRESS')}
-            className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap shrink-0 ${
-              selectedStatus === 'IN_PROGRESS'
-                ? 'bg-[#1e3a8a] text-white shadow-xs'
-                : 'text-slate-700 hover:text-slate-900 hover:bg-slate-200/60'
-            }`}
-          >
-            İşlemde Olanlar ({summary.inProgressCount})
-          </button>
-          <button
-            type="button"
-            onClick={() => setSelectedStatus('RESOLVED')}
-            className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap shrink-0 ${
-              selectedStatus === 'RESOLVED'
-                ? 'bg-emerald-700 text-white shadow-xs'
-                : 'text-slate-700 hover:text-slate-900 hover:bg-slate-200/60'
-            }`}
-          >
-            Çözülenler ({summary.resolvedCount})
+            Açık Kayıtlar ({summary.openCount + summary.inProgressCount})
           </button>
           <button
             type="button"
@@ -383,7 +345,7 @@ export const MaintenanceManagementView: React.FC<MaintenanceManagementViewProps>
                 : 'text-slate-700 hover:text-slate-900 hover:bg-slate-200/60'
             }`}
           >
-            Kapatılanlar ({summary.closedCount})
+            Kapalı Kayıtlar ({summary.resolvedCount + summary.closedCount})
           </button>
         </div>
 
@@ -413,29 +375,21 @@ export const MaintenanceManagementView: React.FC<MaintenanceManagementViewProps>
       </div>
 
       {/* Summary Metrics Cards */}
-      <section className="grid grid-cols-2 lg:grid-cols-4 gap-3.5" aria-label="Arıza İstatistikleri">
+      <section className="grid grid-cols-1 sm:grid-cols-3 gap-3.5" aria-label="Arıza İstatistikleri">
         <div className="bg-white border border-slate-300 rounded-2xl p-4 shadow-xs">
           <div className="flex justify-between items-center text-slate-500">
             <span className="text-xs font-bold text-slate-700">Açık Arızalar</span>
             <Clock className="w-4.5 h-4.5 text-amber-600" />
           </div>
-          <p className="text-2xl font-black text-slate-900 mt-2">{summary.openCount}</p>
+          <p className="text-2xl font-black text-slate-900 mt-2">{summary.openCount + summary.inProgressCount}</p>
         </div>
 
         <div className="bg-white border border-slate-300 rounded-2xl p-4 shadow-xs">
           <div className="flex justify-between items-center text-slate-500">
-            <span className="text-xs font-bold text-slate-700">İşlemdeki Arızalar</span>
-            <Wrench className="w-4.5 h-4.5 text-[#1e3a8a]" />
-          </div>
-          <p className="text-2xl font-black text-slate-900 mt-2">{summary.inProgressCount}</p>
-        </div>
-
-        <div className="bg-white border border-slate-300 rounded-2xl p-4 shadow-xs">
-          <div className="flex justify-between items-center text-slate-500">
-            <span className="text-xs font-bold text-slate-700">Çözülen Arızalar</span>
+            <span className="text-xs font-bold text-slate-700">Kapalı Arızalar</span>
             <CheckCircle2 className="w-4.5 h-4.5 text-emerald-600" />
           </div>
-          <p className="text-2xl font-black text-slate-900 mt-2">{summary.resolvedCount}</p>
+          <p className="text-2xl font-black text-slate-900 mt-2">{summary.resolvedCount + summary.closedCount}</p>
         </div>
 
         <div className="bg-white border border-slate-300 rounded-2xl p-4 shadow-xs">
@@ -570,7 +524,7 @@ export const MaintenanceManagementView: React.FC<MaintenanceManagementViewProps>
                     <th className="py-3.5 px-4 whitespace-nowrap">Öncelik</th>
                     <th className="py-3.5 px-4 whitespace-nowrap">Durum</th>
                     <th className="py-3.5 px-4 whitespace-nowrap">Bildiren Kişi</th>
-                    <th className="py-3.5 px-4 whitespace-nowrap">Çözümleyen Personel</th>
+                    <th className="py-3.5 px-4 whitespace-nowrap">Kapatan Kullanıcı</th>
                     <th className="py-3.5 px-4 whitespace-nowrap">Açılış Tarihi</th>
                     <th className="py-3.5 px-4 whitespace-nowrap">Kapanış Tarihi</th>
                     <th className="py-3.5 px-4 text-right whitespace-nowrap">İşlemler</th>
@@ -615,8 +569,8 @@ export const MaintenanceManagementView: React.FC<MaintenanceManagementViewProps>
                           </span>
                         )}
                         {log.resolutionNote && (
-                          <p className="text-[10px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-md px-1.5 py-0.5 mt-1 truncate max-w-[260px]" title={`Çözüm Notu: ${log.resolutionNote}`}>
-                            Çözüm Notu: {log.resolutionNote}
+                          <p className="text-[10px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-md px-1.5 py-0.5 mt-1 truncate max-w-[260px]" title={`Kapanış Notu: ${log.resolutionNote}`}>
+                            Kapanış Notu: {log.resolutionNote}
                           </p>
                         )}
                       </td>
@@ -638,14 +592,14 @@ export const MaintenanceManagementView: React.FC<MaintenanceManagementViewProps>
                         </span>
                       </td>
 
-                      {/* Çözümleyen Personel */}
+                      {/* Kapatan Kullanıcı */}
                       <td className="py-3.5 px-4 whitespace-nowrap max-w-[150px]">
                         {log.assignedTo ? (
                           <span className="font-extrabold text-slate-800 block truncate max-w-[140px]" title={log.assignedTo}>{log.assignedTo}</span>
                         ) : log.status === 'RESOLVED' || log.status === 'CLOSED' ? (
                           <span className="font-extrabold text-slate-800 block truncate max-w-[140px]">Sistem / Eski Kayıt</span>
                         ) : (
-                          <span className="text-xs font-semibold text-slate-400 italic">Henüz Çözülmedi</span>
+                          <span className="text-xs font-semibold text-slate-400 italic">Kayıt açık</span>
                         )}
                       </td>
 
@@ -672,7 +626,7 @@ export const MaintenanceManagementView: React.FC<MaintenanceManagementViewProps>
                                   handleQuickStatusChange(log, 'OPEN');
                                 }}
                                 className={`${buttonBase} bg-amber-50 text-amber-700 hover:bg-amber-600 hover:text-white border-amber-200/80 hover:border-amber-600`}
-                                title="Çözümü geri al (Tekrar açık yap)"
+                                title="Kaydı yeniden aç"
                               >
                                 <RotateCcw className="w-3.5 h-3.5 shrink-0 group-hover:scale-110 transition-transform duration-300" />
                                 <span className={labelBase}>Geri Al</span>
@@ -686,15 +640,14 @@ export const MaintenanceManagementView: React.FC<MaintenanceManagementViewProps>
                                 e.stopPropagation();
                                 setEditingLog({
                                   ...log,
-                                  status: 'RESOLVED',
-                                  assignedTo: currentUser.role === 'TECHNICIAN' ? currentUser.fullName : (log.assignedTo || currentUser.fullName),
+                                  status: 'CLOSED',
                                 });
                               }}
                               className={`${buttonBase} bg-emerald-50 text-emerald-700 hover:bg-emerald-600 hover:text-white border-emerald-200/80 hover:border-emerald-600`}
-                              title="Çözüm bilgilerini gir"
+                              title="Arızayı kapat"
                             >
                               <CheckCircle2 className="w-3.5 h-3.5 shrink-0 group-hover:scale-110 transition-transform duration-300" />
-                              <span className={labelBase}>Çözüm Gir</span>
+                              <span className={labelBase}>Kapat</span>
                             </button>
                           )}
 
@@ -704,11 +657,7 @@ export const MaintenanceManagementView: React.FC<MaintenanceManagementViewProps>
                               disabled={busyId === log.id}
                               onClick={(e) => {
                                 e.stopPropagation();
-                                setEditingLog(
-                                  currentUser.role === 'TECHNICIAN' && !log.assignedTo
-                                    ? { ...log, assignedTo: currentUser.fullName }
-                                    : log
-                                );
+                                setEditingLog(log);
                               }}
                               className={`${buttonBase} bg-blue-50 text-[#1e3a8a] hover:bg-[#1e3a8a] hover:text-white border-blue-200/80 hover:border-[#1e3a8a]`}
                               title="Düzenle"
@@ -776,7 +725,7 @@ export const MaintenanceManagementView: React.FC<MaintenanceManagementViewProps>
 
                   <div className="text-[11px] space-y-1 pt-2 border-t border-slate-100 text-slate-700">
                     <p><strong>Bildiren Kişi:</strong> {log.reportedBy && log.reportedBy !== 'Sistem Kullanıcısı' ? log.reportedBy : 'Sistem / Eski Kayıt'}</p>
-                    <p><strong>Çözümleyen Personel:</strong> {log.assignedTo || (log.status === 'RESOLVED' || log.status === 'CLOSED' ? 'Sistem / Eski Kayıt' : 'Henüz Çözülmedi')}</p>
+                    <p><strong>Kapatan Kullanıcı:</strong> {log.assignedTo || (log.status === 'RESOLVED' || log.status === 'CLOSED' ? 'Sistem / Eski Kayıt' : 'Kayıt açık')}</p>
                     <p><strong>Açılış Tarihi:</strong> {formatDate(log.createdAt)}</p>
                     {log.resolvedAt && <p><strong>Kapanış Tarihi:</strong> {formatDate(log.resolvedAt)}</p>}
                   </div>
@@ -788,7 +737,7 @@ export const MaintenanceManagementView: React.FC<MaintenanceManagementViewProps>
                         disabled={!canManage || busyId === log.id}
                         onClick={() => handleQuickStatusChange(log, 'OPEN')}
                         className={`${buttonBase} bg-amber-50 text-amber-700 hover:bg-amber-600 hover:text-white border-amber-200/80 hover:border-amber-600`}
-                        title="Çözümü geri al (Tekrar açık yap)"
+                        title="Kaydı yeniden aç"
                       >
                         <RotateCcw className="w-3.5 h-3.5 shrink-0 group-hover:scale-110 transition-transform duration-300" />
                         <span className={labelBase}>Geri Al</span>
@@ -797,12 +746,12 @@ export const MaintenanceManagementView: React.FC<MaintenanceManagementViewProps>
                       <button
                         type="button"
                         disabled={!canManage || busyId === log.id}
-                        onClick={() => setEditingLog({ ...log, status: 'RESOLVED' })}
+                        onClick={() => setEditingLog({ ...log, status: 'CLOSED' })}
                         className={`${buttonBase} bg-emerald-50 text-emerald-700 hover:bg-emerald-600 hover:text-white border-emerald-200/80 hover:border-emerald-600`}
-                        title="Çözüm bilgilerini gir"
+                        title="Arızayı kapat"
                       >
                         <CheckCircle2 className="w-3.5 h-3.5 shrink-0 group-hover:scale-110 transition-transform duration-300" />
-                        <span className={labelBase}>Çözüm Gir</span>
+                        <span className={labelBase}>Kapat</span>
                       </button>
                     )}
                     <button
@@ -845,14 +794,13 @@ export const MaintenanceManagementView: React.FC<MaintenanceManagementViewProps>
         onClose={() => setDetailTarget(null)}
         onEdit={canManage && !(currentUser.role === 'TECHNICIAN' && (detailTarget?.status === 'RESOLVED' || detailTarget?.status === 'CLOSED')) ? (logToEdit) => setEditingLog(logToEdit) : undefined}
         onStatusChange={canManage ? ((log, nextStatus) => {
-          if (nextStatus === 'RESOLVED' || nextStatus === 'CLOSED') setEditingLog({ ...log, status: nextStatus, assignedTo: currentUser.role === 'TECHNICIAN' ? currentUser.fullName : (log.assignedTo || currentUser.fullName) });
+          if (nextStatus === 'CLOSED') setEditingLog({ ...log, status: nextStatus });
           else handleQuickStatusChange(log, nextStatus);
         }) : undefined}
         onDelete={canDelete ? (logToDelete) => {
           setDetailTarget(null);
           setDeletingLog(logToDelete);
         } : undefined}
-        currentUserFullName={currentUser.fullName}
         currentUserRole={currentUser.role}
       />
 
@@ -861,13 +809,10 @@ export const MaintenanceManagementView: React.FC<MaintenanceManagementViewProps>
         isOpen={editingLog !== undefined}
         maintenance={editingLog || null}
         canRetireInventory={canRetireInventory}
-        canManageServiceDetails={canManageServiceDetails}
         onClose={() => setEditingLog(undefined)}
         onSuccess={() => {
           loadData(false);
         }}
-        currentUserRole={currentUser.role}
-        currentUserFullName={currentUser.fullName}
       />
 
       {/* Report Modal */}

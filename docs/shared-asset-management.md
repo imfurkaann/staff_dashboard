@@ -30,7 +30,7 @@
 - Mutasyonlar kullanıcı bazlı hız sınırına tabidir. UUID tekrar-gönderim anahtarı çift tıklama ve ağ tekrarında ikinci zimmet, iade veya bakım kaydı oluşmasını engeller.
 - Durum değişiklikleri iyimser kilit ve seri veritabanı işlemleriyle eşzamanlı kullanıma karşı korunur.
 - Salt görüntüleme yetkisine sahip personel portalına personel listesi, oda listesi, zimmet sahibi kimliği, notlar ve işlem geçmişi döndürülmez. Portal yalnızca eşya adı ve genel uygunluk durumunu görür.
-- Eşya kodu, aktif seri numarası, stok bağlantısı, aktif personel/oda zimmet bağlantısı ve tekrar-gönderim anahtarları benzersizdir.
+- Eşya kodu, stok bağlantısı, aktif personel/oda zimmet bağlantısı ve tekrar-gönderim anahtarları benzersizdir. Yönetim kullanıcılarından seri numarası veya garanti bilgisi istenmez.
 
 ## Kullanıcı ekranı
 

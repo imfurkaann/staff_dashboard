@@ -9,10 +9,14 @@ export function resolvePublicAccess(env: NodeJS.ProcessEnv) {
       throw new Error('PUBLIC_URL yalnızca protokol, IP/domain ve isteğe bağlı port içermelidir.');
     }
     const secure = url.protocol === 'https:';
+    const additionalOrigins = (env.CORS_ADDITIONAL_ORIGINS || '')
+      .split(',')
+      .map((origin) => origin.trim())
+      .filter(Boolean);
     return {
       clientUrl: url.origin,
-      allowedOrigins: [url.origin],
-      allowInsecureHttp: !secure,
+      allowedOrigins: Array.from(new Set([url.origin, ...additionalOrigins])),
+      allowInsecureHttp: !secure || additionalOrigins.some((origin) => origin.startsWith('http://')),
       secure,
     };
   }

@@ -19,10 +19,8 @@ export interface MaintenanceLog {
   inventoryStatus?: InventoryFaultStatus | null;
   inventoryItemNameSnapshot?: string | null;
   inventoryBrandSnapshot?: string | null;
-  inventorySerialNoSnapshot?: string | null;
-  inventoryAssetTagSnapshot?: string | null;
   inventoryQuantitySnapshot?: number | null;
-  roomInventory?: { id: string; assetTag?: string | null; itemName: string; brand?: string | null; serialNo?: string | null; quantity: number; status: string; returnedAt?: string | null } | null;
+  roomInventory?: { id: string; itemName: string; brand?: string | null; quantity: number; status: string; returnedAt?: string | null } | null;
   room?: {
     id: string;
     roomNumber: string;
@@ -44,14 +42,7 @@ export interface MaintenanceLog {
   updatedAt: string;
   resolvedAt?: string | null;
   resolutionNote?: string | null;
-  serviceProvider?: string | null;
-  serviceReference?: string | null;
-  laborCost?: number;
-  partsCost?: number;
-  warrantyCovered: boolean;
-  sentToServiceAt?: string | null;
-  returnedFromServiceAt?: string | null;
-  events?: Array<{ id: string; action: string; fromStatus?: MaintenanceStatus | null; toStatus?: MaintenanceStatus | null; inventoryStatus?: string | null; notes?: string | null; serviceProvider?: string | null; serviceReference?: string | null; laborCost?: number | null; partsCost?: number | null; warrantyCovered?: boolean | null; performedBy: string; createdAt: string }>;
+  events?: Array<{ id: string; action: string; fromStatus?: MaintenanceStatus | null; toStatus?: MaintenanceStatus | null; inventoryStatus?: string | null; notes?: string | null; performedBy: string; createdAt: string }>;
 }
 
 export interface MaintenanceQueryFilters {
@@ -98,7 +89,6 @@ export interface CreateMaintenanceDTO {
   priority?: MaintenancePriority;
   category?: string;
   location?: string;
-  assignedTo?: string;
 }
 
 export interface UpdateMaintenanceDTO {
@@ -108,16 +98,8 @@ export interface UpdateMaintenanceDTO {
   status?: MaintenanceStatus;
   category?: string;
   location?: string | null;
-  assignedTo?: string | null;
   resolutionNote?: string | null;
   inventoryStatus?: string;
-  serviceProvider?: string | null;
-  serviceReference?: string | null;
-  laborCost?: number;
-  partsCost?: number;
-  warrantyCovered?: boolean;
-  sentToServiceAt?: string | null;
-  returnedFromServiceAt?: string | null;
 }
 
 export const maintenanceApi = {

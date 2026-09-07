@@ -16,7 +16,7 @@ async function main() {
   let checks = 0;
   try {
     const createKey = crypto.randomUUID();
-    const stock = await StockService.createStockItem({ itemName: `ZZ ORTAK EŞYA DOĞRULAMA ${suffix}`, itemCode: `ZZOA-${suffix}`, category: 'GENEL EŞYALAR', itemType: 'ORTAK_EKİPMAN', totalStock: 1, minimumStock: 0, createdById: actor?.id, requestKey: createKey });
+    const stock = await StockService.createStockItem({ itemName: `ZZ ORTAK EŞYA DOĞRULAMA ${suffix}`, category: 'GENEL EŞYALAR', itemType: 'ORTAK_EKİPMAN', totalStock: 1, createdById: actor?.id, requestKey: createKey });
     ids.stock = stock.id;
     const asset = await SharedAssetService.createAsset({
       stockItemId: stock.id,
@@ -29,7 +29,7 @@ async function main() {
     });
     ids.asset = asset.id;
     assert.equal(asset.status, 'AVAILABLE'); checks++;
-    const repeatedStock = await StockService.createStockItem({ itemName: `ZZ ORTAK EŞYA DOĞRULAMA ${suffix}`, itemCode: `ZZOA-${suffix}`, category: 'GENEL EŞYALAR', itemType: 'ORTAK_EKİPMAN', totalStock: 1, minimumStock: 0, createdById: actor?.id, requestKey: createKey });
+    const repeatedStock = await StockService.createStockItem({ itemName: `ZZ ORTAK EŞYA DOĞRULAMA ${suffix}`, category: 'GENEL EŞYALAR', itemType: 'ORTAK_EKİPMAN', totalStock: 1, createdById: actor?.id, requestKey: createKey });
     assert.equal(repeatedStock.id, stock.id); checks++;
     await assert.rejects(() => StockService.receive(stock.id, { quantity: 1, reason: 'TEST', createdById: actor?.id })); checks++;
 

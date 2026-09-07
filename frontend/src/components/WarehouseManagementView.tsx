@@ -5,7 +5,7 @@ import {
   Plus, RefreshCw, RotateCcw, Search, Send, X,
   FileText, BarChart3, LayoutGrid, List, ShieldCheck
 } from 'lucide-react';
-import { AssignmentStatus, DeviceHistory, MovementType, RoomAssignment, StockItem, StockMovement, StockMovementList, StockOverview, stockApi } from '../api/stockApi';
+import { AssignmentStatus, MovementType, RoomAssignment, StockItem, StockMovement, StockMovementList, StockOverview, stockApi } from '../api/stockApi';
 import { employeeApi } from '../api/employeeApi';
 import { User } from '../api/authApi';
 import { can } from '../security/accessControl';
@@ -27,7 +27,7 @@ const statusLabels: Record<AssignmentStatus, string> = {
   MAINTENANCE_REQUIRED: 'Bakım Bekliyor',
   DAMAGED: 'Kırık / Hasarlı',
   LOST: 'Kayıp / Zayi',
-  IN_SERVICE: 'Serviste / Tamirde',
+  IN_SERVICE: 'Arızalı / Bakım Bekliyor',
   REPLACEMENT_REQUIRED: 'Değişim Bekliyor',
   RETIRED: 'İade / Düşüm',
 };
@@ -445,30 +445,23 @@ export const WarehouseManagementView: React.FC<{ currentUser: User }> = ({ curre
   const [detailMovements, setDetailMovements] = useState<StockMovement[]>([]);
   const [detailMovementsLoading, setDetailMovementsLoading] = useState(false);
   const [standardForm, setStandardForm] = useState({ fixedQuantity: 0, quantityPerBed: 0, roomType: 'PERSONEL_ODASI' });
-  const [serialLookup, setSerialLookup] = useState('');
-  const [deviceHistory, setDeviceHistory] = useState<DeviceHistory | null>(null);
-  const [deviceLookupLoading, setDeviceLookupLoading] = useState(false);
-
   const [cardForm, setCardForm] = useState({
     itemName: '',
-    itemCode: '',
     category: 'ODA DEMİRBAŞI',
     itemType: 'DEMİRBAŞ',
     unit: 'ADET',
     specifications: '',
     physicalStatus: 'KULLANILABİLİR',
-    warrantyEndDate: '',
     locationNote: '',
-    minimumStock: 1,
     totalStock: 1,
     isActive: true,
   });
 
   const [employeesList, setEmployeesList] = useState<Array<{ id: string; firstName: string; lastName: string; registrationNo?: string; department: string }>>([]);
-  const [receiveForm, setReceiveForm] = useState({ quantity: 1, reason: 'SATIN ALMA / MAL KABUL', notes: '' });
+  const [receiveForm, setReceiveForm] = useState({ quantity: 1, reason: 'DEPO GİRİŞİ', notes: '' });
   const [countForm, setCountForm] = useState({ countedAvailable: 0, notes: '' });
-  const [assignForm, setAssignForm] = useState({ targetType: 'ROOM' as 'ROOM' | 'EMPLOYEE', stockItemId: '', roomId: '', employeeId: '', quantity: 1, brand: '', serialNo: '', notes: '' });
-  const [assignmentForm, setAssignmentForm] = useState({ action: 'TRANSFER', roomId: '', outcome: 'RETURNED' as 'RETURNED' | 'RETIRED', brand: '', serialNo: '', notes: '' });
+  const [assignForm, setAssignForm] = useState({ targetType: 'ROOM' as 'ROOM' | 'EMPLOYEE', stockItemId: '', roomId: '', employeeId: '', quantity: 1, brand: '', notes: '' });
+  const [assignmentForm, setAssignmentForm] = useState({ action: 'TRANSFER', roomId: '', outcome: 'RETURNED' as 'RETURNED' | 'RETIRED', brand: '', notes: '' });
 
   const loadOverview = useCallback(async (quiet = false) => {
     try {
@@ -510,11 +503,11 @@ export const WarehouseManagementView: React.FC<{ currentUser: User }> = ({ curre
 
   const filteredItems = useMemo(() => (overview?.items || []).filter((item) => {
     const query = search.trim().toLocaleLowerCase('tr-TR');
-    const textMatches = !query || [item.itemName, item.itemCode, item.category, item.specifications, item.locationNote, stockLocations(item)].some((value) => value?.toLocaleLowerCase('tr-TR').includes(query)) || item.roomInventories.some((inv) => inv.serialNo?.toLocaleLowerCase('tr-TR').includes(query) || inv.room.roomNumber.includes(query));
+    const searchText = [item.itemName, item.itemCode, item.category, item.specifications, item.locationNote, stockLocations(item), ...item.roomInventories.map((inv) => `${inv.itemName} ${roomName(inv)}`)].filter(Boolean).join(' ').toLocaleLowerCase('tr-TR');
+    const textMatches = !query || query.split(/\s+/).every((token) => searchText.includes(token));
     const categoryMatches = category === 'ALL' || item.category === category;
     const typeMatches = itemTypeFilter === 'ALL' || item.itemType === itemTypeFilter;
     const stockMatches = stockFilter === 'ALL'
-      || (stockFilter === 'CRITICAL' && item.availableStock <= item.minimumStock)
       || (stockFilter === 'ISSUE' && item.issueCount > 0)
       || (stockFilter === 'ACTIVE' && item.isActive)
       || (stockFilter === 'PASSIVE' && !item.isActive);
@@ -523,7 +516,8 @@ export const WarehouseManagementView: React.FC<{ currentUser: User }> = ({ curre
 
   const assignments = useMemo(() => filteredItems.flatMap((item) => item.roomInventories.map((assignment) => ({ item, assignment }))).filter(({ assignment }) => {
     const query = search.trim().toLocaleLowerCase('tr-TR');
-    return !query || [assignment.itemName, assignment.serialNo, assignment.brand, roomName(assignment)].some((value) => value?.toLocaleLowerCase('tr-TR').includes(query));
+    const searchText = [assignment.itemName, assignment.brand, roomName(assignment)].filter(Boolean).join(' ').toLocaleLowerCase('tr-TR');
+    return !query || query.split(/\s+/).every((token) => searchText.includes(token));
   }), [filteredItems, search]);
 
   const personnelAssignments = useMemo(() => filteredItems.flatMap((item) => item.inventories.filter((i: any) => i.category !== 'ORTAK_EŞYA').map((assignment) => ({ item, assignment }))).filter(({ assignment }) => {
@@ -546,15 +540,12 @@ export const WarehouseManagementView: React.FC<{ currentUser: User }> = ({ curre
     operationKeyRef.current = generateUUID();
     setCardForm({
       itemName: '',
-      itemCode: '',
       category: 'ODA DEMİRBAŞI',
       itemType: 'DEMİRBAŞ',
       unit: 'ADET',
       specifications: '',
       physicalStatus: 'KULLANILABİLİR',
-      warrantyEndDate: '',
       locationNote: '',
-      minimumStock: 5,
       totalStock: 0,
       isActive: true,
     });
@@ -565,15 +556,12 @@ export const WarehouseManagementView: React.FC<{ currentUser: User }> = ({ curre
     operationKeyRef.current = generateUUID();
     setCardForm({
       itemName: item.itemName,
-      itemCode: item.itemCode || '',
       category: item.category || 'ODA DEMİRBAŞI',
       itemType: item.itemType || 'DEMİRBAŞ',
       unit: item.unit || 'ADET',
       specifications: item.specifications || '',
       physicalStatus: item.physicalStatus || 'KULLANILABİLİR',
-      warrantyEndDate: item.warrantyEndDate ? new Date(item.warrantyEndDate).toISOString().slice(0, 10) : '',
       locationNote: item.locationNote || '',
-      minimumStock: item.minimumStock ?? 5,
       totalStock: item.totalStock ?? 0,
       isActive: item.isActive ?? true,
     });
@@ -587,7 +575,7 @@ export const WarehouseManagementView: React.FC<{ currentUser: User }> = ({ curre
       openCreate();
       return;
     }
-    setReceiveForm({ quantity: 1, reason: 'SATIN ALMA / MAL KABUL', notes: '' });
+    setReceiveForm({ quantity: 1, reason: 'DEPO GİRİŞİ', notes: '' });
     setModal({ type: 'receive', item: targetItem });
   };
 
@@ -596,44 +584,15 @@ export const WarehouseManagementView: React.FC<{ currentUser: User }> = ({ curre
     if (employeesList.length === 0) {
       employeeApi.getEmployees('', 'RESIDENT').then((res) => setEmployeesList(res)).catch(() => {});
     }
-    setAssignForm({ targetType: 'ROOM', stockItemId: item?.id || '', roomId: '', employeeId: '', quantity: 1, brand: '', serialNo: '', notes: '' });
+    setAssignForm({ targetType: 'ROOM', stockItemId: item?.id || '', roomId: '', employeeId: '', quantity: 1, brand: '', notes: '' });
     setModal({ type: 'assign', item });
   };
 
   const openAssignment = (item: StockItem, assignment: RoomAssignment) => {
     operationKeyRef.current = generateUUID();
-    setAssignmentForm({ action: !assignment.serialNo && item.itemType !== 'SARF_MALZEME' ? 'IDENTITY' : hasOpenMaintenance(assignment) ? 'REPLACE' : 'TRANSFER', roomId: '', outcome: 'RETURNED', brand: assignment.brand || '', serialNo: assignment.serialNo || '', notes: '' });
+    setAssignmentForm({ action: hasOpenMaintenance(assignment) ? 'REPLACE' : 'TRANSFER', roomId: '', outcome: 'RETURNED', brand: assignment.brand || '', notes: '' });
     setModal({ type: 'assignment', item, assignment });
   };
-
-  const lookupDevice = async () => {
-    if (!serialLookup.trim()) { setError('Lütfen cihazın seri numarasını yazın.'); return; }
-    try {
-      setDeviceLookupLoading(true); setError(null);
-      setDeviceHistory(await stockApi.getDeviceHistory(serialLookup.trim()));
-    } catch (caught) { setError(caught instanceof Error ? caught.message : 'Cihaz geçmişi yüklenemedi.'); }
-    finally { setDeviceLookupLoading(false); }
-  };
-
-  if (deviceHistory) {
-    const allFaults = deviceHistory.assignments.flatMap((assignment) => (assignment.maintenances || []).map((maintenance) => ({ assignment, maintenance }))).sort((a, b) => new Date(b.maintenance.createdAt).getTime() - new Date(a.maintenance.createdAt).getTime());
-    const activeAssignment = deviceHistory.assignments.find((assignment) => !assignment.returnedAt);
-    const sharedAsset = deviceHistory.sharedAssets.find((asset) => asset.status !== 'RETIRED');
-    return (
-      <div className="w-full space-y-4 animate-fadeIn">
-        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 pb-3">
-          <div className="flex items-center gap-3"><button type="button" onClick={() => setDeviceHistory(null)} className={secondaryButton}>← Stok Listesine Dön</button><div><h2 className="text-lg font-black text-slate-900">Seri No: {deviceHistory.serialNo}</h2><p className="text-xs font-semibold text-slate-500">Tekil cihaz yaşam ve arıza geçmişi</p></div></div>
-          <span className={`rounded-lg px-3 py-2 text-xs font-black ${activeAssignment || sharedAsset ? 'bg-emerald-50 text-emerald-800' : 'bg-slate-100 text-slate-600'}`}>{activeAssignment ? `${roomName(activeAssignment)} konumunda` : sharedAsset ? `${sharedAsset.locationNote || 'Ortak kullanım alanı'} · ${sharedAsset.status === 'LOANED' ? 'Kullanımda' : 'Müsait'}` : 'Aktif konum kaydı yok'}</span>
-        </div>
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4"><div className="rounded-xl border border-slate-200 bg-white p-4"><p className="text-[10px] font-bold uppercase text-slate-500">Oda Geçmişi</p><p className="mt-1 text-2xl font-black text-slate-900">{deviceHistory.summary.assignmentCount}</p></div><div className="rounded-xl border border-slate-200 bg-white p-4"><p className="text-[10px] font-bold uppercase text-slate-500">Toplam Arıza</p><p className={`mt-1 text-2xl font-black ${deviceHistory.summary.faultCount >= 2 ? 'text-rose-700' : 'text-slate-900'}`}>{deviceHistory.summary.faultCount}</p></div><div className="rounded-xl border border-slate-200 bg-white p-4"><p className="text-[10px] font-bold uppercase text-slate-500">Stok Hareketi</p><p className="mt-1 text-2xl font-black text-blue-900">{deviceHistory.movements.length}</p></div><div className="rounded-xl border border-slate-200 bg-white p-4"><p className="text-[10px] font-bold uppercase text-slate-500">Risk</p><p className={`mt-1 text-sm font-black ${deviceHistory.summary.faultCount >= 2 ? 'text-rose-700' : 'text-emerald-700'}`}>{deviceHistory.summary.faultCount >= 2 ? 'Tekrarlayan arıza' : 'Normal'}</p></div></div>
-        <div className="grid gap-4 xl:grid-cols-2">
-          <section className="rounded-xl border border-slate-200 bg-white p-4"><h3 className="text-sm font-black text-slate-900">Oda ve Konum Geçmişi</h3><div className="mt-3 space-y-2">{deviceHistory.assignments.length === 0 ? <p className="rounded-lg bg-slate-50 p-4 text-center text-xs text-slate-500">Oda kaydı bulunamadı.</p> : deviceHistory.assignments.map((assignment) => <div key={assignment.id} className="flex items-center justify-between gap-3 rounded-lg border border-slate-200 p-3"><div><p className="text-xs font-bold text-slate-900">{roomName(assignment)}</p><p className="mt-1 text-[10px] font-semibold text-slate-500">Giriş: {formatDateTime(assignment.installedAt)} · {assignment.returnedAt ? `Çıkış: ${formatDateTime(assignment.returnedAt)}` : 'Halen burada'}</p></div><StatusBadge status={assignment.status} /></div>)}</div></section>
-          <section className={`rounded-xl border bg-white p-4 ${deviceHistory.summary.faultCount >= 2 ? 'border-rose-300' : 'border-slate-200'}`}><h3 className="text-sm font-black text-slate-900">Arıza ve Onarım Geçmişi ({allFaults.length})</h3><div className="mt-3 max-h-[420px] space-y-2 overflow-y-auto">{allFaults.length === 0 ? <p className="rounded-lg bg-emerald-50 p-4 text-center text-xs font-semibold text-emerald-800">Bu seri numarası için arıza kaydı yok.</p> : allFaults.map(({ assignment, maintenance }) => <div key={maintenance.id} className="rounded-lg border border-slate-200 p-3"><div className="flex justify-between gap-2"><p className="text-xs font-black text-slate-900">{maintenance.title} · {roomName(assignment)}</p><span className="text-[10px] font-semibold text-slate-500">{formatDateTime(maintenance.createdAt)}</span></div><p className="mt-1 text-[11px] font-semibold text-slate-600">{maintenance.description}</p><p className="mt-1 text-[10px] font-bold text-blue-800">{maintenance.status === 'OPEN' || maintenance.status === 'IN_PROGRESS' ? 'Devam ediyor' : `Çözüldü${maintenance.resolutionNote ? ` · ${maintenance.resolutionNote}` : ''}`}</p></div>)}</div></section>
-        </div>
-        <section className="rounded-xl border border-slate-200 bg-white p-4"><h3 className="text-sm font-black text-slate-900">Tüm Stok Hareketleri</h3><div className="mt-3 overflow-x-auto"><table className="min-w-[720px] w-full text-left text-xs"><thead className="bg-slate-50 text-[10px] font-bold uppercase text-slate-500"><tr><th className="px-3 py-2">Tarih</th><th className="px-3 py-2">İşlem</th><th className="px-3 py-2">Konum</th><th className="px-3 py-2">Açıklama</th></tr></thead><tbody className="divide-y divide-slate-200">{deviceHistory.movements.map((movement) => <tr key={movement.id}><td className="px-3 py-2">{formatDateTime(movement.createdAt)}</td><td className="px-3 py-2 font-bold text-blue-900">{movementLabels[movement.type]}</td><td className="px-3 py-2">{movement.roomLabelSnapshot || 'Ana Depo'}</td><td className="px-3 py-2 text-slate-600">{movement.notes || movement.reason || '-'}</td></tr>)}</tbody></table></div></section>
-      </div>
-    );
-  }
 
   if (passportModal) {
     const faultHistory = passportModal.roomInventories
@@ -687,7 +646,7 @@ export const WarehouseManagementView: React.FC<{ currentUser: User }> = ({ curre
             <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
               {repeatedFaults.map(({ assignment, faultCount }) => (
                 <div key={assignment.id} className="rounded-lg border border-rose-200 bg-white p-3">
-                  <p className="text-xs font-black text-slate-900">{assignment.serialNo ? `S/N ${assignment.serialNo}` : assignment.assetTag || 'Seri numarası girilmemiş'}</p>
+                  <p className="text-xs font-black text-slate-900">{assignment.itemName}</p>
                   <p className="mt-1 text-[11px] font-semibold text-slate-600">{roomName(assignment)} · {faultCount} arıza kaydı</p>
                 </div>
               ))}
@@ -706,7 +665,7 @@ export const WarehouseManagementView: React.FC<{ currentUser: User }> = ({ curre
                 <div key={asset.id} className="rounded-xl border border-slate-200 bg-slate-50/50 p-3">
                   <div className="flex items-start justify-between gap-3">
                     <div>
-                      <p className="font-mono text-[11px] font-black text-cyan-900">{asset.serialNo ? `S/N ${asset.serialNo}` : asset.assetCode}</p>
+                      <p className="text-[11px] font-black text-cyan-900">{asset.assetName}</p>
                       <p className="mt-1 text-xs font-black text-slate-900">{asset.locationNote || 'Ana Depo'}</p>
                       {asset.brandModel && <p className="mt-0.5 text-[10px] font-semibold text-slate-500">{asset.brandModel}</p>}
                     </div>
@@ -723,17 +682,17 @@ export const WarehouseManagementView: React.FC<{ currentUser: User }> = ({ curre
         <div className="grid gap-4 xl:grid-cols-[1.4fr_1fr]">
           <section className="overflow-hidden rounded-xl border border-slate-200 bg-white">
             <div className="flex items-center justify-between border-b border-slate-200 bg-slate-50 px-4 py-3">
-              <div><h3 className="text-sm font-black text-slate-900">Oda Dağılımı ve Cihaz Durumu</h3><p className="text-[11px] font-semibold text-slate-500">Seri numarasına tıklamadan tüm cihazları karşılaştırın.</p></div>
+              <div><h3 className="text-sm font-black text-slate-900">Oda Dağılımı ve Cihaz Durumu</h3><p className="text-[11px] font-semibold text-slate-500">Ürünleri oda ve ad bilgisine göre karşılaştırın.</p></div>
               <span className="text-xs font-bold text-slate-600">{passportModal.roomInventories.length} kayıt</span>
             </div>
             <div className="overflow-x-auto">
               <table className="min-w-[680px] w-full text-left text-xs">
-                <thead className="bg-slate-50 text-[10px] font-bold uppercase text-slate-500"><tr><th className="px-3 py-2">Oda</th><th className="px-3 py-2">Seri No / Etiket</th><th className="px-3 py-2">Adet</th><th className="px-3 py-2">Durum</th><th className="px-3 py-2">Arıza</th><th className="px-3 py-2 text-right">İşlem</th></tr></thead>
+                <thead className="bg-slate-50 text-[10px] font-bold uppercase text-slate-500"><tr><th className="px-3 py-2">Oda</th><th className="px-3 py-2">Ürün Adı</th><th className="px-3 py-2">Adet</th><th className="px-3 py-2">Durum</th><th className="px-3 py-2">Arıza</th><th className="px-3 py-2 text-right">İşlem</th></tr></thead>
                 <tbody className="divide-y divide-slate-200">
                   {passportModal.roomInventories.length === 0 ? <tr><td colSpan={6} className="p-8 text-center text-slate-500">Bu üründen odalarda bulunmuyor.</td></tr> : passportModal.roomInventories.map((assignment) => (
                     <tr key={assignment.id} className="hover:bg-slate-50">
                       <td className="px-3 py-2.5 font-bold text-slate-900">{roomName(assignment)}</td>
-                      <td className="px-3 py-2.5 font-mono font-bold text-blue-900">{assignment.serialNo || assignment.assetTag || '-'}</td>
+                      <td className="px-3 py-2.5 font-bold text-blue-900">{assignment.itemName}</td>
                       <td className="px-3 py-2.5 font-bold">{assignment.quantity}</td>
                       <td className="px-3 py-2.5"><StatusBadge status={assignment.status} /></td>
                       <td className="px-3 py-2.5"><span className={`font-bold ${(assignment.maintenances?.length || 0) >= 2 ? 'text-rose-700' : 'text-slate-600'}`}>{assignment.maintenances?.length || 0}</span></td>
@@ -779,8 +738,8 @@ export const WarehouseManagementView: React.FC<{ currentUser: User }> = ({ curre
         </div>
 
         <div className="grid gap-4 xl:grid-cols-2">
-          <section className="rounded-xl border border-slate-200 bg-white p-4"><h3 className="text-sm font-black text-slate-900">Arıza Geçmişi ({faultHistory.length})</h3><div className="mt-3 max-h-80 space-y-2 overflow-y-auto">{faultHistory.length === 0 ? <p className="rounded-lg bg-slate-50 p-4 text-center text-xs text-slate-500">Arıza kaydı bulunmuyor.</p> : faultHistory.map(({ assignment, maintenance }) => <div key={maintenance.id} className="rounded-lg border border-slate-200 p-3"><div className="flex justify-between gap-2"><p className="text-xs font-bold text-slate-900">{assignment.serialNo ? `S/N ${assignment.serialNo}` : assignment.itemName} · {roomName(assignment)}</p><span className="text-[10px] font-semibold text-slate-500">{formatDateTime(maintenance.createdAt)}</span></div><p className="mt-1 text-[11px] font-semibold text-slate-600">{maintenance.description}</p><p className="mt-1 text-[10px] font-bold text-blue-800">{maintenance.status === 'OPEN' || maintenance.status === 'IN_PROGRESS' ? 'Devam ediyor' : `Çözüldü${maintenance.resolutionNote ? `: ${maintenance.resolutionNote}` : ''}`}</p></div>)}</div></section>
-          <section className="rounded-xl border border-slate-200 bg-white p-4"><div className="flex items-center justify-between"><h3 className="text-sm font-black text-slate-900">Stok Hareket Geçmişi</h3><button type="button" onClick={() => { setMovementStockItemId(passportModal.id); setMovementPage(1); setPassportModal(null); setTab('movements'); }} className="text-xs font-bold text-blue-800">Tümünü Aç →</button></div><div className="mt-3 max-h-80 space-y-2 overflow-y-auto">{detailMovementsLoading ? <p className="p-4 text-center text-xs text-slate-500">Geçmiş yükleniyor...</p> : detailMovements.slice(0, 20).map((movement) => <div key={movement.id} className="flex items-start justify-between gap-3 rounded-lg border border-slate-200 p-3"><div><p className="text-xs font-bold text-slate-900">{movementLabels[movement.type] || movement.type}</p><p className="mt-0.5 text-[10px] font-semibold text-slate-500">{movement.roomLabelSnapshot || 'Ana Depo'} · {movement.serialNo ? `S/N ${movement.serialNo}` : 'Seri no yok'}</p></div><span className="whitespace-nowrap text-[10px] font-semibold text-slate-500">{formatDateTime(movement.createdAt)}</span></div>)}</div></section>
+          <section className="rounded-xl border border-slate-200 bg-white p-4"><h3 className="text-sm font-black text-slate-900">Arıza Geçmişi ({faultHistory.length})</h3><div className="mt-3 max-h-80 space-y-2 overflow-y-auto">{faultHistory.length === 0 ? <p className="rounded-lg bg-slate-50 p-4 text-center text-xs text-slate-500">Arıza kaydı bulunmuyor.</p> : faultHistory.map(({ assignment, maintenance }) => <div key={maintenance.id} className="rounded-lg border border-slate-200 p-3"><div className="flex justify-between gap-2"><p className="text-xs font-bold text-slate-900">{assignment.itemName} · {roomName(assignment)}</p><span className="text-[10px] font-semibold text-slate-500">{formatDateTime(maintenance.createdAt)}</span></div><p className="mt-1 text-[11px] font-semibold text-slate-600">{maintenance.description}</p><p className="mt-1 text-[10px] font-bold text-blue-800">{maintenance.status === 'OPEN' || maintenance.status === 'IN_PROGRESS' ? 'Açık' : `Kapalı${maintenance.resolutionNote ? `: ${maintenance.resolutionNote}` : ''}`}</p></div>)}</div></section>
+          <section className="rounded-xl border border-slate-200 bg-white p-4"><div className="flex items-center justify-between"><h3 className="text-sm font-black text-slate-900">Stok Hareket Geçmişi</h3><button type="button" onClick={() => { setMovementStockItemId(passportModal.id); setMovementPage(1); setPassportModal(null); setTab('movements'); }} className="text-xs font-bold text-blue-800">Tümünü Aç →</button></div><div className="mt-3 max-h-80 space-y-2 overflow-y-auto">{detailMovementsLoading ? <p className="p-4 text-center text-xs text-slate-500">Geçmiş yükleniyor...</p> : detailMovements.slice(0, 20).map((movement) => <div key={movement.id} className="flex items-start justify-between gap-3 rounded-lg border border-slate-200 p-3"><div><p className="text-xs font-bold text-slate-900">{movementLabels[movement.type] || movement.type}</p><p className="mt-0.5 text-[10px] font-semibold text-slate-500">{movement.roomLabelSnapshot || 'Ana Depo'}</p></div><span className="whitespace-nowrap text-[10px] font-semibold text-slate-500">{formatDateTime(movement.createdAt)}</span></div>)}</div></section>
         </div>
       </div>
     );
@@ -834,7 +793,7 @@ export const WarehouseManagementView: React.FC<{ currentUser: User }> = ({ curre
       )}
 
       {/* Sleek Enterprise Metrics Bar */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
         <div className="rounded-xl border border-slate-200 bg-white p-3 shadow-2xs">
           <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block">Kayıtlı Malzeme</span>
           <span className="text-xl font-bold text-slate-900 mt-0.5 block">{overview?.summary.totalRegistered || 0}</span>
@@ -850,10 +809,6 @@ export const WarehouseManagementView: React.FC<{ currentUser: User }> = ({ curre
           <span className="text-xl font-bold text-blue-900 mt-0.5 block">{overview?.summary.inRooms || 0}</span>
         </div>
 
-        <div className="rounded-xl border border-slate-200 bg-white p-3 shadow-2xs">
-          <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block">Kritik Stok Uyarısı</span>
-          <span className="text-xl font-bold text-amber-700 mt-0.5 block">{overview?.summary.criticalCards || 0}</span>
-        </div>
       </div>
 
       {/* Enterprise Toolbar (Quick Action Buttons & Smart Search) */}
@@ -924,7 +879,7 @@ export const WarehouseManagementView: React.FC<{ currentUser: User }> = ({ curre
             <input
               value={search}
               onChange={(event) => { setSearch(event.target.value); setMovementPage(1); }}
-              placeholder="Seri No, Oda No, Kod veya Ürün Adı ara..."
+              placeholder="Oda No, Kod veya Ürün Adı ara..."
               className={inputClass + ' pl-9'}
             />
           </div>
@@ -956,19 +911,10 @@ export const WarehouseManagementView: React.FC<{ currentUser: User }> = ({ curre
               className="h-10 min-w-[130px] rounded-lg border border-slate-300 bg-white px-3 text-xs font-semibold text-slate-700 outline-none hover:border-slate-400 cursor-pointer"
             >
               <option value="ALL">Tüm Durumlar</option>
-              <option value="CRITICAL">Kritik Stok</option>
               <option value="ISSUE">Bakım / Arıza</option>
             </select>
           </div>
         </div>
-        <form onSubmit={(event) => { event.preventDefault(); lookupDevice(); }} className="flex flex-col gap-2 rounded-lg border border-blue-200 bg-blue-50/60 p-2.5 sm:flex-row sm:items-center">
-          <div className="min-w-0 flex-1">
-            <p className="text-[11px] font-black text-blue-950">Seri numarasıyla cihaz bul</p>
-            <p className="text-[10px] font-semibold text-blue-800">Aktif veya geçmiş kayıtlardaki klima, makine ve cihazları arar.</p>
-          </div>
-          <input value={serialLookup} onChange={(event) => setSerialLookup(event.target.value.toLocaleUpperCase('tr-TR'))} className="h-9 min-w-[240px] rounded-lg border border-blue-200 bg-white px-3 font-mono text-xs font-bold outline-none focus:border-blue-700" placeholder="Örn. SN556499" />
-          <button disabled={deviceLookupLoading || !serialLookup.trim()} className={primaryButton}>{deviceLookupLoading ? 'Aranıyor...' : 'Cihazı Bul'}</button>
-        </form>
       </div>
 
       {/* MAIN DATA SECTION */}
@@ -1063,7 +1009,6 @@ export const WarehouseManagementView: React.FC<{ currentUser: User }> = ({ curre
                 ) : (
                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3.5">
                     {filteredItems.map((item) => {
-                      const critical = item.availableStock <= item.minimumStock;
                       const usedTotal = item.usedStock + item.usedInRooms;
 
                       return (
@@ -1087,17 +1032,12 @@ export const WarehouseManagementView: React.FC<{ currentUser: User }> = ({ curre
 
                             <div className="mt-2 flex items-center gap-1.5 flex-wrap">
                               <PhysicalStatusPill status={item.physicalStatus} />
-                              {item.warrantyEndDate && (
-                                <span className="text-[10px] font-semibold text-slate-600 bg-slate-100 px-1.5 py-0.5 rounded">
-                                  Garanti: {formatDateOnly(item.warrantyEndDate)}
-                                </span>
-                              )}
                             </div>
 
                             <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50 p-2.5 grid grid-cols-2 gap-2 text-center">
                               <div>
                                 <span className="text-[10px] font-bold text-slate-500 block">Depoda</span>
-                                <span className={`text-base font-bold ${critical ? 'text-rose-700' : 'text-emerald-700'}`}>
+                                <span className="text-base font-bold text-emerald-700">
                                   {item.availableStock} {item.unit}
                                 </span>
                               </div>
@@ -1109,12 +1049,6 @@ export const WarehouseManagementView: React.FC<{ currentUser: User }> = ({ curre
                               </div>
                             </div>
 
-                            {critical && (
-                              <div className="mt-2 rounded-md border border-amber-200 bg-amber-50 p-1.5 text-[10px] font-bold text-amber-900 flex items-center gap-1.5">
-                                <AlertTriangle className="h-3.5 w-3.5 text-amber-700 shrink-0" />
-                                <span>Kritik stok seviyesi (Min: {item.minimumStock} {item.unit})</span>
-                              </div>
-                            )}
                           </div>
 
                           <div className="mt-4 pt-2.5 border-t border-slate-100 flex items-center justify-between gap-1.5">
@@ -1167,18 +1101,16 @@ export const WarehouseManagementView: React.FC<{ currentUser: User }> = ({ curre
                       <th className="px-2 py-2 border-r border-slate-200 text-center whitespace-nowrap">Zimmetli</th>
                       <th className="px-2 py-2 border-r border-slate-200 text-center font-bold whitespace-nowrap">Toplam</th>
                       <th className="px-2 py-2 border-r border-slate-200 whitespace-nowrap">Durum</th>
-                      <th className="px-2 py-2 border-r border-slate-200 whitespace-nowrap">Garanti</th>
                       <th className="px-2 py-2 text-right whitespace-nowrap">İşlemler</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-200">
                     {loading ? (
-                      <tr><td colSpan={10} className="p-8 text-center font-semibold text-slate-500">Stok kayıtları yükleniyor...</td></tr>
+                      <tr><td colSpan={9} className="p-8 text-center font-semibold text-slate-500">Stok kayıtları yükleniyor...</td></tr>
                     ) : filteredItems.length === 0 ? (
-                      <tr><td colSpan={10} className="p-8 text-center font-semibold text-slate-600">Kayıt bulunamadı.</td></tr>
+                      <tr><td colSpan={9} className="p-8 text-center font-semibold text-slate-600">Kayıt bulunamadı.</td></tr>
                     ) : (
                       filteredItems.map((item, idx) => {
-                        const critical = item.availableStock <= item.minimumStock;
                         const usedTotal = item.usedStock + item.usedInRooms;
 
                         return (
@@ -1191,7 +1123,6 @@ export const WarehouseManagementView: React.FC<{ currentUser: User }> = ({ curre
                             <td className="px-2 py-2 border-r border-slate-200 text-center font-semibold text-slate-800">{usedTotal} {item.unit}</td>
                             <td className="px-2 py-2 border-r border-slate-200 text-center font-bold text-slate-900">{item.totalStock} {item.unit}</td>
                             <td className="px-2 py-2 border-r border-slate-200"><PhysicalStatusPill status={item.physicalStatus} /></td>
-                            <td className="px-2 py-2 border-r border-slate-200 font-medium text-slate-600">{formatDateOnly(item.warrantyEndDate)}</td>
                             <td className="px-2 py-2 text-right">
                               <div className="flex items-center justify-end gap-1">
                                 <button type="button" onClick={() => setPassportModal(item)} className="p-1 text-[#1e3a8a] hover:bg-blue-50 rounded cursor-pointer" title="Ürün Pasaportu"><FileText className="w-4 h-4" /></button>
@@ -1220,7 +1151,7 @@ export const WarehouseManagementView: React.FC<{ currentUser: User }> = ({ curre
                   <th className="px-2 py-2 border-r border-slate-200 text-center w-8">#</th>
                   <th className="px-3 py-2 border-r border-slate-200">Bulunduğu Oda</th>
                   <th className="px-3 py-2 border-r border-slate-200">Eşya / Demirbaş</th>
-                  <th className="px-2.5 py-2 border-r border-slate-200">Marka / Seri No</th>
+                  <th className="px-2.5 py-2 border-r border-slate-200">Marka / Model</th>
                   <th className="px-2 py-2 border-r border-slate-200 text-center">Miktar</th>
                   <th className="px-2.5 py-2 border-r border-slate-200">Durum</th>
                   <th className="px-2.5 py-2 text-right">İşlemler</th>
@@ -1235,7 +1166,7 @@ export const WarehouseManagementView: React.FC<{ currentUser: User }> = ({ curre
                       <td className="px-2 py-2 text-center text-[11px] font-semibold text-slate-400 border-r border-slate-200">{idx + 1}</td>
                       <td className="px-3 py-2 border-r border-slate-200 font-bold text-slate-900">{roomName(assignment)}</td>
                       <td className="px-3 py-2 border-r border-slate-200 font-semibold text-slate-800">{assignment.itemName}</td>
-                      <td className="px-2.5 py-2 border-r border-slate-200 font-mono text-[11px] text-slate-600">{assignment.brand || '-'} {assignment.serialNo ? `(S/N: ${assignment.serialNo})` : ''}</td>
+                      <td className="px-2.5 py-2 border-r border-slate-200 text-[11px] text-slate-600">{assignment.brand || '-'}</td>
                       <td className="px-2 py-2 border-r border-slate-200 text-center font-bold text-slate-900">{assignment.quantity} {item.unit}</td>
                       <td className="px-2.5 py-2 border-r border-slate-200"><StatusBadge status={assignment.status} /></td>
                       <td className="px-2.5 py-2 text-right">
@@ -1338,7 +1269,7 @@ export const WarehouseManagementView: React.FC<{ currentUser: User }> = ({ curre
           wide
         >
           <div className="space-y-4">
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
               <div className="p-3.5 rounded-xl border border-slate-200 bg-slate-50">
                 <span className="text-[10px] font-bold uppercase text-slate-500">Kayıtlı Ürün Çeşidi</span>
                 <p className="text-xl font-bold text-slate-900 mt-0.5">{overview?.summary.totalRegistered || 0}</p>
@@ -1354,32 +1285,6 @@ export const WarehouseManagementView: React.FC<{ currentUser: User }> = ({ curre
                 <p className="text-xl font-bold text-blue-900 mt-0.5">{overview?.summary.inRooms || 0}</p>
               </div>
 
-              <div className="p-3.5 rounded-xl border border-slate-200 bg-slate-50">
-                <span className="text-[10px] font-bold uppercase text-slate-500">Kritik Stok Uyarısı</span>
-                <p className="text-xl font-bold text-amber-700 mt-0.5">{overview?.summary.criticalCards || 0}</p>
-              </div>
-            </div>
-
-            <div>
-              <h4 className="text-xs font-bold text-slate-900 uppercase tracking-wider mb-2">
-                Depoda Sipariş Verilmesi Gereken Ürünler (Kritik Seviye)
-              </h4>
-
-              <div className="space-y-1.5">
-                {(overview?.items || [])
-                  .filter((item) => item.availableStock <= item.minimumStock)
-                  .map((item) => (
-                    <div key={item.id} className="p-2.5 bg-amber-50/60 border border-amber-200 rounded-lg flex items-center justify-between text-xs">
-                      <div>
-                        <span className="font-bold text-slate-900">{item.itemName}</span>
-                        <span className="text-[10px] text-slate-500 font-medium ml-1.5">({item.category})</span>
-                      </div>
-                      <span className="font-bold text-amber-900">
-                        Depoda: {item.availableStock} {item.unit} (Minimum: {item.minimumStock})
-                      </span>
-                    </div>
-                  ))}
-              </div>
             </div>
 
             <div className="pt-3 border-t border-slate-200 flex items-center justify-between">
@@ -1427,10 +1332,6 @@ export const WarehouseManagementView: React.FC<{ currentUser: User }> = ({ curre
                   <input required className={inputClass} value={cardForm.itemName} onChange={(e) => setCardForm({ ...cardForm, itemName: e.target.value })} placeholder="Örn: Vestel 32 LED TV, Çarşaf Seti..." />
                 </label>
                 <label>
-                  <span className={labelClass}>Stok Kodu / Barkod</span>
-                  <input className={inputClass} value={cardForm.itemCode} onChange={(e) => setCardForm({ ...cardForm, itemCode: e.target.value.toLocaleUpperCase('tr-TR') })} placeholder="Boş ise otomatik üretilir" />
-                </label>
-                <label>
                   <span className={labelClass}>Stok Kategorisi *</span>
                   <select className={inputClass} value={cardForm.category} onChange={(e) => setCardForm({ ...cardForm, category: e.target.value })}>
                     {STOCK_CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
@@ -1443,9 +1344,9 @@ export const WarehouseManagementView: React.FC<{ currentUser: User }> = ({ curre
             <div className="rounded-xl border border-slate-200 bg-slate-50/60 p-3.5 space-y-3">
               <h4 className="text-xs font-extrabold text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
                 <BarChart3 className="w-3.5 h-3.5 text-[#1e3a8a]" />
-                <span>2. Niteliği, Birimi ve Stok Seviyeleri</span>
+                <span>2. Niteliği, Birimi ve Toplam Adet</span>
               </h4>
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <label>
                   <span className={labelClass}>Ürün Niteliği *</span>
                   <select className={inputClass} value={cardForm.itemType} onChange={(e) => setCardForm({ ...cardForm, itemType: e.target.value })}>
@@ -1464,20 +1365,16 @@ export const WarehouseManagementView: React.FC<{ currentUser: User }> = ({ curre
                   <span className={labelClass}>Açılış Stok Miktarı</span>
                   <input type="number" min={0} disabled={modal?.type === 'edit'} className={inputClass} value={cardForm.totalStock} onChange={(e) => setCardForm({ ...cardForm, totalStock: Number(e.target.value) })} />
                 </label>
-                <label>
-                  <span className={labelClass}>Min. Stok Uyarısı Eşiği</span>
-                  <input type="number" min={0} className={inputClass} value={cardForm.minimumStock} onChange={(e) => setCardForm({ ...cardForm, minimumStock: Number(e.target.value) })} />
-                </label>
               </div>
             </div>
 
-            {/* 3. FİZİKİ DURUM, KONUM VE GARANTİ */}
+            {/* 3. FİZİKİ DURUM VE KONUM */}
             <div className="rounded-xl border border-slate-200 bg-slate-50/60 p-3.5 space-y-3">
               <h4 className="text-xs font-extrabold text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
                 <MapPin className="w-3.5 h-3.5 text-[#1e3a8a]" />
-                <span>3. Fiziki Durum, Depo Konumu ve Garanti</span>
+                <span>3. Fiziki Durum ve Depo Konumu</span>
               </h4>
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <label>
                   <span className={labelClass}>Fiziki Sağlık Durumu</span>
                   <select className={inputClass} value={cardForm.physicalStatus} onChange={(e) => setCardForm({ ...cardForm, physicalStatus: e.target.value })}>
@@ -1489,10 +1386,6 @@ export const WarehouseManagementView: React.FC<{ currentUser: User }> = ({ curre
                 <label>
                   <span className={labelClass}>Depodaki Raf / Konum Notu</span>
                   <input className={inputClass} value={cardForm.locationNote} onChange={(e) => setCardForm({ ...cardForm, locationNote: e.target.value })} placeholder="Örn: Depo A2 Rafı, Çamaşırhane Depo" />
-                </label>
-                <label>
-                  <span className={labelClass}>Garanti Bitiş Tarihi</span>
-                  <input type="date" className={inputClass} value={cardForm.warrantyEndDate} onChange={(e) => setCardForm({ ...cardForm, warrantyEndDate: e.target.value })} />
                 </label>
               </div>
             </div>
@@ -1523,7 +1416,7 @@ export const WarehouseManagementView: React.FC<{ currentUser: User }> = ({ curre
               <label><span className={labelClass}>Giriş Miktarı ({modal.item.unit}) *</span><input type="number" min={1} required className={inputClass} value={receiveForm.quantity} onChange={(e) => setReceiveForm({ ...receiveForm, quantity: Number(e.target.value) })} /></label>
               <label><span className={labelClass}>Giriş Gerekçesi *</span><input className={inputClass} value={receiveForm.reason} onChange={(e) => setReceiveForm({ ...receiveForm, reason: e.target.value })} /></label>
             </div>
-            <label><span className={labelClass}>Not / Açıklama</span><textarea rows={2} className={`${inputClass} h-auto py-2`} value={receiveForm.notes} onChange={(e) => setReceiveForm({ ...receiveForm, notes: e.target.value })} placeholder="Açıklama veya fatura no..." /></label>
+            <label><span className={labelClass}>Not / Açıklama</span><textarea rows={2} className={`${inputClass} h-auto py-2`} value={receiveForm.notes} onChange={(e) => setReceiveForm({ ...receiveForm, notes: e.target.value })} placeholder="Yönetimsel açıklama..." /></label>
             <div className="flex justify-end gap-2 border-t border-slate-200 pt-3">
               <button type="button" onClick={() => setModal(null)} className={secondaryButton}>Vazgeç</button>
               <button disabled={busy || receiveForm.quantity < 1} className={primaryButton}>{busy ? 'İşleniyor...' : 'Depoya Ekle'}</button>
@@ -1548,7 +1441,6 @@ export const WarehouseManagementView: React.FC<{ currentUser: User }> = ({ curre
                   stockItemId: itemId,
                   itemName: selectedItem?.itemName || 'Zimmet Malzemesi',
                   category: 'LOJMAN_ZİMMETİ',
-                  serialNo: assignForm.serialNo || undefined,
                   notes: assignForm.notes || undefined,
                 }),
                 'Personele zimmet verildi.'
@@ -1560,7 +1452,6 @@ export const WarehouseManagementView: React.FC<{ currentUser: User }> = ({ curre
                   roomId: assignForm.roomId,
                   quantity: assignForm.quantity,
                   brand: assignForm.brand,
-                  serialNo: assignForm.serialNo,
                   notes: assignForm.notes,
                 }, operationKeyRef.current),
                 'Odaya zimmet oluşturuldu.'
@@ -1630,16 +1521,10 @@ export const WarehouseManagementView: React.FC<{ currentUser: User }> = ({ curre
 
             {(() => {
               const selectedItem = (overview?.items || []).find((i) => i.id === (assignForm.stockItemId || modal.item?.id));
-              const isSarf = selectedItem?.itemType === 'SARF_MALZEME' || ['SARF MALZEMESİ', 'TEKSTİL & MEFRUŞAT', 'TEMİZLİK MALZEMESİ', 'KIRTASİYE'].includes(selectedItem?.category || '');
-
               return (
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <label><span className={labelClass}>Miktar *</span><input type="number" min={1} required className={inputClass} value={assignForm.quantity} onChange={(e) => setAssignForm({ ...assignForm, quantity: Number(e.target.value) })} /></label>
                   <label><span className={labelClass}>Marka / Model</span><input className={inputClass} value={assignForm.brand} onChange={(e) => setAssignForm({ ...assignForm, brand: e.target.value })} placeholder="Marka" /></label>
-                  <label>
-                    <span className={labelClass}>Seri No {isSarf ? '(Opsiyonel)' : ''}</span>
-                    <input className={inputClass} value={assignForm.serialNo} onChange={(e) => setAssignForm({ ...assignForm, serialNo: e.target.value.toLocaleUpperCase('tr-TR') })} placeholder={isSarf ? 'Sarf malzemede seri no gerekmez' : 'Seri No'} />
-                  </label>
                 </div>
               );
             })()}
@@ -1657,10 +1542,9 @@ export const WarehouseManagementView: React.FC<{ currentUser: User }> = ({ curre
       {/* MODAL: ASSIGNMENT PROCESS (Transfer / Replacement / Return) */}
       {modal?.type === 'assignment' && (
         <ModalShell onClose={() => setModal(null)} icon={<ClipboardCheck className="h-4 w-4" />} title="Oda Zimmet Sürecini Yönet" subtitle={`${roomName(modal.assignment)} · ${modal.item.itemName}`}>
-          <form onSubmit={(event) => { event.preventDefault(); const { assignment } = modal; if (assignmentForm.action === 'TRANSFER') runAction(() => stockApi.transferAssignment(assignment.id, { roomId: assignmentForm.roomId, notes: assignmentForm.notes }, operationKeyRef.current), 'Zimmet transfer edildi.'); else if (assignmentForm.action === 'RETURN') runAction(() => stockApi.returnAssignment(assignment.id, { outcome: assignmentForm.outcome, notes: assignmentForm.notes }, operationKeyRef.current), 'İade tamamlandı.'); else if (assignmentForm.action === 'IDENTITY') runAction(() => stockApi.updateAssignmentIdentity(assignment.id, { brand: assignmentForm.brand, serialNo: assignmentForm.serialNo, notes: assignmentForm.notes }, operationKeyRef.current), 'Bilgiler güncellendi.'); else runAction(() => stockApi.replaceAssignment(assignment.id, { brand: assignmentForm.brand, serialNo: assignmentForm.serialNo, notes: assignmentForm.notes }, operationKeyRef.current), 'Ürün değiştirildi.'); }} className="space-y-3.5">
+          <form onSubmit={(event) => { event.preventDefault(); const { assignment } = modal; if (assignmentForm.action === 'TRANSFER') runAction(() => stockApi.transferAssignment(assignment.id, { roomId: assignmentForm.roomId, notes: assignmentForm.notes }, operationKeyRef.current), 'Zimmet transfer edildi.'); else if (assignmentForm.action === 'RETURN') runAction(() => stockApi.returnAssignment(assignment.id, { outcome: assignmentForm.outcome, notes: assignmentForm.notes }, operationKeyRef.current), 'İade tamamlandı.'); else if (assignmentForm.action === 'IDENTITY') runAction(() => stockApi.updateAssignmentIdentity(assignment.id, { brand: assignmentForm.brand, notes: assignmentForm.notes }, operationKeyRef.current), 'Bilgiler güncellendi.'); else runAction(() => stockApi.replaceAssignment(assignment.id, { brand: assignmentForm.brand, notes: assignmentForm.notes }, operationKeyRef.current), 'Ürün değiştirildi.'); }} className="space-y-3.5">
             <div className="grid grid-cols-2 gap-2 rounded-xl border border-slate-200 bg-slate-50 p-2.5 text-xs">
               <div><p className="font-semibold text-slate-500">Marka / Model</p><p className="font-bold text-slate-800">{modal.assignment.brand || '-'}</p></div>
-              <div><p className="font-semibold text-slate-500">Seri No</p><p className="font-bold text-slate-800">{modal.assignment.serialNo || '-'}</p></div>
               <div><p className="font-semibold text-slate-500">Miktar</p><p className="font-bold text-slate-800">{modal.assignment.quantity} {modal.item.unit}</p></div>
               <div><p className="font-semibold text-slate-500">Durum</p><div className="mt-0.5"><StatusBadge status={modal.assignment.status} /></div></div>
             </div>
@@ -1678,8 +1562,8 @@ export const WarehouseManagementView: React.FC<{ currentUser: User }> = ({ curre
             </div>
             {assignmentForm.action === 'TRANSFER' && <label><span className={labelClass}>Hedef Oda *</span><select required className={inputClass} value={assignmentForm.roomId} onChange={(e) => setAssignmentForm({ ...assignmentForm, roomId: e.target.value })}><option value="">Yeni oda seçin</option>{(overview?.rooms || []).filter((room) => room.id !== modal.assignment.roomId).map((room) => <option key={room.id} value={room.id}>{room.block.name} · Oda {room.roomNumber}</option>)}</select></label>}
             {assignmentForm.action === 'RETURN' && <label><span className={labelClass}>İade Sonucu *</span><select className={inputClass} value={assignmentForm.outcome} onChange={(e) => setAssignmentForm({ ...assignmentForm, outcome: e.target.value as typeof assignmentForm.outcome })}><option value="RETURNED">Sağlam İade — Depo Stoğuna Al</option><option value="RETIRED">Hurda / Kullanım Dışı — Stoktan Düş</option></select></label>}
-            {assignmentForm.action === 'IDENTITY' && <div className="grid grid-cols-2 gap-3"><label><span className={labelClass}>Marka / Model</span><input className={inputClass} value={assignmentForm.brand} onChange={(e) => setAssignmentForm({ ...assignmentForm, brand: e.target.value })} /></label><label><span className={labelClass}>Seri Numarası</span><input className={inputClass} value={assignmentForm.serialNo} onChange={(e) => setAssignmentForm({ ...assignmentForm, serialNo: e.target.value.toLocaleUpperCase('tr-TR') })} /></label></div>}
-            {assignmentForm.action === 'REPLACE' && <div className="grid grid-cols-2 gap-3"><label><span className={labelClass}>Yeni Marka / Model</span><input className={inputClass} value={assignmentForm.brand} onChange={(e) => setAssignmentForm({ ...assignmentForm, brand: e.target.value })} /></label><label><span className={labelClass}>Yeni Seri Numarası {modal.item.itemType !== 'SARF_MALZEME' ? '*' : '(Opsiyonel)'}</span><input required={modal.item.itemType !== 'SARF_MALZEME'} className={inputClass} value={assignmentForm.serialNo} onChange={(e) => setAssignmentForm({ ...assignmentForm, serialNo: e.target.value.toLocaleUpperCase('tr-TR') })} placeholder={modal.item.itemType === 'SARF_MALZEME' ? 'Sarf malzemelerde seri no gerekmez' : 'Seri No'} /></label></div>}
+            {assignmentForm.action === 'IDENTITY' && <label><span className={labelClass}>Marka / Model</span><input className={inputClass} value={assignmentForm.brand} onChange={(e) => setAssignmentForm({ ...assignmentForm, brand: e.target.value })} /></label>}
+            {assignmentForm.action === 'REPLACE' && <label><span className={labelClass}>Yeni Marka / Model</span><input className={inputClass} value={assignmentForm.brand} onChange={(e) => setAssignmentForm({ ...assignmentForm, brand: e.target.value })} /></label>}
             <label><span className={labelClass}>İşlem Açıklaması *</span><textarea required rows={2} className={`${inputClass} h-auto py-2`} value={assignmentForm.notes} onChange={(e) => setAssignmentForm({ ...assignmentForm, notes: e.target.value })} placeholder="Açıklama yazın..." /></label>
             <div className="flex justify-end gap-2 border-t border-slate-200 pt-3"><button type="button" onClick={() => setModal(null)} className={secondaryButton}>Vazgeç</button><button disabled={busy || !assignmentForm.notes.trim()} className={primaryButton}>{busy ? 'İşleniyor...' : 'Onayla'}</button></div>
           </form>

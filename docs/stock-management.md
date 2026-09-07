@@ -3,15 +3,16 @@
 ## Stok kartı ve hareket geçmişi
 
 - Her stok kartı açılış hareketiyle başlar; başlangıç miktarı sıfır olsa bile denetlenebilir bir kayıt oluşur. Mal kabul, oda/personel zimmeti, iade, transfer, cihaz değişimi, fiziksel sayım ve kart değişiklikleri aynı kalıcı hareket defterine yazılır.
+- Stok kodu/barkod kullanıcı tarafından girilmez veya değiştirilemez. Kategoriye uygun kod, kart oluşturulurken sistem tarafından arka planda ve benzersiz olarak üretilir.
 - Ürün geçmişi artık özet ekrandaki son kayıtlarla sınırlı değildir. Sunucu tarafında ürün, hareket türü, başlangıç/bitiş tarihi ve serbest metinle filtrelenir; 50 kayıtlık sayfalarda eksiksiz gezilebilir.
-- Arama; stok kodu/adı, oda, personel, seri numarası, açıklama, not ve işlemi yapan kullanıcı alanlarını kapsar. Tarihler İstanbul saat diliminde gün sınırlarıyla uygulanır.
+- Arama; stok kodu/adı, otomatik oda ekipman adı, oda, personel, açıklama, not ve işlemi yapan kullanıcı alanlarını kapsar. Tarihler İstanbul saat diliminde gün sınırlarıyla uygulanır.
 - Stok kartı adı, kodu, birimi veya fiziksel durumu değiştirildiğinde önceki ve sonraki değerler ile işlemi yapan kullanıcı hareket geçmişine kaydedilir.
 
 ## Stok doğruluğu ve bağlı süreçler
 
 - Oda ve personel zimmetleri, stok hareketleri ve karttaki toplam/mevcut miktarlar tek veritabanı işlemi içinde güncellenir. İade, oda transferi, seri/marka düzeltmesi ve cihaz değişimi eski kayıt sürümü üzerinden çakışmaya karşı korunur.
-- Aynı seri numarası aktif oda veya personel zimmetinde ikinci kez kullanılamaz. Oda, personel, arıza ve stok kartı bağlantılarının birbiriyle eşleşmesi doğrulanır.
-- Fiziksel sayım farkı varsa açıklama zorunludur. Kullanılabilir stoğu aşan zimmet, negatif stok, açık zimmeti bulunan kartın hurdaya alınması ve bakiye varken kartın hurda yapılması engellenir.
+- Odaya verilen demirbaşlar oda numarası, ürün adı ve sıra numarasından oluşan benzersiz ve anlaşılır adlarla otomatik isimlendirilir. Oda, personel, arıza ve stok kartı bağlantılarının birbiriyle eşleşmesi doğrulanır.
+- Fiziksel sayım farkı varsa açıklama zorunludur. Kullanılabilir stoğu aşan zimmet, negatif stok, açık zimmeti bulunan kartın hurdaya alınması ve bakiye varken kartın hurda yapılması engellenir. Yönetim ekranında yalnızca toplam ve elde kalan miktarlar izlenir; kritik stok eşiği kullanılmaz.
 - Arıza nedeniyle cihaz değişiminde eski zimmet kapatılır, yeni cihaz aynı odaya atanır, ilgili arıza kaydıyla bağlantılı hareket üretilir ve stok miktarı atomik olarak güncellenir.
 - Ortak ekipman ve ortak kullanım türlerindeki oda demirbaşları, stok kartı değişiklikleriyle birlikte güncel tutulur.
 

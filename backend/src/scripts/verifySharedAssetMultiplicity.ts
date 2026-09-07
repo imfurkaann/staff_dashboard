@@ -11,7 +11,7 @@ async function main() {
   }
   const suffix = Date.now().toString();
   const stock = await StockService.createStockItem({
-    itemName: `TEST ÇAMAŞIR MAKİNESİ ${suffix}`, itemCode: `TEST-${suffix}`,
+    itemName: `TEST ÇAMAŞIR MAKİNESİ ${suffix}`,
     itemType: 'ORTAK_EŞYA', category: 'BEYAZ EŞYA', totalStock: 100,
   });
   const first = await SharedAssetService.createAsset({

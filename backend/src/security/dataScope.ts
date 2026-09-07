@@ -43,16 +43,19 @@ export function scopeEmployeeData<T>(value: T, role?: string): T {
   return stripSensitiveFields(value) as T;
 }
 
-const sensitiveMaintenanceFinancialFields = new Set(['laborCost', 'partsCost']);
+const retiredMaintenanceServiceFields = new Set([
+  'serviceProvider', 'serviceReference', 'laborCost', 'partsCost',
+  'sentToServiceAt', 'returnedFromServiceAt',
+  'inventorySerialNoSnapshot', 'inventoryAssetTagSnapshot', 'serialNo', 'assetTag',
+]);
 
-export function scopeMaintenanceData<T>(value: T, role?: string): T {
-  if (hasPermission(role, permissions.MAINTENANCE_FULL_UPDATE)) return value;
+export function scopeMaintenanceData<T>(value: T, _role?: string): T {
   const visit = (current: unknown): unknown => {
     if (Array.isArray(current)) return current.map(visit);
     if (!current || typeof current !== 'object' || current instanceof Date) return current;
     return Object.fromEntries(
       Object.entries(current as Record<string, unknown>)
-        .filter(([key]) => !sensitiveMaintenanceFinancialFields.has(key))
+        .filter(([key]) => !retiredMaintenanceServiceFields.has(key))
         .map(([key, nested]) => [key, visit(nested)]),
     );
   };
@@ -89,7 +92,7 @@ export function scopeRoomData<T>(value: T, role?: string): T {
       }
       if ((childKey === 'roomInventories' || childKey === 'inventories') && isHousekeeping) { result[childKey] = []; continue; }
       if (childKey === 'maintenances' && (isHousekeeping || isWarehouse)) { result[childKey] = []; continue; }
-      if (sensitiveMaintenanceFinancialFields.has(childKey) && !hasPermission(role, permissions.MAINTENANCE_FULL_UPDATE)) continue;
+      if (retiredMaintenanceServiceFields.has(childKey)) continue;
       if (childKey === 'cleaningLogs' && (isTechnical || isWarehouse || role === 'SECURITY')) { result[childKey] = []; continue; }
       result[childKey] = visit(childValue, childKey);
     }

@@ -6,7 +6,7 @@ type CountRow = { issue: string; count: bigint };
 async function main() {
   const rows = await prisma.$queryRaw<CountRow[]>`
     SELECT 'invalidBalances' AS issue, COUNT(*)::bigint AS count FROM "StockItem"
-      WHERE "totalStock" < 0 OR "usedStock" < 0 OR "usedInRooms" < 0 OR "usedStock" + "usedInRooms" > "totalStock" OR "minimumStock" < 0
+      WHERE "totalStock" < 0 OR "usedStock" < 0 OR "usedInRooms" < 0 OR "usedStock" + "usedInRooms" > "totalStock"
     UNION ALL
     SELECT 'cachedRoomBalanceMismatch', COUNT(*)::bigint FROM "StockItem" s
       WHERE s."usedInRooms" <> COALESCE((SELECT SUM(r.quantity)::int FROM "RoomInventory" r WHERE r."stockItemId" = s.id AND r."returnedAt" IS NULL), 0)

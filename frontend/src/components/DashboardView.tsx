@@ -15,7 +15,7 @@ const trDate = (value: string, options?: Intl.DateTimeFormatOptions) =>
   new Intl.DateTimeFormat('tr-TR', { timeZone: 'Europe/Istanbul', ...options }).format(new Date(value));
 
 const statusLabel: Record<string, string> = {
-  OPEN: 'Açık', IN_PROGRESS: 'İşlemde', RESOLVED: 'Çözüldü', CLOSED: 'Kapalı',
+  OPEN: 'Açık', IN_PROGRESS: 'Açık', RESOLVED: 'Kapalı', CLOSED: 'Kapalı',
   REJECTED: 'Reddedildi', NEEDS_CLEANING: 'Temizlik bekliyor', OUT_OF_ORDER: 'Kullanım dışı',
 };
 

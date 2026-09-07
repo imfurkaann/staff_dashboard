@@ -101,7 +101,7 @@ export const RoomDetailView: React.FC<RoomDetailViewProps> = ({
   const [roomError, setRoomError] = useState<string | null>(null);
   const [updatingMaintenanceId, setUpdatingMaintenanceId] = useState<string | null>(null);
   const [maintenanceToEdit, setMaintenanceToEdit] = useState<RoomMaintenance | null>(null);
-  const [editMaintenanceForm, setEditMaintenanceForm] = useState({ category: '', description: '', priority: 'MEDIUM', status: 'OPEN', location: '', assignedTo: '', resolutionNote: '' });
+  const [editMaintenanceForm, setEditMaintenanceForm] = useState({ category: '', description: '', priority: 'MEDIUM', status: 'OPEN', location: '', resolutionNote: '' });
   const [maintenanceToDelete, setMaintenanceToDelete] = useState<RoomMaintenance | null>(null);
   const [deleteMaintenanceSubmitting, setDeleteMaintenanceSubmitting] = useState(false);
 
@@ -116,7 +116,7 @@ export const RoomDetailView: React.FC<RoomDetailViewProps> = ({
 
   // Add Room Fixture Inventory Modal State
   const [showAddInventoryModal, setShowAddInventoryModal] = useState(false);
-  const [addInventoryForm, setAddInventoryForm] = useState({ itemName: '', brand: '', serialNo: '' });
+  const [addInventoryForm, setAddInventoryForm] = useState({ itemName: '', brand: '' });
   const [addInventorySubmitting, setAddInventorySubmitting] = useState(false);
   const [stockItems, setStockItems] = useState<StockItem[]>([]);
   const [selectedStockItemId, setSelectedStockItemId] = useState<string>('');
@@ -163,13 +163,8 @@ export const RoomDetailView: React.FC<RoomDetailViewProps> = ({
 
   const handleAddInventorySubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    const selectedStockItem = stockItems.find((item) => item.id === selectedStockItemId);
     if (!selectedStockItemId || !addInventoryForm.itemName.trim()) {
       setRoomError('Oda zimmeti için önce depo stok kartı seçilmelidir.');
-      return;
-    }
-    if (selectedStockItem?.itemType !== 'SARF_MALZEME' && !addInventoryForm.serialNo.trim()) {
-      setRoomError('Demirbaş zimmeti için cihazın üretici seri numarası zorunludur.');
       return;
     }
     setAddInventorySubmitting(true);
@@ -183,7 +178,7 @@ export const RoomDetailView: React.FC<RoomDetailViewProps> = ({
       setCurrentRoom(reloaded);
       if (onRoomUpdated) onRoomUpdated(reloaded);
       setShowAddInventoryModal(false);
-      setAddInventoryForm({ itemName: '', brand: '', serialNo: '' });
+      setAddInventoryForm({ itemName: '', brand: '' });
       setSelectedStockItemId('');
     } catch (err: any) {
       setRoomError(err?.response?.data?.message || err?.message || 'Demirbaş eşya eklenemedi.');
@@ -229,31 +224,20 @@ export const RoomDetailView: React.FC<RoomDetailViewProps> = ({
   const renderStatusBadge = (s: string) => {
     switch (s) {
       case 'OPEN':
+      case 'IN_PROGRESS':
         return (
           <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-xl text-[11px] font-extrabold bg-amber-50 text-amber-800 border border-amber-200">
             <Clock className="w-3 h-3 text-amber-600 shrink-0" />
             Açık Bildirim
           </span>
         );
-      case 'IN_PROGRESS':
-        return (
-          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-xl text-[11px] font-extrabold bg-blue-50 text-[#1e3a8a] border border-blue-200">
-            <Wrench className="w-3 h-3 text-[#1e3a8a] shrink-0" />
-            İşlemde (Teknik)
-          </span>
-        );
       case 'RESOLVED':
-        return (
-          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-xl text-[11px] font-extrabold bg-emerald-50 text-emerald-800 border border-emerald-200">
-            <CheckCircle2 className="w-3 h-3 text-emerald-600 shrink-0" />
-            Çözüldü
-          </span>
-        );
       case 'CLOSED':
       default:
         return (
-          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-xl text-[11px] font-bold bg-slate-100 text-slate-700 border border-slate-200">
-            Kapatıldı
+          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-xl text-[11px] font-extrabold bg-emerald-50 text-emerald-800 border border-emerald-200">
+            <CheckCircle2 className="w-3 h-3 text-emerald-600 shrink-0" />
+            Kapalı
           </span>
         );
     }
@@ -281,17 +265,14 @@ export const RoomDetailView: React.FC<RoomDetailViewProps> = ({
     if (onRoomUpdated) onRoomUpdated(updatedRoom);
   };
 
-  const openMaintenanceEdit = (maintenance: RoomMaintenance, targetStatus?: 'RESOLVED') => {
+  const openMaintenanceEdit = (maintenance: RoomMaintenance, targetStatus?: 'CLOSED') => {
     setMaintenanceError(null);
-    const isTechRole = currentUser.role === 'TECHNICIAN' || currentUser.role === 'TECHNICAL_MANAGER';
-    const defaultAssignedTo = maintenance.assignedTo || (isTechRole ? currentUser.fullName : '');
     setEditMaintenanceForm({
       category: maintenance.category || maintenance.title,
       description: maintenance.description || '',
       priority: maintenance.priority || 'MEDIUM',
-      status: targetStatus || maintenance.status || 'OPEN',
+      status: targetStatus || (maintenance.status === 'RESOLVED' || maintenance.status === 'CLOSED' ? 'CLOSED' : 'OPEN'),
       location: maintenance.location || '',
-      assignedTo: defaultAssignedTo,
       resolutionNote: maintenance.resolutionNote || ''
     });
     setMaintenanceToEdit(maintenance);
@@ -299,6 +280,10 @@ export const RoomDetailView: React.FC<RoomDetailViewProps> = ({
 
   const handleEditMaintenance = async () => {
     if (!maintenanceToEdit || !editMaintenanceForm.category.trim() || !editMaintenanceForm.description.trim()) return;
+    if (editMaintenanceForm.status === 'CLOSED' && !editMaintenanceForm.resolutionNote.trim()) {
+      setMaintenanceError('Arıza kaydını kapatmak için kapanış notu zorunludur.');
+      return;
+    }
     setUpdatingMaintenanceId(maintenanceToEdit.id);
     setMaintenanceError(null);
     try {
@@ -306,7 +291,7 @@ export const RoomDetailView: React.FC<RoomDetailViewProps> = ({
         title: editMaintenanceForm.category, category: editMaintenanceForm.category,
         description: editMaintenanceForm.description, priority: editMaintenanceForm.priority,
         status: editMaintenanceForm.status as RoomMaintenance['status'], location: editMaintenanceForm.location || null,
-        assignedTo: editMaintenanceForm.assignedTo || null, resolutionNote: editMaintenanceForm.resolutionNote || null,
+        resolutionNote: editMaintenanceForm.resolutionNote || null,
       });
       replaceMaintenance(updated);
       setMaintenanceToEdit(null);
@@ -315,7 +300,7 @@ export const RoomDetailView: React.FC<RoomDetailViewProps> = ({
     } finally { setUpdatingMaintenanceId(null); }
   };
 
-  const handleResolveMaintenance = (maintenance: RoomMaintenance) => openMaintenanceEdit(maintenance, 'RESOLVED');
+  const handleResolveMaintenance = (maintenance: RoomMaintenance) => openMaintenanceEdit(maintenance, 'CLOSED');
 
   const handleDeleteMaintenanceSubmit = async () => {
     if (!maintenanceToDelete) return;
@@ -342,7 +327,7 @@ export const RoomDetailView: React.FC<RoomDetailViewProps> = ({
       const updated = await roomApi.updateMaintenance(maintenance.id, { status: 'OPEN' });
       replaceMaintenance(updated);
     } catch (err: any) {
-      setMaintenanceError(err?.response?.data?.message || 'Çözüldü işlemi geri alınamadı.');
+      setMaintenanceError(err?.response?.data?.message || 'Kayıt yeniden açılamadı.');
     } finally { setUpdatingMaintenanceId(null); }
   };
 
@@ -522,7 +507,7 @@ export const RoomDetailView: React.FC<RoomDetailViewProps> = ({
   const roomSharedAssets = currentRoom.sharedAssets || [];
   const totalEquipmentCount = roomInventories.length + roomSharedAssets.length;
   const roomOccupancyHistory = currentRoom.occupancyHistory || [];
-  const inventoryStatusLabels: Record<RoomInventoryStatus, string> = { HEALTHY: 'Sağlam & Çalışır', MAINTENANCE_REQUIRED: 'Arızalı / Bakım Bekliyor', DAMAGED: 'Kırık / Hasarlı', LOST: 'Kayıp / Zayi', IN_SERVICE: 'Tamirde / Serviste', REPLACEMENT_REQUIRED: 'Değişim Bekliyor', RETIRED: 'İade Edildi / Düşüm Yapıldı' };
+  const inventoryStatusLabels: Record<RoomInventoryStatus, string> = { HEALTHY: 'Sağlam & Çalışır', MAINTENANCE_REQUIRED: 'Arızalı / Bakım Bekliyor', DAMAGED: 'Kırık / Hasarlı', LOST: 'Kayıp / Zayi', IN_SERVICE: 'Arızalı / Bakım Bekliyor', REPLACEMENT_REQUIRED: 'Değişim Bekliyor', RETIRED: 'İade Edildi / Düşüm Yapıldı' };
 
   const roomMaintenances = currentRoom.maintenances || [];
   const openMaintenances = roomMaintenances.filter((m) => m.status !== 'RESOLVED' && m.status !== 'CLOSED' && !m.resolvedAt);
@@ -562,7 +547,7 @@ export const RoomDetailView: React.FC<RoomDetailViewProps> = ({
           <div className="text-right"><p className="font-black text-[18px]">ODA {currentRoom.roomNumber}</p><p>{currentRoom.block?.name} BLOĞU</p><p className="mt-1">Döküm: {new Date().toLocaleString('tr-TR', { dateStyle: 'short', timeStyle: 'short', timeZone: 'Europe/Istanbul' })}</p></div>
         </header>
         <section className="mb-3"><h2 className="print-section-title">1. ODA GENEL BİLGİLERİ</h2><table className="print-table"><tbody><tr><th>Oda / Blok</th><td>{currentRoom.roomNumber} / {currentRoom.block?.name}</td><th>Kapasite</th><td>{currentRoom.capacity} Kişi</td></tr><tr><th>Doluluk</th><td>{occupiedCount} Dolu / {vacantCount} Boş</td><th>Oda Durumu</th><td>{currentRoom.status}</td></tr></tbody></table></section>
-        {(printType === 'inventory' || printType === 'all') && <section className="mb-3"><h2 className="print-section-title">2. ODA ZİMMET VE DEMİRBAŞLARI</h2><table className="print-table"><thead><tr><th>Demirbaş</th><th>Marka</th><th>Seri No</th><th>Adet</th><th>Tesis Tarihi</th><th>Durum</th></tr></thead><tbody>{roomInventories.map((item) => <tr key={item.id}><td>{item.itemName}</td><td>{item.brand || '-'}</td><td>{item.serialNo || '-'}</td><td>{item.quantity}</td><td>{formatDateTime(item.installedAt)}</td><td>{inventoryStatusLabels[item.status]}</td></tr>)}</tbody></table></section>}
+        {(printType === 'inventory' || printType === 'all') && <section className="mb-3"><h2 className="print-section-title">2. ODA ZİMMET VE DEMİRBAŞLARI</h2><table className="print-table"><thead><tr><th>Demirbaş</th><th>Marka</th><th>Adet</th><th>Tesis Tarihi</th><th>Durum</th></tr></thead><tbody>{roomInventories.map((item) => <tr key={item.id}><td>{item.itemName}</td><td>{item.brand || '-'}</td><td>{item.quantity}</td><td>{formatDateTime(item.installedAt)}</td><td>{inventoryStatusLabels[item.status]}</td></tr>)}</tbody></table></section>}
         {(printType === 'maintenance' || printType === 'all') && (
           <section className="mb-3 space-y-2">
             <h2 className="print-section-title">{printType === 'all' ? '3.' : '2.'} ARIZA VE BAKIM KAYITLARI</h2>
@@ -1009,7 +994,7 @@ export const RoomDetailView: React.FC<RoomDetailViewProps> = ({
             <button
               type="button"
               onClick={() => {
-                setAddInventoryForm({ itemName: '', brand: '', serialNo: '' });
+                setAddInventoryForm({ itemName: '', brand: '' });
                 setShowAddInventoryModal(true);
               }}
               className="px-3.5 py-2 rounded-xl bg-[#1e3a8a] hover:bg-blue-900 text-white font-bold text-xs flex items-center gap-1.5 cursor-pointer shadow-md self-start sm:self-auto"
@@ -1081,7 +1066,7 @@ export const RoomDetailView: React.FC<RoomDetailViewProps> = ({
                           <div>
                             <span className="font-extrabold text-blue-950 block">{asset.assetName}</span>
                             <span className="text-[10px] font-bold text-slate-500 block">
-                              {asset.assetCode} {asset.brandModel ? `· ${asset.brandModel}` : ''} {asset.serialNo ? `· SN: ${asset.serialNo}` : ''}
+                              {asset.assetName} {asset.brandModel ? `· ${asset.brandModel}` : ''}
                             </span>
                           </div>
                         </div>
@@ -1166,7 +1151,7 @@ export const RoomDetailView: React.FC<RoomDetailViewProps> = ({
                     <th className="py-3.5 px-4 whitespace-nowrap">Öncelik</th>
                     <th className="py-3.5 px-4 whitespace-nowrap">Durum</th>
                     <th className="py-3.5 px-4 whitespace-nowrap">Bildiren Kişi</th>
-                    <th className="py-3.5 px-4 whitespace-nowrap">Çözümleyen Personel</th>
+                    <th className="py-3.5 px-4 whitespace-nowrap">Kapatan Kullanıcı</th>
                     <th className="py-3.5 px-4 whitespace-nowrap">Açılış Tarihi</th>
                     <th className="py-3.5 px-4 whitespace-nowrap">Kapanış Tarihi</th>
                     <th className="py-3.5 px-4 text-right whitespace-nowrap">İşlemler</th>
@@ -1204,8 +1189,8 @@ export const RoomDetailView: React.FC<RoomDetailViewProps> = ({
                           {log.description}
                         </p>
                         {log.resolutionNote && (
-                          <p className="text-[10px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-md px-1.5 py-0.5 mt-1 truncate max-w-[260px]" title={`Çözüm Notu: ${log.resolutionNote}`}>
-                            Çözüm Notu: {log.resolutionNote}
+                          <p className="text-[10px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-md px-1.5 py-0.5 mt-1 truncate max-w-[260px]" title={`Kapanış Notu: ${log.resolutionNote}`}>
+                            Kapanış Notu: {log.resolutionNote}
                           </p>
                         )}
                       </td>
@@ -1234,7 +1219,7 @@ export const RoomDetailView: React.FC<RoomDetailViewProps> = ({
                         ) : log.status === 'RESOLVED' || log.status === 'CLOSED' ? (
                           <span className="font-extrabold text-slate-800 block truncate max-w-[140px]">Sistem / Eski Kayıt</span>
                         ) : (
-                          <span className="text-xs font-semibold text-slate-400 italic">Henüz Çözülmedi</span>
+                          <span className="text-xs font-semibold text-slate-400 italic">Kayıt açık</span>
                         )}
                       </td>
 
@@ -1257,7 +1242,7 @@ export const RoomDetailView: React.FC<RoomDetailViewProps> = ({
                               disabled={updatingMaintenanceId === log.id}
                               onClick={() => handleUndoResolveMaintenance(log)}
                               className="group relative inline-flex items-center justify-center h-7 px-2 rounded-lg border transition-all duration-300 ease-out shadow-2xs hover:shadow-xs cursor-pointer overflow-hidden disabled:opacity-40 bg-amber-50 text-amber-700 hover:bg-amber-600 hover:text-white border-amber-200/80 hover:border-amber-600"
-                              title="Çözümü geri al (Tekrar açık yap)"
+                              title="Kaydı yeniden aç"
                             >
                               <RotateCcw className="w-3.5 h-3.5 shrink-0 group-hover:scale-110 transition-transform duration-300" />
                               <span className="max-w-0 opacity-0 group-hover:max-w-[80px] group-hover:opacity-100 group-hover:ml-1 transition-all duration-300 text-[11px] font-extrabold whitespace-nowrap overflow-hidden">Geri Al</span>
@@ -1268,10 +1253,10 @@ export const RoomDetailView: React.FC<RoomDetailViewProps> = ({
                               disabled={updatingMaintenanceId === log.id}
                               onClick={() => handleResolveMaintenance(log)}
                               className="group relative inline-flex items-center justify-center h-7 px-2 rounded-lg border transition-all duration-300 ease-out shadow-2xs hover:shadow-xs cursor-pointer overflow-hidden disabled:opacity-40 bg-emerald-50 text-emerald-700 hover:bg-emerald-600 hover:text-white border-emerald-200/80 hover:border-emerald-600"
-                              title="Çözüldü yap"
+                              title="Arızayı kapat"
                             >
                               <CheckCircle2 className="w-3.5 h-3.5 shrink-0 group-hover:scale-110 transition-transform duration-300" />
-                              <span className="max-w-0 opacity-0 group-hover:max-w-[80px] group-hover:opacity-100 group-hover:ml-1 transition-all duration-300 text-[11px] font-extrabold whitespace-nowrap overflow-hidden">Çözüldü Yap</span>
+                              <span className="max-w-0 opacity-0 group-hover:max-w-[80px] group-hover:opacity-100 group-hover:ml-1 transition-all duration-300 text-[11px] font-extrabold whitespace-nowrap overflow-hidden">Kapat</span>
                             </button>
                           )}
 
@@ -1689,18 +1674,17 @@ export const RoomDetailView: React.FC<RoomDetailViewProps> = ({
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div><label className="block text-xs font-bold text-slate-800 mb-1">Arıza Kategorisi <span className="text-red-500 font-black">*</span></label><select value={editMaintenanceForm.category} onChange={(e) => setEditMaintenanceForm((prev) => ({ ...prev, category: e.target.value }))} className="w-full px-3.5 py-2.5 bg-white border border-slate-300 rounded-xl text-xs font-bold text-slate-900 focus:border-[#1e3a8a] focus:ring-1 focus:ring-[#1e3a8a] outline-none cursor-pointer">{maintenanceCategories.map((category) => <option key={category.value} value={category.value}>{category.label}</option>)}</select></div>
                   <div><label className="block text-xs font-bold text-slate-800 mb-1">Öncelik Seviyesi</label><select value={editMaintenanceForm.priority} onChange={(e) => setEditMaintenanceForm((prev) => ({ ...prev, priority: e.target.value }))} className={`w-full px-3.5 py-2.5 border rounded-xl text-xs font-bold outline-none cursor-pointer focus:ring-1 focus:ring-[#1e3a8a] ${editMaintenanceForm.priority === 'URGENT' ? 'bg-rose-50 border-rose-300 text-rose-800' : editMaintenanceForm.priority === 'HIGH' ? 'bg-orange-50 border-orange-300 text-orange-800' : editMaintenanceForm.priority === 'MEDIUM' ? 'bg-amber-50 border-amber-300 text-amber-800' : 'bg-emerald-50 border-emerald-300 text-emerald-800'}`}><option value="LOW">🟢 Düşük — Acil Değil</option><option value="MEDIUM">🟡 Orta — Normal</option><option value="HIGH">🟠 Yüksek — Öncelikli</option><option value="URGENT">🔴 Acil — Kritik</option></select></div>
-                  <div className="sm:col-span-2"><label className="block text-xs font-bold text-slate-800 mb-1">Süreç Durumu</label><select value={editMaintenanceForm.status} onChange={(e) => setEditMaintenanceForm((prev) => ({ ...prev, status: e.target.value }))} className="w-full px-3.5 py-2.5 bg-white border border-slate-300 rounded-xl text-xs font-bold text-slate-900 outline-none"><option value="OPEN">Açık</option><option value="IN_PROGRESS">İşlemde</option><option value="RESOLVED">Çözüldü</option><option value="CLOSED">Kapatıldı</option></select></div>
+                  <div className="sm:col-span-2"><label className="block text-xs font-bold text-slate-800 mb-1">Arıza Durumu</label><select value={editMaintenanceForm.status} onChange={(e) => setEditMaintenanceForm((prev) => ({ ...prev, status: e.target.value }))} className="w-full px-3.5 py-2.5 bg-white border border-slate-300 rounded-xl text-xs font-bold text-slate-900 outline-none"><option value="OPEN">Açık</option><option value="CLOSED">Kapalı</option></select></div>
                 </div>
               </div>
               <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200 space-y-4">
                 <div className="flex items-center justify-between border-b border-slate-200/80 pb-2"><h3 className="text-xs font-extrabold text-slate-700 uppercase tracking-wider flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-slate-500"></span><span>Arıza Detayları</span></h3></div>
                 <div><label className="block text-xs font-bold text-slate-800 mb-1">Arıza Açıklaması <span className="text-red-500 font-black">*</span></label><textarea rows={4} value={editMaintenanceForm.description} onChange={(e) => setEditMaintenanceForm((prev) => ({ ...prev, description: e.target.value }))} className="w-full px-3.5 py-2.5 bg-white border border-slate-300 rounded-xl text-xs font-bold text-slate-900 focus:border-[#1e3a8a] focus:ring-1 focus:ring-[#1e3a8a] outline-none resize-none"/></div>
                 <div><label className="block text-xs font-bold text-slate-800 mb-1">Odadaki Konum <span className="text-slate-400 font-semibold text-[10px]">(İsteğe Bağlı)</span></label><input value={editMaintenanceForm.location} onChange={(e) => setEditMaintenanceForm((prev) => ({ ...prev, location: e.target.value }))} className="w-full px-3.5 py-2.5 bg-white border border-slate-300 rounded-xl text-xs font-bold text-slate-900 focus:border-[#1e3a8a] focus:ring-1 focus:ring-[#1e3a8a] outline-none" placeholder="Ör: Banyo girişi, Pencere kenarı, Yatak-A yanı..."/></div>
-                <div><label className="block text-xs font-bold text-slate-800 mb-1">Sorumlu / Çözümleyen</label><input maxLength={100} value={editMaintenanceForm.assignedTo} onChange={(e) => setEditMaintenanceForm((prev) => ({ ...prev, assignedTo: e.target.value }))} className="w-full px-3.5 py-2.5 bg-white border border-slate-300 rounded-xl text-xs font-bold text-slate-900 outline-none" placeholder="İşlemi yapan kişi veya ekip"/></div>
-                <div><label className="block text-xs font-bold text-slate-800 mb-1">Çözüm / Yapılan İşlem <span className="text-slate-400 font-semibold text-[10px]">(İsteğe Bağlı)</span></label><textarea rows={3} maxLength={1000} value={editMaintenanceForm.resolutionNote} onChange={(e) => setEditMaintenanceForm((prev) => ({ ...prev, resolutionNote: e.target.value }))} className="w-full px-3.5 py-2.5 bg-white border border-slate-300 rounded-xl text-xs font-bold text-slate-900 outline-none resize-none" placeholder="Yapılan kontrolü, onarımı ve sonucu yazabilirsiniz (İsteğe bağlı)..."/></div>
+                <div><label className="block text-xs font-bold text-slate-800 mb-1">Kapanış / Sonuç Notu {editMaintenanceForm.status === 'CLOSED' ? <span className="text-red-500 font-black">*</span> : <span className="text-slate-400 font-semibold text-[10px]">(Kapatırken zorunlu)</span>}</label><textarea required={editMaintenanceForm.status === 'CLOSED'} rows={3} maxLength={1000} value={editMaintenanceForm.resolutionNote} onChange={(e) => setEditMaintenanceForm((prev) => ({ ...prev, resolutionNote: e.target.value }))} className="w-full px-3.5 py-2.5 bg-white border border-slate-300 rounded-xl text-xs font-bold text-slate-900 outline-none resize-none" placeholder="Arıza kaydının neden kapatıldığını kısaca yazın..."/></div>
               </div>
             </div>
-            <div className="p-6 pt-4 border-t border-slate-200 flex justify-end gap-3"><button onClick={() => setMaintenanceToEdit(null)} className="py-2.5 px-4 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl transition-all cursor-pointer">İptal</button><button onClick={handleEditMaintenance} disabled={updatingMaintenanceId === maintenanceToEdit.id || !editMaintenanceForm.category || !editMaintenanceForm.description.trim()} className="py-2.5 px-6 bg-[#1e3a8a] hover:bg-[#1e293b] text-white text-xs font-bold rounded-xl shadow-md shadow-blue-950/20 transition-all flex items-center gap-2 disabled:opacity-50 cursor-pointer">{updatingMaintenanceId === maintenanceToEdit.id ? <><Loader2 className="w-4 h-4 animate-spin"/><span>Kaydediliyor...</span></> : <><Check className="w-4 h-4"/><span>Değişiklikleri Kaydet</span></>}</button></div>
+            <div className="p-6 pt-4 border-t border-slate-200 flex justify-end gap-3"><button onClick={() => setMaintenanceToEdit(null)} className="py-2.5 px-4 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl transition-all cursor-pointer">İptal</button><button onClick={handleEditMaintenance} disabled={updatingMaintenanceId === maintenanceToEdit.id || !editMaintenanceForm.category || !editMaintenanceForm.description.trim() || (editMaintenanceForm.status === 'CLOSED' && !editMaintenanceForm.resolutionNote.trim())} className="py-2.5 px-6 bg-[#1e3a8a] hover:bg-[#1e293b] text-white text-xs font-bold rounded-xl shadow-md shadow-blue-950/20 transition-all flex items-center gap-2 disabled:opacity-50 cursor-pointer">{updatingMaintenanceId === maintenanceToEdit.id ? <><Loader2 className="w-4 h-4 animate-spin"/><span>Kaydediliyor...</span></> : <><Check className="w-4 h-4"/><span>Değişiklikleri Kaydet</span></>}</button></div>
           </div>
         </div>
       )}
@@ -2073,7 +2057,7 @@ export const RoomDetailView: React.FC<RoomDetailViewProps> = ({
                       const val = e.target.value;
                       setSelectedStockItemId(val);
                       const matched = roomFixtureStockItems.find(s => s.id === val);
-                      setAddInventoryForm(prev => ({ ...prev, itemName: matched ? matched.itemName : '', brand: '', serialNo: '' }));
+                      setAddInventoryForm(prev => ({ ...prev, itemName: matched ? matched.itemName : '', brand: '' }));
                     }}
                     className="w-full px-3 py-2.5 bg-slate-50 border border-slate-300 rounded-xl font-semibold text-slate-900 outline-none cursor-pointer"
                   >
@@ -2090,7 +2074,7 @@ export const RoomDetailView: React.FC<RoomDetailViewProps> = ({
                   </select>
               </div>
 
-              {selectedStockItemId && (() => { const selected = stockItems.find((item) => item.id === selectedStockItemId); const serialRequired = selected?.itemType !== 'SARF_MALZEME'; return <div className="grid grid-cols-1 gap-3 sm:grid-cols-2"><label className="block font-bold text-slate-800">Marka / Model<input maxLength={100} value={addInventoryForm.brand} onChange={(e) => setAddInventoryForm((prev) => ({ ...prev, brand: e.target.value }))} className="mt-1 w-full px-3 py-2.5 bg-slate-50 border border-slate-300 rounded-xl font-semibold outline-none" /></label><label className="block font-bold text-slate-800">Üretici Seri Numarası {serialRequired && '*'}<input required={serialRequired} maxLength={100} value={addInventoryForm.serialNo} onChange={(e) => setAddInventoryForm((prev) => ({ ...prev, serialNo: e.target.value.toLocaleUpperCase('tr-TR') }))} placeholder="Cihaz üzerindeki S/N" className="mt-1 w-full px-3 py-2.5 bg-slate-50 border border-slate-300 rounded-xl font-semibold outline-none" /></label>{serialRequired && <p className="sm:col-span-2 text-[10px] font-semibold text-blue-800">Bu seri numarası cihazın zimmet, arıza, servis ve yıl sonu raporlarında ayırt edilmesini sağlar.</p>}</div>; })()}
+              {selectedStockItemId && <label className="block font-bold text-slate-800">Marka / Model<input maxLength={100} value={addInventoryForm.brand} onChange={(e) => setAddInventoryForm((prev) => ({ ...prev, brand: e.target.value }))} className="mt-1 w-full px-3 py-2.5 bg-slate-50 border border-slate-300 rounded-xl font-semibold outline-none" /></label>}
 
               <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-[10px] font-bold text-emerald-900">
                 Seçilen stok kartından 1 adet ürün sağlam durumda bu odaya zimmetlenir ve depo müsait stoğundan otomatik düşülür.
@@ -2128,7 +2112,7 @@ export const RoomDetailView: React.FC<RoomDetailViewProps> = ({
         } : undefined}
         onStatusChange={canUpdateMaintenance ? (logToChange, newStatus) => {
           setSelectedMaintenanceDetail(null);
-          if (newStatus === 'RESOLVED') {
+          if (newStatus === 'CLOSED') {
             handleResolveMaintenance(logToChange as any);
           } else {
             handleUndoResolveMaintenance(logToChange as any);
@@ -2139,7 +2123,6 @@ export const RoomDetailView: React.FC<RoomDetailViewProps> = ({
           setMaintenanceToDelete(logToDelete as any);
         } : undefined}
         currentUserRole={currentUser.role}
-        currentUserFullName={currentUser.fullName}
       />
 
       {/* DELETE MAINTENANCE CONFIRMATION MODAL */}

@@ -208,7 +208,6 @@ export const EmployeeDetailView: React.FC<EmployeeDetailViewProps> = ({
   };
 
   const [newLojmanName, setNewLojmanName] = useState('');
-  const [newLojmanSerial, setNewLojmanSerial] = useState('');
   const [stockItems, setStockItems] = useState<StockItem[]>([]);
   const [selectedStockItemId, setSelectedStockItemId] = useState<string>('');
 
@@ -399,14 +398,13 @@ export const EmployeeDetailView: React.FC<EmployeeDetailViewProps> = ({
           itemName: newLojmanName.trim(),
           category: 'LOJMAN_ZİMMETİ',
           stockItemId: selectedStockItemId || undefined,
-          serialNo: newLojmanSerial.trim() || undefined,
         });
         await refreshEmployeeData();
       } else {
         const newItem = {
           id: `inv-${Date.now()}`,
           itemName: newLojmanName.trim(),
-          itemCode: newLojmanSerial.trim() || 'ZMM-101',
+          itemCode: 'ZMM-101',
           assignedDate: formatDateTime(new Date().toISOString()),
           returnedDate: null,
           status: 'Teslim Edildi',
@@ -419,7 +417,6 @@ export const EmployeeDetailView: React.FC<EmployeeDetailViewProps> = ({
     }
 
     setNewLojmanName('');
-    setNewLojmanSerial('');
     setSelectedStockItemId('');
     setIsAddLojmanModalOpen(false);
   };
@@ -1343,21 +1340,6 @@ export const EmployeeDetailView: React.FC<EmployeeDetailViewProps> = ({
                   })}
                 </select>
               </div>
-
-              {selectedStockItemId && stockItems.find((item) => item.id === selectedStockItemId)?.itemType !== 'SARF_MALZEME' && (
-                <div>
-                  <label className="block font-bold text-slate-800 mb-1">Üretici Seri Numarası *</label>
-                  <input
-                    required
-                    value={newLojmanSerial}
-                    onChange={(e) => setNewLojmanSerial(e.target.value)}
-                    maxLength={120}
-                    placeholder="Cihaz üzerindeki benzersiz seri numarası"
-                    className="w-full px-3 py-2.5 bg-slate-50 border border-slate-300 rounded-xl font-semibold text-slate-900 outline-none"
-                  />
-                  <p className="mt-1 text-[10px] font-semibold text-slate-500">Aynı seri numarası oda veya başka bir personel zimmetinde kullanılamaz.</p>
-                </div>
-              )}
 
               <div className="pt-2 flex justify-end gap-2">
                 <button

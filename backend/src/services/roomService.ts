@@ -3,7 +3,7 @@ import { AppError } from '../middleware/errorHandler';
 import { Prisma, RoomInventoryStatus, RoomStatus } from '@prisma/client';
 import { assertDateRange, parseIstanbulDateBoundary } from '../utils/dateTime';
 import { reserveRoomStock } from '../utils/stockBalance';
-import { normalizeIdentifier, normalizeUpper } from '../utils/normalization';
+import { normalizeUpper } from '../utils/normalization';
 import {
   normalizeRoomType, validateCleaningStatus, validateInventoryExportFilter,
   validateOccupancyExportFilter, validateRoomCapacity, validateRoomFloor,
@@ -704,7 +704,6 @@ export const roomService = {
     if (!room) throw new AppError('Oda bulunamadı.', 404);
 
     const cleanBrand = normalizeUpper(data.brand);
-    const cleanSerialNo = normalizeIdentifier(data.serialNo);
     const quantity = data.quantity === undefined ? 1 : data.quantity;
     if (typeof quantity !== 'number' || !Number.isInteger(quantity) || quantity < 1 || quantity > 10_000) {
       throw new AppError('Zimmet miktarı 1 ile 10.000 arasında tam sayı olmalıdır.', 400);
@@ -722,44 +721,26 @@ export const roomService = {
         throw new AppError('Oda zimmetine yalnızca “Oda Demirbaşı” türündeki stok kartları eklenebilir.', 400);
       }
       if (quantity > 1) throw new AppError('Oda demirbaşları fiziksel cihaz takibi için tek tek ve 1 adet olarak zimmetlenmelidir.', 400);
-      if (cleanSerialNo) {
-        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`INVENTORY_SERIAL:${cleanSerialNo}`}))`;
-        const [roomDuplicate, personnelDuplicate] = await Promise.all([
-          tx.roomInventory.findFirst({ where: { serialNo: cleanSerialNo, returnedAt: null }, select: { id: true } }),
-          tx.inventoryItem.findFirst({ where: { serialNo: cleanSerialNo, returnedDate: null, isDeleted: false }, select: { id: true } }),
-        ]);
-        if (roomDuplicate || personnelDuplicate) throw new AppError('Bu seri numarası halen başka bir aktif demirbaşta kullanılıyor.', 409);
-      }
-      const cleanItemName = stockItem.itemName;
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`ROOM_ITEM_NAME:${roomId}:${stockItem.id}`}))`;
+      const priorNames = await tx.roomInventory.findMany({ where: { roomId, stockItemId: stockItem.id }, select: { itemName: true } });
+      const namePrefix = `${room.roomNumber} NOLU ODA - ${stockItem.itemName} `;
+      const nextSequence = priorNames.reduce((current, entry) => {
+        if (!entry.itemName.startsWith(namePrefix)) return current;
+        const value = Number(entry.itemName.slice(namePrefix.length));
+        return Number.isSafeInteger(value) && value > current ? value : current;
+      }, 0) + 1;
+      const cleanItemName = `${namePrefix}${nextSequence}`;
       const available = stockItem.totalStock - (stockItem.usedStock + stockItem.usedInRooms);
       if (available < quantity) throw new AppError(`Depoda yeterli stok yok. Müsait: ${available} ${stockItem.unit}. İstenen: ${quantity} ${stockItem.unit}.`, 400);
 
       await reserveRoomStock(tx, data.stockItemId, quantity);
-
-      const existing = await tx.roomInventory.findFirst({
-        where: { roomId, itemName: cleanItemName, serialNo: cleanSerialNo, returnedAt: null },
-      });
-
-      if (existing) {
-        const updated = await tx.roomInventory.update({
-          where: { id: existing.id },
-          data: {
-            quantity: existing.quantity + quantity,
-            status: data.status || existing.status,
-            brand: cleanBrand || existing.brand,
-            stockItemId: data.stockItemId || existing.stockItemId,
-          },
-        });
-        await tx.stockMovement.create({ data: { stockItemId: stockItem.id, roomId, roomInventoryId: updated.id, type: 'ROOM_ASSIGNMENT', quantity: -quantity, itemNameSnapshot: stockItem.itemName, roomLabelSnapshot: `${room.block.name} / ODA ${room.roomNumber}`, brand: updated.brand, serialNo: updated.serialNo, reason: 'ODA DETAYINDAN ZİMMET', createdById: data.createdById } });
-        return updated;
-      }
 
       let created = await tx.roomInventory.create({
         data: {
           roomId,
           itemName: cleanItemName,
           brand: cleanBrand,
-          serialNo: cleanSerialNo,
+          serialNo: null,
           quantity,
           status: data.status || 'HEALTHY',
           stockItemId: data.stockItemId,

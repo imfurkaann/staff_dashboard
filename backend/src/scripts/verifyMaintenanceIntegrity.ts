@@ -29,12 +29,6 @@ async function main() {
     SELECT 'missingInitialEvent', COUNT(*)::bigint FROM "MaintenanceLog" m
       WHERE NOT EXISTS (SELECT 1 FROM "MaintenanceEvent" e WHERE e."maintenanceId" = m.id AND e.action = 'FAULT_REPORTED')
     UNION ALL
-    SELECT 'closedServiceWithoutReturn', COUNT(*)::bigint FROM "MaintenanceLog"
-      WHERE "status" IN ('RESOLVED','CLOSED') AND "sentToServiceAt" IS NOT NULL AND "returnedFromServiceAt" IS NULL
-    UNION ALL
-    SELECT 'serviceDateMismatch', COUNT(*)::bigint FROM "MaintenanceLog"
-      WHERE "returnedFromServiceAt" IS NOT NULL AND ("sentToServiceAt" IS NULL OR "returnedFromServiceAt" < "sentToServiceAt")
-    UNION ALL
     SELECT 'activeHighRoomNotOutOfOrder', COUNT(*)::bigint FROM "MaintenanceLog" m
       JOIN "Room" r ON r.id = m."roomId"
       WHERE m."status" IN ('OPEN','IN_PROGRESS') AND m.priority IN ('HIGH','URGENT') AND r.status <> 'OUT_OF_ORDER'

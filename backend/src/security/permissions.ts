@@ -141,7 +141,7 @@ export const permissionLabels: Record<Permission, string> = {
   MAINTENANCE_VIEW: 'Arıza kayıtlarını görüntüleme',
   MAINTENANCE_CREATE: 'Arıza kaydı oluşturma',
   MAINTENANCE_UPDATE: 'Arıza sürecini güncelleme',
-  MAINTENANCE_FULL_UPDATE: 'Arıza servis ve maliyet bilgilerini yönetme',
+  MAINTENANCE_FULL_UPDATE: 'Kapalı arıza kaydını yeniden açma ve tam yönetim',
   MAINTENANCE_DELETE: 'Arıza kaydını silme',
   MAINTENANCE_EXPORT: 'Arıza raporu dışa aktarma',
   VISITOR_VIEW: 'Ziyaretçi kayıtlarını görüntüleme',

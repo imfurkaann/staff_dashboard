@@ -123,7 +123,7 @@ export const SharedAssetHistoryView: React.FC<Props> = ({ assets, onBack }) => {
               type="text"
               value={filters.search}
               onChange={(e) => setFilters({ ...filters, search: e.target.value, page: 1 })}
-              placeholder="Ekipman adı, kişi, konum veya Seri No ara..."
+              placeholder="Ekipman adı, kişi veya konum ara..."
               className="h-9 w-full rounded-xl border border-slate-300 bg-slate-50 pl-9 pr-3 text-xs font-bold text-slate-900 outline-none focus:border-[#1e3a8a] focus:bg-white"
             />
           </div>
