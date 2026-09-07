@@ -306,45 +306,45 @@ model InventoryItem {
 }
 
 model StockItem {
-  id              String          @id @default(uuid())
-  requestKey      String?         @unique
-  itemName        String          @unique
-  itemCode        String?         @unique
-  category        String          @default("GENEL")
-  itemType        String          @default("DEMİRBAŞ") // DEMİRBAŞ veya SARF_MALZEME
-  unit            String          @default("ADET")
+  id              String             @id @default(uuid())
+  requestKey      String?            @unique
+  itemName        String             @unique
+  itemCode        String?            @unique
+  category        String             @default("GENEL")
+  itemType        String             @default("DEMİRBAŞ") // DEMİRBAŞ veya SARF_MALZEME
+  unit            String             @default("ADET")
   specifications  String? // Ölçü, renk, teknolojik detaylar (160x200 cm, 12000 BTU vb.)
-  physicalStatus  String          @default("KULLANILABİLİR") // KULLANILABİLİR, KULLANIMDA, BAKIMDA, HURDA
+  physicalStatus  String             @default("KULLANILABİLİR") // KULLANILABİLİR, KULLANIMDA, BAKIMDA, HURDA
   warrantyEndDate DateTime? // Garanti bitiş tarihi
   locationNote    String? // Bulunduğu konum / depo / blok / daire bilgisi
-  minimumStock    Int             @default(5)
-  isActive        Boolean         @default(true)
+  minimumStock    Int                @default(5)
+  isActive        Boolean            @default(true)
   lastCountedAt   DateTime?
-  totalStock      Int             @default(0)
-  usedStock       Int             @default(0)
-  usedInRooms     Int             @default(0)
-  createdAt       DateTime        @default(now())
-  updatedAt       DateTime        @updatedAt
+  totalStock      Int                @default(0)
+  usedStock       Int                @default(0)
+  usedInRooms     Int                @default(0)
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
   createdById     String?
-  createdBy       User?           @relation("StockItemCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  createdBy       User?              @relation("StockItemCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
   inventories     InventoryItem[]
   roomInventories RoomInventory[]
   movements       StockMovement[]
   sharedAssets    SharedAsset[]
-  roomStandard   RoomStockStandard?
+  roomStandard    RoomStockStandard?
 
   @@index([createdById, createdAt])
 }
 
 model RoomStockStandard {
-  id               String    @id @default(uuid())
-  stockItemId      String    @unique
-  stockItem        StockItem @relation(fields: [stockItemId], references: [id], onDelete: Cascade)
-  roomType         String    @default("PERSONEL_ODASI")
-  fixedQuantity    Int       @default(0)
-  quantityPerBed   Int       @default(0)
-  createdAt        DateTime  @default(now())
-  updatedAt        DateTime  @updatedAt
+  id             String    @id @default(uuid())
+  stockItemId    String    @unique
+  stockItem      StockItem @relation(fields: [stockItemId], references: [id], onDelete: Cascade)
+  roomType       String    @default("PERSONEL_ODASI")
+  fixedQuantity  Int       @default(0)
+  quantityPerBed Int       @default(0)
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
 
   @@index([roomType])
 }

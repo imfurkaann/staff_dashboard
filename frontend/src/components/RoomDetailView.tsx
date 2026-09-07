@@ -66,13 +66,22 @@ export const RoomDetailView: React.FC<RoomDetailViewProps> = ({
   const canFullyUpdateMaintenance = can(currentUser.role, 'MAINTENANCE_FULL_UPDATE');
   const canManageInventory = can(currentUser.role, 'ROOM_INVENTORY_MANAGE');
   const canDeleteMaintenance = can(currentUser.role, 'MAINTENANCE_DELETE');
+  const canViewOverview = ['ADMIN', 'HOUSING_MANAGER', 'HOUSING_STAFF', 'HR_MANAGER'].includes(currentUser.role);
+  const canViewInventory = can(currentUser.role, 'ROOM_INVENTORY_MANAGE') || can(currentUser.role, 'STOCK_VIEW');
+  const canViewMaintenance = can(currentUser.role, 'MAINTENANCE_VIEW');
+  const canViewCleaning = can(currentUser.role, 'CLEANING_MANAGE');
+  const canViewHistory = canViewOverview;
+  const allowedTabs: RoomTabType[] = [
+    ...(canViewOverview ? ['overview' as const] : []),
+    ...(canViewInventory ? ['inventory' as const] : []),
+    ...(canViewMaintenance ? ['maintenance' as const] : []),
+    ...(canViewCleaning ? ['cleaning' as const] : []),
+    ...(canViewHistory ? ['history' as const] : []),
+  ];
   const [currentRoom, setCurrentRoom] = useState<Room>(room);
   const [activeTab, setActiveTab] = useState<RoomTabType>(() => {
-    if (currentUser.role === 'TECHNICIAN') return 'maintenance';
-    if (currentUser.role === 'HOUSEKEEPING') return 'cleaning';
-    if (currentUser.role === 'WAREHOUSE_MANAGER') return 'inventory';
     const savedTab = localStorage.getItem('staff_app_room_detail_tab') as RoomTabType;
-    return ['overview', 'inventory', 'maintenance', 'cleaning', 'history'].includes(savedTab) ? savedTab : 'overview';
+    return allowedTabs.includes(savedTab) ? savedTab : (allowedTabs[0] || 'overview');
   });
   const [historySearchQuery, setHistorySearchQuery] = useState<string>('');
   const [showPrintModal, setShowPrintModal] = useState(false);
@@ -340,9 +349,7 @@ export const RoomDetailView: React.FC<RoomDetailViewProps> = ({
   };
 
   const handleTabChange = (tab: RoomTabType) => {
-    if (currentUser.role === 'TECHNICIAN' && tab !== 'maintenance') return;
-    if (currentUser.role === 'HOUSEKEEPING' && tab !== 'cleaning') return;
-    if (currentUser.role === 'WAREHOUSE_MANAGER' && tab !== 'inventory') return;
+    if (!allowedTabs.includes(tab)) return;
     setActiveTab(tab);
     localStorage.setItem('staff_app_room_detail_tab', tab);
   };
@@ -729,7 +736,7 @@ export const RoomDetailView: React.FC<RoomDetailViewProps> = ({
       {/* Tabs Navigation Bar */}
       <div className="bg-white border border-slate-300 rounded-3xl p-1.5 shadow-sm no-print">
         <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar">
-          {currentUser.role !== 'TECHNICIAN' && currentUser.role !== 'HOUSEKEEPING' && currentUser.role !== 'WAREHOUSE_MANAGER' && (
+          {canViewOverview && (
             <button
               onClick={() => handleTabChange('overview')}
               className={`px-4 py-2.5 rounded-2xl text-xs font-extrabold flex items-center gap-2 transition-all cursor-pointer whitespace-nowrap ${
@@ -743,7 +750,7 @@ export const RoomDetailView: React.FC<RoomDetailViewProps> = ({
             </button>
           )}
 
-          <button
+          {canViewInventory && <button
             onClick={() => handleTabChange('inventory')}
             className={`px-4 py-2.5 rounded-2xl text-xs font-extrabold flex items-center gap-2 transition-all cursor-pointer whitespace-nowrap ${
               activeTab === 'inventory'
@@ -753,9 +760,9 @@ export const RoomDetailView: React.FC<RoomDetailViewProps> = ({
           >
             <Package className="w-4 h-4" />
             <span>Oda Zimmetleri & Ekipmanlar ({totalEquipmentCount})</span>
-          </button>
+          </button>}
 
-          {currentUser.role !== 'HOUSEKEEPING' && currentUser.role !== 'WAREHOUSE_MANAGER' && (
+          {canViewMaintenance && (
             <button
               onClick={() => handleTabChange('maintenance')}
               className={`px-4 py-2.5 rounded-2xl text-xs font-extrabold flex items-center gap-2 transition-all cursor-pointer whitespace-nowrap ${
@@ -769,7 +776,7 @@ export const RoomDetailView: React.FC<RoomDetailViewProps> = ({
             </button>
           )}
 
-          {currentUser.role !== 'TECHNICIAN' && currentUser.role !== 'WAREHOUSE_MANAGER' && (
+          {canViewCleaning && (
             <button
               onClick={() => handleTabChange('cleaning')}
               className={`px-4 py-2.5 rounded-2xl text-xs font-extrabold flex items-center gap-2 transition-all cursor-pointer whitespace-nowrap ${
@@ -783,7 +790,7 @@ export const RoomDetailView: React.FC<RoomDetailViewProps> = ({
             </button>
           )}
 
-          {currentUser.role !== 'TECHNICIAN' && currentUser.role !== 'HOUSEKEEPING' && currentUser.role !== 'WAREHOUSE_MANAGER' && (
+          {canViewHistory && (
             <button
               onClick={() => handleTabChange('history')}
               className={`px-4 py-2.5 rounded-2xl text-xs font-extrabold flex items-center gap-2 transition-all cursor-pointer whitespace-nowrap ${

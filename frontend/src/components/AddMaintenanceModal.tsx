@@ -147,7 +147,7 @@ export const AddMaintenanceModal: React.FC<AddMaintenanceModalProps> = ({
 
   const filteredRooms = useMemo(() => {
     const query = roomSearch.toLocaleLowerCase('tr-TR').trim();
-    return rooms.filter((room) => !query || `${room.block.name} Oda ${room.roomNumber} ${room.floor}. Kat`.toLocaleLowerCase('tr-TR').includes(query)).slice(0, 20);
+    return rooms.filter((room) => !query || `${room.block.name} Oda ${room.roomNumber} ${room.floor}. Kat`.toLocaleLowerCase('tr-TR').includes(query));
   }, [rooms, roomSearch]);
 
   if (!isOpen) return null;

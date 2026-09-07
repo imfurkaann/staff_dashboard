@@ -67,16 +67,18 @@ function minimalBed(bed: Record<string, unknown>) {
 }
 
 export function scopeRoomData<T>(value: T, role?: string): T {
-  if (['ADMIN', 'HOUSING_MANAGER', 'HR_MANAGER'].includes(role || '')) return value;
+  if (['ADMIN', 'HOUSING_MANAGER'].includes(role || '')) return value;
   const isHousingStaff = role === 'HOUSING_STAFF';
-  const isHousekeeping = role === 'HOUSEKEEPING';
-  const isTechnical = role === 'TECHNICIAN' || role === 'TECHNICAL_MANAGER';
-  const isWarehouse = role === 'WAREHOUSE_MANAGER';
+  const isHumanResources = role === 'HR_MANAGER';
+  const mayViewInventory = hasPermission(role, permissions.ROOM_INVENTORY_MANAGE) || hasPermission(role, permissions.STOCK_VIEW);
+  const mayViewMaintenance = hasPermission(role, permissions.MAINTENANCE_VIEW);
+  const mayViewCleaning = hasPermission(role, permissions.CLEANING_MANAGE);
 
   const visit = (current: unknown, key?: string): unknown => {
     if (Array.isArray(current)) return current.map((item) => visit(item, key));
     if (!current || typeof current !== 'object' || current instanceof Date) return current;
     if (key === 'currentEmployee' || key === 'employee') {
+      if (isHumanResources) return current;
       if (!isHousingStaff) return null;
       return stripSensitiveFields(current);
     }
@@ -85,15 +87,15 @@ export function scopeRoomData<T>(value: T, role?: string): T {
     const result: Record<string, unknown> = {};
     for (const [childKey, childValue] of Object.entries(source)) {
       if (sensitiveEmployeeFields.has(childKey)) continue;
-      if (childKey === 'occupancies' && !isHousingStaff) { result[childKey] = []; continue; }
-      if (childKey === 'beds' && !isHousingStaff) {
+      if (childKey === 'occupancies' && !isHousingStaff && !isHumanResources) { result[childKey] = []; continue; }
+      if (childKey === 'beds' && !isHousingStaff && !isHumanResources) {
         result[childKey] = Array.isArray(childValue) ? childValue.map((bed) => minimalBed(bed as Record<string, unknown>)) : [];
         continue;
       }
-      if ((childKey === 'roomInventories' || childKey === 'inventories') && isHousekeeping) { result[childKey] = []; continue; }
-      if (childKey === 'maintenances' && (isHousekeeping || isWarehouse)) { result[childKey] = []; continue; }
+      if ((childKey === 'roomInventories' || childKey === 'inventories') && !mayViewInventory) { result[childKey] = []; continue; }
+      if (childKey === 'maintenances' && !mayViewMaintenance) { result[childKey] = []; continue; }
       if (retiredMaintenanceServiceFields.has(childKey)) continue;
-      if (childKey === 'cleaningLogs' && (isTechnical || isWarehouse || role === 'SECURITY')) { result[childKey] = []; continue; }
+      if (childKey === 'cleaningLogs' && !mayViewCleaning) { result[childKey] = []; continue; }
       result[childKey] = visit(childValue, childKey);
     }
     return result;

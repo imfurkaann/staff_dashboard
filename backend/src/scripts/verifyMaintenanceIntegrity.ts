@@ -27,7 +27,7 @@ async function main() {
       WHERE m."status" IN ('OPEN','IN_PROGRESS') AND i."returnedAt" IS NOT NULL
     UNION ALL
     SELECT 'missingInitialEvent', COUNT(*)::bigint FROM "MaintenanceLog" m
-      WHERE NOT EXISTS (SELECT 1 FROM "MaintenanceEvent" e WHERE e."maintenanceId" = m.id AND e.action = 'FAULT_REPORTED')
+      WHERE NOT EXISTS (SELECT 1 FROM "MaintenanceEvent" e WHERE e."maintenanceId" = m.id AND e.action IN ('FAULT_REPORTED', 'MIGRATED_INITIAL_RECORD'))
     UNION ALL
     SELECT 'activeHighRoomNotOutOfOrder', COUNT(*)::bigint FROM "MaintenanceLog" m
       JOIN "Room" r ON r.id = m."roomId"
@@ -47,6 +47,7 @@ async function main() {
   `;
 
   const result = Object.fromEntries(rows.map((row) => [row.issue, Number(row.count)]));
+  console.log(JSON.stringify({ checks: rows.length, result }));
   for (const count of Object.values(result)) assert.equal(count, 0);
   console.log(JSON.stringify({ success: true, checks: rows.length, result }));
   await prisma.$disconnect();

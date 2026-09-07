@@ -8,6 +8,10 @@ const router = Router();
 
 // Require authentication and ADMIN/HOUSING_MANAGER role for managing notification sending
 router.use(authenticateToken);
+router.use((_req, res, next) => {
+  res.setHeader('Cache-Control', 'private, no-store');
+  next();
+});
 
 // GET /api/notifications (List sent notifications history & statistics)
 router.get('/', authorizePermissions(permissions.NOTIFICATION_VIEW), NotificationController.getAllSent);

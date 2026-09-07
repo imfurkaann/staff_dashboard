@@ -422,17 +422,6 @@ export const EmployeeDetailView: React.FC<EmployeeDetailViewProps> = ({
   };
 
   // Visitor Records State
-  // Ziyaretçi API'si tamamlandığında bu state gerçek kayıtlardan beslenecek.
-  const [visitors, setVisitors] = useState<Array<{
-    id: string;
-    visitorName: string;
-    visitorTcNo: string;
-    relation: string;
-    entryDate: string;
-    exitDate: string | null;
-    status: string;
-    notes: string;
-  }>>([]);
   const [visitorRecords, setVisitorRecords] = useState<Visitor[]>([]);
   const [visitorRecordsLoading, setVisitorRecordsLoading] = useState(false);
   const [visitorRecordsError, setVisitorRecordsError] = useState<string | null>(null);
@@ -442,8 +431,8 @@ export const EmployeeDetailView: React.FC<EmployeeDetailViewProps> = ({
     setVisitorRecordsLoading(true);
     setVisitorRecordsError(null);
     try {
-      const result = await visitorApi.getVisitors({ hostEmployeeId: employee.id, pageSize: 100, sortBy: 'entryTime', sortOrder: 'desc' });
-      setVisitorRecords(result.items);
+      const records = await visitorApi.getAllVisitors({ hostEmployeeId: employee.id, sortBy: 'entryTime', sortOrder: 'desc' });
+      setVisitorRecords(records);
     } catch (error) {
       setVisitorRecordsError(error instanceof Error ? error.message : 'Ziyaretçi kayıtları yüklenemedi.');
     } finally {
@@ -456,7 +445,7 @@ export const EmployeeDetailView: React.FC<EmployeeDetailViewProps> = ({
   }, [employee.id, canViewVisitors]);
 
   // Edit Item State for Excel Tables, Complaints & Visitors
-  const [editingItem, setEditingItem] = useState<{ id: string; type: 'delivered' | 'personal' | 'returned' | 'complaint' | 'visitor'; itemName: string; serialNo?: string; content?: string; relation?: string } | null>(null);
+  const [editingItem, setEditingItem] = useState<{ id: string; type: 'delivered' | 'personal' | 'returned' | 'complaint'; itemName: string; serialNo?: string; content?: string } | null>(null);
 
   // Unreturned Item Modal State
   const [unreturnedModalItem, setUnreturnedModalItem] = useState<{ id: string; itemName: string } | null>(null);
@@ -511,20 +500,18 @@ export const EmployeeDetailView: React.FC<EmployeeDetailViewProps> = ({
     onConfirm: () => void;
   } | null>(null);
 
-  const handleDeleteItem = (id: string, type: 'delivered' | 'personal' | 'returned' | 'complaint' | 'visitor') => {
+  const handleDeleteItem = (id: string, type: 'delivered' | 'personal' | 'returned' | 'complaint') => {
     const itemName = type === 'delivered'
       ? deliveredInventories.find(i => i.id === id)?.itemName
       : type === 'personal'
         ? personalBelongings.find(p => p.id === id)?.itemName
         : type === 'returned'
           ? returnedInventories.find(r => r.id === id)?.itemName
-          : type === 'complaint'
-            ? complaints.find(c => c.id === id)?.title
-            : visitors.find(v => v.id === id)?.visitorName;
+          : complaints.find(c => c.id === id)?.title;
 
     setConfirmModal({
       isOpen: true,
-      title: type === 'visitor' ? 'Ziyaretçi Kaydını Silme Onayı' : type === 'complaint' ? 'Şikayet Kaydını Silme Onayı' : 'Kaydı Silme Onayı',
+      title: type === 'complaint' ? 'Şikayet Kaydını Silme Onayı' : 'Kaydı Silme Onayı',
       message: itemName
         ? `"${itemName}" kaydını silmek istediğinizden emin misiniz?`
         : 'Bu kaydı silmek istediğinizden emin misiniz?',
@@ -552,10 +539,8 @@ export const EmployeeDetailView: React.FC<EmployeeDetailViewProps> = ({
           setPersonalBelongings(personalBelongings.filter(p => p.id !== id));
         } else if (type === 'returned') {
           setReturnedInventories(returnedInventories.filter(r => r.id !== id));
-        } else if (type === 'complaint') {
+        } else {
           setComplaints(complaints.filter(c => c.id !== id));
-        } else if (type === 'visitor') {
-          setVisitors(visitors.filter(v => v.id !== id));
         }
         setConfirmModal(null);
       }
@@ -627,16 +612,8 @@ export const EmployeeDetailView: React.FC<EmployeeDetailViewProps> = ({
       setPersonalBelongings(personalBelongings.map(p => p.id === editingItem.id ? { ...p, itemName: editingItem.itemName, serialNo: editingItem.serialNo || p.serialNo } : p));
     } else if (editingItem.type === 'returned') {
       setReturnedInventories(returnedInventories.map(r => r.id === editingItem.id ? { ...r, itemName: editingItem.itemName } : r));
-    } else if (editingItem.type === 'complaint') {
+    } else {
       setComplaints(complaints.map(c => c.id === editingItem.id ? { ...c, title: editingItem.itemName, content: editingItem.content || c.content } : c));
-    } else if (editingItem.type === 'visitor') {
-      setVisitors(visitors.map(v => v.id === editingItem.id ? {
-        ...v,
-        visitorName: editingItem.itemName,
-        visitorTcNo: editingItem.serialNo || v.visitorTcNo,
-        relation: editingItem.relation || v.relation,
-        notes: editingItem.content || v.notes,
-      } : v));
     }
 
     setEditingItem(null);
@@ -812,67 +789,7 @@ export const EmployeeDetailView: React.FC<EmployeeDetailViewProps> = ({
             </div>
 
             <form onSubmit={handleSaveEdit} className="space-y-3.5 text-xs">
-              {editingItem.type === 'visitor' ? (
-                <>
-                  <div>
-                    <label className="block font-bold text-slate-800 mb-1">
-                      Ziyaretçi Adı Soyadı *
-                    </label>
-                    <input
-                      type="text"
-                      required
-                      value={editingItem.itemName}
-                      onChange={(e) => setEditingItem({ ...editingItem, itemName: e.target.value })}
-                      className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl font-semibold text-slate-900 outline-none"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block font-bold text-slate-800 mb-1">
-                      TC Kimlik No
-                    </label>
-                    <input
-                      type="text"
-                      maxLength={11}
-                      value={editingItem.serialNo || ''}
-                      onChange={(e) => setEditingItem({ ...editingItem, serialNo: e.target.value })}
-                      className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl font-semibold text-slate-900 outline-none"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block font-bold text-slate-800 mb-1">
-                      Yakınlık / İlişkisi *
-                    </label>
-                    <select
-                      value={editingItem.relation || 'Kardeşi'}
-                      onChange={(e) => setEditingItem({ ...editingItem, relation: e.target.value })}
-                      className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl font-bold text-slate-900 outline-none cursor-pointer"
-                    >
-                      <option value="Kardeşi">Kardeşi</option>
-                      <option value="Babası">Babası</option>
-                      <option value="Annesi">Annesi</option>
-                      <option value="Eşi">Eşi</option>
-                      <option value="Çocuğu">Çocuğu</option>
-                      <option value="Arkadaşı">Arkadaşı</option>
-                      <option value="Akrabası">Akrabası</option>
-                      <option value="Diğer">Diğer</option>
-                    </select>
-                  </div>
-
-                  <div>
-                    <label className="block font-bold text-slate-800 mb-1">
-                      Açıklama / Not
-                    </label>
-                    <textarea
-                      rows={2}
-                      value={editingItem.content || ''}
-                      onChange={(e) => setEditingItem({ ...editingItem, content: e.target.value })}
-                      className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl font-semibold text-slate-900 outline-none"
-                    />
-                  </div>
-                </>
-              ) : editingItem.type === 'complaint' ? (
+              {editingItem.type === 'complaint' ? (
                 <>
                   <div>
                     <label className="block font-extrabold text-slate-800 mb-1.5">

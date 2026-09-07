@@ -443,8 +443,8 @@ export const SharedAssetManagementView: React.FC = () => {
   useEffect(() => {
     const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Istanbul' }).format(new Date());
     let active = true;
-    sharedAssetApi.getLogs({ dateStart: today, dateEnd: today, page: 1, pageSize: 100 })
-      .then((result) => { if (active) setTodayLogs(result.items); })
+    sharedAssetApi.getAllLogs({ dateStart: today, dateEnd: today })
+      .then((items) => { if (active) setTodayLogs(items); })
       .catch((caught) => { if (active) setError(caught instanceof Error ? caught.message : 'Bugünün kullanım kayıtları yüklenemedi.'); });
     return () => { active = false; };
   }, [overview?.assets]);
@@ -452,8 +452,8 @@ export const SharedAssetManagementView: React.FC = () => {
   useEffect(() => {
     if (modal?.type !== 'detail') { setDetailLogs([]); return; }
     let active = true;
-    sharedAssetApi.getLogs({ assetId: modal.asset.id, page: 1, pageSize: 50 })
-      .then((result) => { if (active) setDetailLogs(result.items); })
+    sharedAssetApi.getAllLogs({ assetId: modal.asset.id })
+      .then((items) => { if (active) setDetailLogs(items); })
       .catch((caught) => { if (active) setError(caught instanceof Error ? caught.message : 'Eşya geçmişi yüklenemedi.'); });
     return () => { active = false; };
   }, [modal]);

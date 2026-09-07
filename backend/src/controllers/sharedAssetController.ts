@@ -96,7 +96,7 @@ export class SharedAssetController {
   public static async updateLog(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
     try {
       sharedAssetId(req.params.logId, 'İşlem kaydı kimliği');
-      const updated = await SharedAssetService.updateLog(req.params.logId, req.body);
+      const updated = await SharedAssetService.updateLog(req.params.logId, sharedAssetBody(req.body));
       res.json({ success: true, message: 'İşlem kaydı güncellendi.', data: updated });
     } catch (error) { next(error); }
   }

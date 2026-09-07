@@ -6,7 +6,6 @@ import {
   FileText, FileSpreadsheet, BarChart3, LayoutGrid, List, ShieldCheck
 } from 'lucide-react';
 import { AssignmentStatus, MovementType, RoomAssignment, StockDetailExportSection, StockItem, StockMovement, StockMovementList, StockOverview, stockApi } from '../api/stockApi';
-import { employeeApi } from '../api/employeeApi';
 import { User } from '../api/authApi';
 import { can } from '../security/accessControl';
 import { generateUUID } from '../utils/cryptoHelpers';
@@ -340,7 +339,7 @@ const SearchableRoomSelect: React.FC<{
 const SearchableEmployeeSelect: React.FC<{
   value: string;
   onChange: (empId: string) => void;
-  employees: Array<{ id: string; firstName: string; lastName: string; registrationNo?: string; department: string }>;
+  employees: Array<{ id: string; firstName: string; lastName: string; registrationNo?: string | null; department: string }>;
 }> = ({ value, onChange, employees }) => {
   const [open, setOpen] = useState(false);
   const selectedEmp = employees.find((e) => e.id === value);
@@ -444,7 +443,7 @@ export const WarehouseManagementView: React.FC<{ currentUser: User }> = ({ curre
   const [stockFilter, setStockFilter] = useState('ALL');
   const [tab, setTabState] = useState<MainTab>(() => {
     const requested = new URLSearchParams(window.location.search).get('warehouseTab') as MainTab | null;
-    return requested && warehouseTabs.includes(requested) ? requested : 'quick';
+    return requested && warehouseTabs.includes(requested) && (requested !== 'personnel' || canManageStock) ? requested : 'quick';
   });
   const [modal, setModal] = useState<ModalState>(null);
   const operationKeyRef = useRef('');
@@ -488,7 +487,7 @@ export const WarehouseManagementView: React.FC<{ currentUser: User }> = ({ curre
     isActive: true,
   });
 
-  const [employeesList, setEmployeesList] = useState<Array<{ id: string; firstName: string; lastName: string; registrationNo?: string; department: string }>>([]);
+  const [employeesList, setEmployeesList] = useState<Array<{ id: string; firstName: string; lastName: string; registrationNo?: string | null; department: string }>>([]);
   const [receiveForm, setReceiveForm] = useState({ quantity: 1, reason: 'DEPO GİRİŞİ', notes: '' });
   const [countForm, setCountForm] = useState({ countedAvailable: 0, notes: '' });
   const [assignForm, setAssignForm] = useState({ targetType: 'ROOM' as 'ROOM' | 'EMPLOYEE', stockItemId: '', roomId: '', employeeId: '', quantity: 1, brand: '', notes: '' });
@@ -592,7 +591,7 @@ export const WarehouseManagementView: React.FC<{ currentUser: User }> = ({ curre
     const applyLocation = () => {
       const params = new URLSearchParams(window.location.search);
       const requestedTab = params.get('warehouseTab') as MainTab | null;
-      const nextTab = requestedTab && warehouseTabs.includes(requestedTab) ? requestedTab : 'quick';
+      const nextTab = requestedTab && warehouseTabs.includes(requestedTab) && (requestedTab !== 'personnel' || canManageStock) ? requestedTab : 'quick';
       const requestedSection = params.get('stockSection') as PassportSection | null;
       const nextSection = requestedSection && passportSections.includes(requestedSection) ? requestedSection : 'overview';
       const itemId = params.get('stockItemId');
@@ -640,8 +639,8 @@ export const WarehouseManagementView: React.FC<{ currentUser: User }> = ({ curre
       roomType: passportModal.roomStandard?.roomType || 'PERSONEL_ODASI',
     });
     setDetailMovementsLoading(true);
-    stockApi.getMovements({ stockItemId: passportModal.id, page: 1, pageSize: 100 })
-      .then((result) => setDetailMovements(result.items))
+    stockApi.getAllMovements({ stockItemId: passportModal.id })
+      .then(setDetailMovements)
       .catch((caught) => setError(caught instanceof Error ? caught.message : 'Ürün geçmişi yüklenemedi.'))
       .finally(() => setDetailMovementsLoading(false));
   }, [passportModal?.id]);
@@ -649,8 +648,8 @@ export const WarehouseManagementView: React.FC<{ currentUser: User }> = ({ curre
   useEffect(() => {
     if (!selectedRoomAssignmentId) { setDeviceMovements([]); return; }
     setDeviceMovementsLoading(true);
-    stockApi.getMovements({ roomInventoryId: selectedRoomAssignmentId, page: 1, pageSize: 100 })
-      .then((result) => setDeviceMovements(result.items))
+    stockApi.getAllMovements({ roomInventoryId: selectedRoomAssignmentId })
+      .then(setDeviceMovements)
       .catch((caught) => setError(caught instanceof Error ? caught.message : 'Cihaz hareket geçmişi yüklenemedi.'))
       .finally(() => setDeviceMovementsLoading(false));
   }, [selectedRoomAssignmentId]);
@@ -737,7 +736,7 @@ export const WarehouseManagementView: React.FC<{ currentUser: User }> = ({ curre
   const openAssign = (item?: StockItem) => {
     operationKeyRef.current = generateUUID();
     if (employeesList.length === 0) {
-      employeeApi.getEmployees('', 'RESIDENT').then((res) => setEmployeesList(res)).catch(() => {});
+      stockApi.getPersonnelOptions().then((res) => setEmployeesList(res)).catch((caught) => setError(caught instanceof Error ? caught.message : 'Personel seçenekleri yüklenemedi.'));
     }
     setAssignForm({ targetType: 'ROOM', stockItemId: item?.id || '', roomId: '', employeeId: '', quantity: 1, brand: '', notes: '' });
     setModal({ type: 'assign', item });
@@ -1247,7 +1246,7 @@ export const WarehouseManagementView: React.FC<{ currentUser: User }> = ({ curre
             ['rooms', 'Aktif Oda Zimmetleri', `${assignments.length}`, Building2],
             ['personnel', 'Aktif Personel Zimmetleri', `${personnelAssignments.length}`, ClipboardCheck],
             ['movements', 'İşlem Geçmişi & Loglar', `${movementResult.pagination.total}`, History],
-          ] as Array<[MainTab, string, string, React.ElementType]>).map(([value, label, count, Icon]) => (
+          ] as Array<[MainTab, string, string, React.ElementType]>).filter(([value]) => value !== 'personnel' || canManageStock).map(([value, label, count, Icon]) => (
             <button
               key={String(value)}
               onClick={() => navigateWarehouseTab(value)}
@@ -1508,7 +1507,7 @@ export const WarehouseManagementView: React.FC<{ currentUser: User }> = ({ curre
         )}
 
         {/* TAB 3: PERSONNEL INVENTORY */}
-        {tab === 'personnel' && (
+        {canManageStock && tab === 'personnel' && (
           <div className="w-full overflow-x-auto">
             <table className="w-full border-collapse text-left text-xs">
               <thead>
@@ -1753,17 +1752,13 @@ export const WarehouseManagementView: React.FC<{ currentUser: User }> = ({ curre
             e.preventDefault();
             const itemId = assignForm.stockItemId || modal.item?.id;
             if (!itemId) return;
-            const selectedItem = (overview?.items || []).find((i) => i.id === itemId);
-
             if (assignForm.targetType === 'EMPLOYEE') {
               if (!assignForm.employeeId) return;
               runAction(
-                () => employeeApi.addInventoryItem(assignForm.employeeId, {
-                  stockItemId: itemId,
-                  itemName: selectedItem?.itemName || 'Zimmet Malzemesi',
-                  category: 'LOJMAN_ZİMMETİ',
+                () => stockApi.assignPersonnel(itemId, {
+                  employeeId: assignForm.employeeId,
                   notes: assignForm.notes || undefined,
-                }),
+                }, operationKeyRef.current),
                 'Personele zimmet verildi.'
               );
             } else {
@@ -1796,7 +1791,7 @@ export const WarehouseManagementView: React.FC<{ currentUser: User }> = ({ curre
                   type="button"
                   onClick={() => {
                     if (employeesList.length === 0) {
-                      employeeApi.getEmployees('', 'RESIDENT').then((res) => setEmployeesList(res)).catch(() => {});
+                      stockApi.getPersonnelOptions().then((res) => setEmployeesList(res)).catch((caught) => setError(caught instanceof Error ? caught.message : 'Personel seçenekleri yüklenemedi.'));
                     }
                     setAssignForm({ ...assignForm, targetType: 'EMPLOYEE' });
                   }}

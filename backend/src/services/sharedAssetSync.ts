@@ -116,7 +116,11 @@ export async function syncSharedAssetReturn(
       locationNote: 'ANA DEPO',
     },
   });
-  await tx.stockItem.update({ where: { id: stockItemId }, data: { physicalStatus: targetStatus === 'RETIRED' ? 'HURDA' : 'KULLANILABİLİR' } });
+  const stock = await tx.stockItem.findUnique({ where: { id: stockItemId }, select: { totalStock: true } });
+  await tx.stockItem.update({
+    where: { id: stockItemId },
+    data: { physicalStatus: targetStatus === 'RETIRED' && stock?.totalStock === 0 ? 'HURDA' : 'KULLANILABİLİR' },
+  });
   await tx.sharedAssetLog.create({ data: {
     requestKey: requestKey || null, assetId: asset.id, action: 'CHECK_IN', assetCodeSnapshot: asset.assetCode,
     assetNameSnapshot: asset.assetName, holderType: asset.currentHolderType, statusFrom: asset.status, statusTo: targetStatus,
@@ -130,15 +134,7 @@ export async function syncSharedAssetRoomTransfer(
   tx: Prisma.TransactionClient, stockItemId: string, roomInventoryId: string, roomId: string,
   notes: string, actorId?: string, requestKey?: string,
 ): Promise<string | null> {
-  const asset = await tx.sharedAsset.findFirst({
-    where: {
-      stockItemId,
-      OR: [
-        { currentRoomInventoryId: roomInventoryId },
-        { status: 'AVAILABLE' },
-      ],
-    },
-  });
+  const asset = await tx.sharedAsset.findFirst({ where: { stockItemId, currentRoomInventoryId: roomInventoryId } });
   if (!asset) return null;
   const room = await tx.room.findUnique({ where: { id: roomId }, include: { block: true } });
   if (!room) throw new AppError('Hedef oda bulunamadı.', 404);
@@ -159,10 +155,10 @@ export async function syncSharedAssetRoomTransfer(
 }
 
 export async function syncSharedAssetIdentity(
-  tx: Prisma.TransactionClient, stockItemId: string, serialNo: string | null, brandModel: string | null,
+  tx: Prisma.TransactionClient, stockItemId: string, roomInventoryId: string, serialNo: string | null, brandModel: string | null,
   notes: string, actorId?: string,
 ): Promise<string | null> {
-  const asset = await tx.sharedAsset.findFirst({ where: { stockItemId } });
+  const asset = await tx.sharedAsset.findFirst({ where: { stockItemId, currentRoomInventoryId: roomInventoryId } });
   if (!asset) return null;
   await tx.sharedAsset.update({ where: { id: asset.id }, data: { serialNo, brandModel } });
   await tx.sharedAssetLog.create({ data: {
@@ -176,7 +172,7 @@ export async function syncSharedAssetReplacement(
   tx: Prisma.TransactionClient, stockItemId: string, oldRoomInventoryId: string, newRoomInventoryId: string,
   serialNo: string | null, brandModel: string | null, notes: string, actorId?: string, requestKey?: string,
 ): Promise<string | null> {
-  const asset = await tx.sharedAsset.findFirst({ where: { stockItemId } });
+  const asset = await tx.sharedAsset.findFirst({ where: { stockItemId, currentRoomInventoryId: oldRoomInventoryId } });
   if (!asset) return null;
   if (asset.status !== 'LOANED' || asset.currentRoomInventoryId !== oldRoomInventoryId) throw new AppError('Bağlı ortak eşya cihaz değişimiyle uyuşmuyor.', 409);
   const changed = await tx.sharedAsset.updateMany({ where: { id: asset.id, updatedAt: asset.updatedAt }, data: {

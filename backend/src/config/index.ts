@@ -43,10 +43,8 @@ export const config = {
   },
   stock: {
     exportMaxRows: Math.min(Math.max(parseInt(process.env.STOCK_EXPORT_MAX_ROWS || '10000', 10) || 10000, 100), 50000),
-    overviewMaxItems: Math.min(Math.max(parseInt(process.env.STOCK_OVERVIEW_MAX_ITEMS || '5000', 10) || 5000, 100), 20000),
   },
   employee: {
-    listMaxRows: Math.min(Math.max(parseInt(process.env.EMPLOYEE_LIST_MAX_ROWS || '5000', 10) || 5000, 100), 20000),
     exportMaxRows: Math.min(Math.max(parseInt(process.env.EMPLOYEE_EXPORT_MAX_ROWS || '10000', 10) || 10000, 100), 50000),
   },
   security: {

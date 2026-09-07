@@ -36,7 +36,7 @@ export const App: React.FC = () => {
     const params = new URLSearchParams(window.location.search);
     const urlTab = params.get('tab');
     const savedTab = localStorage.getItem('staff_app_active_tab');
-    const validTabs = ['employees', 'rooms', 'visitors', 'tickets', 'issues', 'maintenance', 'notifications', 'warehouse', 'shared-assets', 'users', 'inventory', 'kbs'];
+    const validTabs = ['employees', 'rooms', 'visitors', 'tickets', 'issues', 'maintenance', 'notifications', 'warehouse', 'shared-assets', 'users'];
     if (urlTab && validTabs.includes(urlTab)) return urlTab;
     if (savedTab && validTabs.includes(savedTab)) return savedTab;
     return 'dashboard';
@@ -107,7 +107,7 @@ export const App: React.FC = () => {
       } else {
         const searchParams = new URLSearchParams(window.location.search);
         const urlTab = searchParams.get('tab');
-        const validTabs = ['employees', 'rooms', 'visitors', 'tickets', 'issues', 'maintenance', 'notifications', 'warehouse', 'shared-assets', 'users', 'inventory', 'kbs'];
+        const validTabs = ['employees', 'rooms', 'visitors', 'tickets', 'issues', 'maintenance', 'notifications', 'warehouse', 'shared-assets', 'users'];
         if (urlTab && validTabs.includes(urlTab)) {
           targetTab = urlTab;
         }
@@ -229,23 +229,6 @@ export const App: React.FC = () => {
 
         {permittedTab === 'users' && <UserManagementView currentUserId={currentUser.id} onNavigateToEmployee={(employeeId) => handleTabChange('employees', employeeId)} onOwnPasswordChanged={() => setCurrentUser(null)} />}
 
-        {permittedTab === 'inventory' && (
-          <div className="bg-white border border-slate-300 rounded-3xl p-8 shadow-sm">
-            <h2 className="text-xl font-bold text-slate-900">Zimmet & Envanter Modülü</h2>
-            <p className="text-xs text-slate-600 mt-1 font-semibold">
-              Oda ve yatak zimmetleri teslim kayıtları.
-            </p>
-          </div>
-        )}
-
-        {permittedTab === 'kbs' && (
-          <div className="bg-white border border-slate-300 rounded-3xl p-8 shadow-sm">
-            <h2 className="text-xl font-bold text-slate-900">Emniyet KBS Modülü</h2>
-            <p className="text-xs text-slate-600 mt-1 font-semibold">
-              Kimlik Bildirim Sistemi CSV/Excel toplu veri alımı.
-            </p>
-          </div>
-        )}
         </Suspense>
       </div>
     </div>

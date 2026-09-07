@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   AlertTriangle, Check, CheckCircle2, Clock, Filter, MessageSquareWarning,
   RefreshCw, Search, X, User, ArrowRight, CornerDownRight, MessageSquare, Edit3
@@ -40,7 +40,7 @@ interface SupportTicketManagementViewProps {
 }
 
 export const SupportTicketManagementView: React.FC<SupportTicketManagementViewProps> = ({ currentUser }) => {
-  const canManage = currentUser ? can(currentUser.role, 'TICKET_MANAGE') : true;
+  const canManage = Boolean(currentUser && can(currentUser.role, 'TICKET_MANAGE'));
 
   const [tickets, setTickets] = useState<SupportTicket[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
@@ -50,6 +50,8 @@ export const SupportTicketManagementView: React.FC<SupportTicketManagementViewPr
   const [statusFilter, setStatusFilter] = useState<string>('ALL');
   const [categoryFilter, setCategoryFilter] = useState<string>('ALL');
   const [search, setSearch] = useState<string>('');
+  const searchRef = useRef(search);
+  searchRef.current = search;
 
   // Selected Ticket Modal
   const [selectedTicket, setSelectedTicket] = useState<SupportTicket | null>(null);
@@ -59,14 +61,14 @@ export const SupportTicketManagementView: React.FC<SupportTicketManagementViewPr
   const [updateStatus, setUpdateStatus] = useState<SupportTicketStatus>('OPEN');
   const [updateNote, setUpdateNote] = useState<string>('');
 
-  const loadData = async () => {
+  const loadData = async (searchValue = search) => {
     try {
       setLoading(true);
       setError(null);
       const res = await ticketApi.getTickets({
         status: statusFilter,
         category: categoryFilter,
-        search,
+        search: searchValue,
       });
       setTickets(res.tickets || []);
     } catch (err: any) {
@@ -82,12 +84,8 @@ export const SupportTicketManagementView: React.FC<SupportTicketManagementViewPr
     const cleanupSocket = connectTicketSocket((event) => {
       if (event.type === 'TICKET_CREATED') {
         playChimeSound();
-        setTickets((prev) => [event.data, ...prev.filter((t) => t.id !== event.data.id)]);
-      } else if (event.type === 'TICKET_UPDATED') {
-        setTickets((prev) =>
-          prev.map((t) => (t.id === event.data.id ? { ...t, ...event.data } : t))
-        );
       }
+      if (event.type === 'TICKET_CREATED' || event.type === 'TICKET_UPDATED') void loadData(searchRef.current);
     });
 
     return () => {
@@ -176,7 +174,7 @@ export const SupportTicketManagementView: React.FC<SupportTicketManagementViewPr
         </div>
 
         <div className="flex items-center gap-2">
-          <button type="button" onClick={loadData} disabled={loading} className="p-2.5 rounded-xl border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 transition cursor-pointer" title="Listeyi Yenile">
+          <button type="button" onClick={() => void loadData()} disabled={loading} className="p-2.5 rounded-xl border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 transition cursor-pointer" title="Listeyi Yenile">
             <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
           </button>
         </div>

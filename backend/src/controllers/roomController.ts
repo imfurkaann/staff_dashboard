@@ -94,7 +94,7 @@ export const roomController = {
   updateStatus: async (req: Request, res: Response, next: NextFunction) => {
     try {
       const { id } = req.params;
-      const { status, cleanedBy, notes } = req.body;
+      const { status, cleanedBy, notes } = requestBody(req.body);
 
       if (!isUuid(id)) return res.status(400).json({ success: false, message: 'Geçersiz oda kimliği.' });
       if (!status || !Object.values(RoomStatus).includes(status)) {
@@ -125,7 +125,7 @@ export const roomController = {
 
   createRoom: async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const { blockId, floor, roomNumber, capacity, roomType } = req.body;
+      const { blockId, floor, roomNumber, capacity, roomType } = requestBody(req.body);
 
       if (!blockId || floor === undefined || !roomNumber) {
         return res.status(400).json({
@@ -157,7 +157,7 @@ export const roomController = {
 
   createBlock: async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const { name, genderPolicy } = req.body;
+      const { name, genderPolicy } = requestBody(req.body);
 
       if (!name) {
         return res.status(400).json({
@@ -305,7 +305,7 @@ export const roomController = {
   createCleaningLog: async (req: Request, res: Response, next: NextFunction) => {
     try {
       const { id } = req.params;
-      const { notes, status, requestedBy, cleanedBy } = req.body;
+      const { notes, status, requestedBy, cleanedBy } = requestBody(req.body);
       if (!isUuid(id)) return res.status(400).json({ success: false, message: 'Geçersiz oda kimliği.' });
 
       const authReq = req as AuthenticatedRequest;
@@ -326,7 +326,7 @@ export const roomController = {
   updateCleaningLog: async (req: Request, res: Response, next: NextFunction) => {
     try {
       const { cleaningId } = req.params;
-      const { status, notes, requestedBy, cleanedBy } = req.body;
+      const { status, notes, requestedBy, cleanedBy } = requestBody(req.body);
       if (!isUuid(cleaningId)) return res.status(400).json({ success: false, message: 'Geçersiz temizlik kaydı kimliği.' });
 
       const authReq = req as AuthenticatedRequest;
@@ -393,7 +393,7 @@ export const roomController = {
   updateRoom: async (req: Request, res: Response, next: NextFunction) => {
     try {
       const { id } = req.params;
-      const { roomNumber, floor, capacity, roomType, status } = req.body;
+      const { roomNumber, floor, capacity, roomType, status } = requestBody(req.body);
       if (!isUuid(id)) return res.status(400).json({ success: false, message: 'Geçersiz oda kimliği.' });
       if (status !== undefined) throw new AppError('Oda durumu yalnızca oda durum işlemi üzerinden değiştirilebilir.', 400);
 
@@ -425,7 +425,7 @@ export const roomController = {
   createRoomInventory: async (req: Request, res: Response, next: NextFunction) => {
     try {
        const { id } = req.params;
-      const { itemName, stockItemId, brand, quantity, status } = req.body;
+      const { itemName, stockItemId, brand, quantity, status } = requestBody(req.body);
       if (!isUuid(id)) return res.status(400).json({ success: false, message: 'Geçersiz oda kimliği.' });
 
       if (!isUuid(stockItemId)) return res.status(400).json({ success: false, message: 'Geçerli bir depo stok kartı seçilmelidir.' });

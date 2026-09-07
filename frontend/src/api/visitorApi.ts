@@ -72,6 +72,21 @@ export interface VisitorListResult {
 
 const api = axios.create({ baseURL: `${appConfig.apiBaseUrl}/visitors`, withCredentials: true });
 
+const getVisitors = async (query: VisitorQuery = {}): Promise<VisitorListResult> => {
+  const response = await api.get<{ success: boolean; data: Visitor[]; pagination: VisitorListResult['pagination']; summary: VisitorListResult['summary'] }>('/', { params: query });
+  return { items: response.data.data, pagination: response.data.pagination, summary: response.data.summary };
+};
+
+const getAllVisitors = async (query: Omit<VisitorQuery, 'page' | 'pageSize'> = {}): Promise<Visitor[]> => {
+  const first = await getVisitors({ ...query, page: 1, pageSize: 100 });
+  const items = [...first.items];
+  for (let page = 2; page <= first.pagination.totalPages; page += 1) {
+    const next = await getVisitors({ ...query, page, pageSize: 100 });
+    items.push(...next.items);
+  }
+  return items;
+};
+
 function messageFrom(error: unknown, fallback: string): string {
   if (axios.isAxiosError(error) && typeof error.response?.data?.message === 'string') return error.response.data.message;
   return fallback;
@@ -93,10 +108,8 @@ async function extractBlobErrorMessage(error: unknown, fallback: string): Promis
 }
 
 export const visitorApi = {
-  getVisitors: async (query: VisitorQuery = {}): Promise<VisitorListResult> => {
-    const response = await api.get<{ success: boolean; data: Visitor[]; pagination: VisitorListResult['pagination']; summary: VisitorListResult['summary'] }>('/', { params: query });
-    return { items: response.data.data, pagination: response.data.pagination, summary: response.data.summary };
-  },
+  getVisitors,
+  getAllVisitors,
   getVisitorById: async (id: string): Promise<Visitor> => (await api.get<{ data: Visitor }>(`/${id}`)).data.data,
   getHostCandidates: async (): Promise<VisitorHostCandidate[]> => {
     return (await api.get<{ data: VisitorHostCandidate[] }>('/host-candidates')).data.data;

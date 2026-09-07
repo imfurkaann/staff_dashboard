@@ -6,13 +6,14 @@ type CountRow = { issue: string; count: bigint };
 async function main() {
   const rows = await prisma.$queryRaw<CountRow[]>`
     SELECT 'unlinkedCommonStock' AS issue, COUNT(*)::bigint AS count FROM "StockItem" s
-      WHERE s."itemType" IN ('ORTAK_EKİPMAN','ORTAK_KULLANIM') AND NOT EXISTS (SELECT 1 FROM "SharedAsset" a WHERE a."stockItemId" = s.id)
+      WHERE s."itemType" IN ('ORTAK_EŞYA','ORTAK_EKİPMAN','ORTAK_KULLANIM') AND s."totalStock" > 0
+        AND NOT EXISTS (SELECT 1 FROM "SharedAsset" a WHERE a."stockItemId" = s.id AND a.status <> 'RETIRED')
     UNION ALL
     SELECT 'unlinkedSharedAsset', COUNT(*)::bigint FROM "SharedAsset" WHERE "stockItemId" IS NULL
     UNION ALL
     SELECT 'holderStateMismatch', COUNT(*)::bigint FROM "SharedAsset" WHERE NOT (
       (status = 'LOANED' AND "borrowedAt" IS NOT NULL AND (
-        ("currentHolderType" = 'EMPLOYEE' AND "currentEmployeeId" IS NOT NULL AND "currentRoomId" IS NULL AND "currentPersonnelInventoryId" IS NOT NULL AND "currentRoomInventoryId" IS NULL)
+        ("currentHolderType" = 'EMPLOYEE' AND "currentEmployeeId" IS NOT NULL AND "currentRoomId" IS NULL AND "currentRoomInventoryId" IS NULL)
         OR ("currentHolderType" = 'ROOM' AND "currentRoomId" IS NOT NULL AND "currentEmployeeId" IS NULL AND "currentRoomInventoryId" IS NOT NULL AND "currentPersonnelInventoryId" IS NULL)
         OR ("currentHolderType" = 'OTHER' AND "currentEmployeeId" IS NULL AND "currentRoomId" IS NULL AND "currentPersonnelInventoryId" IS NULL AND "currentRoomInventoryId" IS NULL)
       )) OR (status <> 'LOANED' AND "currentHolderType" IS NULL AND "currentEmployeeId" IS NULL AND "currentRoomId" IS NULL AND "currentPersonnelInventoryId" IS NULL AND "currentRoomInventoryId" IS NULL AND "borrowedAt" IS NULL AND "expectedReturnDate" IS NULL)
@@ -30,8 +31,9 @@ async function main() {
       (a.status='LOANED' AND NOT EXISTS (SELECT 1 FROM "SharedAssetLog" l WHERE l."assetId"=a.id AND l.action='CHECK_OUT' AND l."returnedAt" IS NULL))
       OR (a.status<>'LOANED' AND EXISTS (SELECT 1 FROM "SharedAssetLog" l WHERE l."assetId"=a.id AND l.action='CHECK_OUT' AND l."returnedAt" IS NULL))
     UNION ALL
-    SELECT 'stockPhysicalStatusMismatch', COUNT(*)::bigint FROM "SharedAsset" a JOIN "StockItem" s ON s.id=a."stockItemId" WHERE s."physicalStatus" <> CASE
-      WHEN a.status='LOANED' THEN 'KULLANIMDA' WHEN a.status='MAINTENANCE' THEN 'BAKIMDA' WHEN a.status='RETIRED' THEN 'HURDA' ELSE 'KULLANILABİLİR' END
+    SELECT 'stockPhysicalStatusMismatch', COUNT(*)::bigint FROM "StockItem" s
+      WHERE EXISTS (SELECT 1 FROM "SharedAsset" a WHERE a."stockItemId" = s.id)
+        AND ((s."totalStock" = 0 AND s."physicalStatus" <> 'HURDA') OR (s."totalStock" > 0 AND s."physicalStatus" = 'HURDA'))
     UNION ALL
     SELECT 'movementAssetStockMismatch', COUNT(*)::bigint FROM "StockMovement" m JOIN "SharedAsset" a ON a.id=m."sharedAssetId" WHERE a."stockItemId" <> m."stockItemId"
     UNION ALL
@@ -39,7 +41,10 @@ async function main() {
     UNION ALL
     SELECT 'blankLogSnapshot', COUNT(*)::bigint FROM "SharedAssetLog" WHERE LENGTH(BTRIM("assetCodeSnapshot"))=0 OR LENGTH(BTRIM("assetNameSnapshot"))=0
     UNION ALL
-    SELECT 'retiredWithPositiveStock', COUNT(*)::bigint FROM "SharedAsset" a JOIN "StockItem" s ON s.id=a."stockItemId" WHERE a.status='RETIRED' AND s."totalStock">0
+    SELECT 'activeAssetExceedsStock', COUNT(*)::bigint FROM (
+      SELECT a."stockItemId" FROM "SharedAsset" a JOIN "StockItem" s ON s.id = a."stockItemId"
+      WHERE a.status <> 'RETIRED' GROUP BY a."stockItemId", s."totalStock" HAVING COUNT(*) > s."totalStock"
+    ) excessive
     UNION ALL
     SELECT 'temporaryVerificationRows', COUNT(*)::bigint FROM "SharedAsset" WHERE "assetName" LIKE 'ZZ ORTAK EŞYA DOĞRULAMA%'
   `;

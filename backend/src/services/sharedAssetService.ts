@@ -36,7 +36,6 @@ const assetInclude = {
     },
   },
   currentRoom: { select: { id: true, roomNumber: true, floor: true, roomType: true, block: { select: { name: true } } } },
-  logs: { orderBy: { createdAt: 'desc' as const }, take: 20, include: { createdBy: { select: { id: true, fullName: true } } } },
 };
 
 function dateOnly(value: unknown, label: string, endOfDay = true): Date | null {
@@ -87,11 +86,11 @@ export class SharedAssetService {
   public static async getOverview(canManage = false) {
     const [assets, employees, rooms] = await Promise.all([
       canManage
-        ? prisma.sharedAsset.findMany({ include: assetInclude, orderBy: [{ status: 'asc' }, { assetName: 'asc' }], take: 5000 })
+        ? prisma.sharedAsset.findMany({ include: assetInclude, orderBy: [{ status: 'asc' }, { assetName: 'asc' }] })
         : prisma.sharedAsset.findMany({ select: {
           id: true, assetCode: true, assetName: true, category: true, brandModel: true,
           status: true, createdAt: true, updatedAt: true,
-        }, orderBy: [{ status: 'asc' }, { assetName: 'asc' }], take: 5000 }),
+        }, orderBy: [{ status: 'asc' }, { assetName: 'asc' }] }),
       canManage ? prisma.employee.findMany({
         where: { isDeleted: false, status: 'RESIDENT' },
         select: { id: true, firstName: true, lastName: true, registrationNo: true, department: true },
@@ -400,7 +399,7 @@ export class SharedAssetService {
       if (!asset.stockItemId) throw new AppError('Ortak eşyanın bağlı stok kartı bulunamadı.', 409);
       if (data.status === 'RETIRED') {
         const retired = await tx.$executeRaw`
-          UPDATE "StockItem" SET "totalStock" = "totalStock" - 1, "physicalStatus" = 'HURDA', "updatedAt" = CURRENT_TIMESTAMP
+          UPDATE "StockItem" SET "totalStock" = "totalStock" - 1, "updatedAt" = CURRENT_TIMESTAMP
           WHERE id = ${asset.stockItemId} AND "totalStock" - "usedStock" - "usedInRooms" >= 1
         `;
         if (retired !== 1) throw new AppError('Hurda işlemi için depoda müsait ortak eşya stoğu bulunamadı.', 409);
@@ -414,6 +413,13 @@ export class SharedAssetService {
         status: data.status, ...(locationNote && { locationNote }), ...(notes && { notes }),
       } });
       if (changed.count !== 1) throw new AppError('Ortak eşya başka bir kullanıcı tarafından güncellendi.', 409);
+      if (data.status === 'RETIRED') {
+        const stock = await tx.stockItem.findUnique({ where: { id: asset.stockItemId }, select: { totalStock: true } });
+        await tx.stockItem.update({
+          where: { id: asset.stockItemId },
+          data: { physicalStatus: stock?.totalStock === 0 ? 'HURDA' : 'KULLANILABİLİR' },
+        });
+      }
       await tx.sharedAssetLog.create({ data: {
         requestKey: data.requestKey || null, assetId, action: 'STATUS_CHANGE', assetCodeSnapshot: asset.assetCode,
         assetNameSnapshot: asset.assetName, statusFrom: asset.status, statusTo: data.status,

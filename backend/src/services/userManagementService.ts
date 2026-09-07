@@ -44,7 +44,6 @@ const userSummarySelect = {
 const userDetailSelect = {
   ...userSummarySelect,
   userAuditHistory: {
-    take: 50,
     orderBy: { createdAt: 'desc' as const },
     select: {
       id: true,

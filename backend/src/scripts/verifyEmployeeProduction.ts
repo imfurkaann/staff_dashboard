@@ -84,9 +84,11 @@ async function main() {
       itemName: personnelStock.itemName, category: 'LOJMAN_ZİMMETİ', stockItemId: personnelStock.id,
       serialNo: serial, createdById: actor.id,
     });
-    await expectConflict(() => roomService.createRoomInventory(room.id, {
+    const roomAssignment = await roomService.createRoomInventory(room.id, {
       itemName: roomStock.itemName, stockItemId: roomStock.id, serialNo: serial, createdById: actor.id,
-    }));
+    });
+    assert.equal(roomAssignment.serialNo, null, 'Room assignments must ignore client-provided serial numbers and use generated asset tags.');
+    assert.ok(roomAssignment.assetTag, 'Room assignments must receive a unique generated asset tag.');
     await expectConflict(() => EmployeeService.checkoutEmployeeFromRoom(employee.id, actor.id));
     await EmployeeService.returnInventoryItem(assignment.id, actor.id, 'TAM_İADE_ALINDI', 'ÜRETİM DOĞRULAMA İADESİ');
     await EmployeeService.checkoutEmployeeFromRoom(employee.id, actor.id);
@@ -111,6 +113,11 @@ async function main() {
     if (generatedUserId) {
       await prisma.userAuditLog.deleteMany({ where: { targetUserId: generatedUserId } });
       await prisma.user.deleteMany({ where: { id: generatedUserId } });
+    }
+    if (stockItemIds.length) {
+      await prisma.stockMovement.deleteMany({ where: { stockItemId: { in: stockItemIds } } });
+      await prisma.roomInventory.deleteMany({ where: { stockItemId: { in: stockItemIds } } });
+      await prisma.inventoryItem.deleteMany({ where: { stockItemId: { in: stockItemIds } } });
     }
     if (roomId) await prisma.room.deleteMany({ where: { id: roomId } });
     if (blockId) await prisma.block.deleteMany({ where: { id: blockId } });

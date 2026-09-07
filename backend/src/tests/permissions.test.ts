@@ -8,6 +8,14 @@ test('technical roles can process faults without receiving user administration a
   assert.equal(hasPermission('TECHNICIAN', permissions.MAINTENANCE_UPDATE), true);
   assert.equal(hasPermission('TECHNICIAN', permissions.MAINTENANCE_FULL_UPDATE), false);
   assert.equal(hasPermission('TECHNICAL_MANAGER', permissions.USER_MANAGE), false);
+  assert.equal(hasPermission('TECHNICAL_MANAGER', permissions.STOCK_VIEW), true);
+  assert.equal(hasPermission('TECHNICAL_MANAGER', permissions.STOCK_MANAGE), false);
+});
+
+test('warehouse personnel workflows do not grant broad employee administration access', () => {
+  assert.equal(hasPermission('WAREHOUSE_MANAGER', permissions.STOCK_MANAGE), true);
+  assert.equal(hasPermission('WAREHOUSE_MANAGER', permissions.EMPLOYEE_VIEW), false);
+  assert.equal(hasPermission('WAREHOUSE_MANAGER', permissions.EMPLOYEE_MANAGE), false);
 });
 
 test('housekeeping is limited to rooms and cleaning operations', () => {
@@ -57,10 +65,37 @@ test('room scoping hides occupants from technical and housekeeping roles', () =>
   };
   const technician = scopeRoomData(room, 'TECHNICIAN');
   assert.deepEqual(technician.beds, [{ id: 'b1', bedLabel: 'A', isOccupied: true }]);
+  assert.deepEqual(technician.inventories, []);
   assert.deepEqual(technician.cleaningLogs, []);
   const housekeeping = scopeRoomData(room, 'HOUSEKEEPING');
   assert.deepEqual(housekeeping.maintenances, []);
   assert.deepEqual(housekeeping.inventories, []);
+});
+
+test('room detail relations follow the existing module permissions', () => {
+  const room = {
+    id: 'r1',
+    beds: [{ id: 'b1', bedLabel: 'A', isOccupied: true, currentEmployee: { id: 'e1', firstName: 'Ada', tcNo: '123' } }],
+    maintenances: [{ id: 'm1' }],
+    cleaningLogs: [{ id: 'c1' }],
+    inventories: [{ id: 'i1' }],
+  };
+  const warehouse = scopeRoomData(room, 'WAREHOUSE_MANAGER');
+  assert.deepEqual(warehouse.inventories, [{ id: 'i1' }]);
+  assert.deepEqual(warehouse.maintenances, [{ id: 'm1' }]);
+  assert.deepEqual(warehouse.cleaningLogs, []);
+
+  const humanResources = scopeRoomData(room, 'HR_MANAGER');
+  assert.equal(humanResources.beds[0].currentEmployee.tcNo, '123');
+  assert.deepEqual(humanResources.inventories, []);
+  assert.deepEqual(humanResources.maintenances, []);
+  assert.deepEqual(humanResources.cleaningLogs, []);
+
+  const security = scopeRoomData(room, 'SECURITY');
+  assert.deepEqual(security.beds, [{ id: 'b1', bedLabel: 'A', isOccupied: true }]);
+  assert.deepEqual(security.inventories, []);
+  assert.deepEqual(security.maintenances, [{ id: 'm1' }]);
+  assert.deepEqual(security.cleaningLogs, []);
 });
 
 test('retired maintenance service fields are hidden from every role', () => {
