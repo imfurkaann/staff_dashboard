@@ -11,6 +11,7 @@ router.get('/', authorizePermissions(permissions.STOCK_VIEW), stockController.ge
 router.get('/movements', authorizePermissions(permissions.STOCK_VIEW), stockController.getMovements);
 router.get('/next-code', authorizePermissions(permissions.STOCK_MANAGE), stockController.getNextItemCode);
 router.get('/export.xlsx', authorizePermissions(permissions.STOCK_MANAGE), stockController.exportExcel);
+router.get('/:id/export.xlsx', authorizePermissions(permissions.STOCK_MANAGE), stockController.exportDetailExcel);
 router.put('/:id/room-standard', authorizePermissions(permissions.STOCK_MANAGE), stockMutationRateLimiter, stockController.setRoomStandard);
 router.post('/', authorizePermissions(permissions.STOCK_MANAGE), stockMutationRateLimiter, stockController.createStockItem);
 router.put('/:id', authorizePermissions(permissions.STOCK_MANAGE), stockMutationRateLimiter, stockController.updateStockItem);

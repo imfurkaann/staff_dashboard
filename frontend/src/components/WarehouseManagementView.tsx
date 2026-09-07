@@ -3,14 +3,15 @@ import {
   AlertTriangle, ArrowDownToLine, ArrowRightLeft, Building2, Check, ChevronDown,
   ChevronRight, ClipboardCheck, Download, Edit3, Filter, History, MapPin, Package,
   Plus, RefreshCw, RotateCcw, Search, Send, X,
-  FileText, BarChart3, LayoutGrid, List, ShieldCheck
+  FileText, FileSpreadsheet, BarChart3, LayoutGrid, List, ShieldCheck
 } from 'lucide-react';
-import { AssignmentStatus, MovementType, RoomAssignment, StockItem, StockMovement, StockMovementList, StockOverview, stockApi } from '../api/stockApi';
+import { AssignmentStatus, MovementType, RoomAssignment, StockDetailExportSection, StockItem, StockMovement, StockMovementList, StockOverview, stockApi } from '../api/stockApi';
 import { employeeApi } from '../api/employeeApi';
 import { User } from '../api/authApi';
 import { can } from '../security/accessControl';
 import { generateUUID } from '../utils/cryptoHelpers';
 import { managementUrl } from '../utils/navigationUrl';
+import { StockDetailExportModal } from './StockDetailExportModal';
 
 type MainTab = 'quick' | 'stock' | 'rooms' | 'personnel' | 'movements';
 type PassportSection = 'overview' | 'rooms' | 'coverage' | 'faults' | 'movements';
@@ -461,6 +462,9 @@ export const WarehouseManagementView: React.FC<{ currentUser: User }> = ({ curre
   const [deviceMovementsLoading, setDeviceMovementsLoading] = useState(false);
   const passportReturnRef = useRef<{ itemId: string; section: PassportSection; tab: MainTab; roomInventoryId?: string } | null>(null);
   const [isExecutiveReportOpen, setIsExecutiveReportOpen] = useState(false);
+  const [exportTarget, setExportTarget] = useState<{ item: StockItem; assignment?: RoomAssignment } | null>(null);
+  const [detailExportLoading, setDetailExportLoading] = useState(false);
+  const [detailExportError, setDetailExportError] = useState('');
 
   const [movementType, setMovementType] = useState<MovementType | 'ALL'>('ALL');
   const [movementDateStart, setMovementDateStart] = useState('');
@@ -745,6 +749,32 @@ export const WarehouseManagementView: React.FC<{ currentUser: User }> = ({ curre
     setModal({ type: 'assignment', item, assignment });
   };
 
+  const handleDetailExport = async (sections: StockDetailExportSection[]) => {
+    if (!exportTarget) return;
+    try {
+      setDetailExportLoading(true);
+      setDetailExportError('');
+      setError(null);
+      await stockApi.exportDetailExcel(exportTarget.item.id, sections, exportTarget.assignment?.id);
+      setExportTarget(null);
+    } catch (caught) {
+      setDetailExportError(caught instanceof Error ? caught.message : 'Excel raporu oluşturulamadı.');
+    } finally {
+      setDetailExportLoading(false);
+    }
+  };
+
+  const stockDetailExportModal = exportTarget && (
+    <StockDetailExportModal
+      scope={exportTarget.assignment ? 'device' : 'stock'}
+      title={exportTarget.assignment ? `${exportTarget.assignment.itemName} · ${roomName(exportTarget.assignment)}` : exportTarget.item.itemName}
+      isExporting={detailExportLoading}
+      exportError={detailExportError}
+      onClose={() => { if (!detailExportLoading) { setExportTarget(null); setDetailExportError(''); } }}
+      onExport={handleDetailExport}
+    />
+  );
+
   if (passportModal) {
     const faultHistory = passportModal.roomInventories
       .flatMap((assignment) => (assignment.maintenances || []).map((maintenance) => ({ assignment, maintenance })))
@@ -809,7 +839,10 @@ export const WarehouseManagementView: React.FC<{ currentUser: User }> = ({ curre
                 <p className="text-xs font-semibold text-slate-500">{passportModal.itemName} · {roomName(selectedAssignment)}</p>
               </div>
             </div>
-            {canManageLifecycle && <button type="button" onClick={() => { const item = passportModal; preparePassportAction(); openAssignment(item, selectedAssignment); }} className={primaryButton}>Cihaz İşlemi Yap</button>}
+            <div className="flex items-center gap-2">
+              {canManageStock && <button type="button" onClick={() => { setDetailExportError(''); setExportTarget({ item: passportModal, assignment: selectedAssignment }); }} className={secondaryButton}><FileSpreadsheet className="h-3.5 w-3.5" /> Çıktı Al</button>}
+              {canManageLifecycle && <button type="button" onClick={() => { const item = passportModal; preparePassportAction(); openAssignment(item, selectedAssignment); }} className={primaryButton}>Cihaz İşlemi Yap</button>}
+            </div>
           </div>
 
           {error && <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-xs font-bold text-rose-800">{error}</div>}
@@ -835,6 +868,7 @@ export const WarehouseManagementView: React.FC<{ currentUser: User }> = ({ curre
             <div className="border-b border-slate-200 bg-slate-50 px-4 py-3"><h3 className="text-sm font-black text-slate-900">Cihaza Ait Arıza Geçmişi ({deviceFaults.length})</h3><p className="mt-0.5 text-[11px] font-semibold text-slate-500">Diğer odalardaki aynı ürünler bu tabloya dahil edilmez.</p></div>
             <div className="overflow-x-auto"><table className="w-full min-w-[1000px] text-left text-xs"><thead className="border-b border-slate-200 bg-white text-[10px] font-black uppercase tracking-wider text-slate-500"><tr><th className="px-4 py-3">Arıza Açıklaması</th><th className="px-4 py-3">Öncelik</th><th className="px-4 py-3">Durum</th><th className="px-4 py-3">Bildiren</th><th className="px-4 py-3">Kapatan</th><th className="px-4 py-3">Açılış Tarihi</th><th className="px-4 py-3">Kapanış Tarihi</th><th className="px-4 py-3">Kapanış Notu</th></tr></thead><tbody className="divide-y divide-slate-200">{deviceFaults.length === 0 ? <tr><td colSpan={8} className="p-10 text-center text-slate-500">Bu cihaz için arıza kaydı bulunmuyor.</td></tr> : deviceFaults.map((fault) => <tr key={fault.id} className="hover:bg-slate-50"><td className="max-w-[280px] px-4 py-3"><p className="font-black text-slate-900">{fault.description}</p><p className="mt-1 text-[10px] font-semibold text-slate-500">{fault.title}</p></td><td className="px-4 py-3"><FaultPriorityBadge priority={fault.priority} /></td><td className="px-4 py-3"><FaultStatusBadge status={fault.status} /></td><td className="px-4 py-3 font-semibold text-slate-700">{fault.reportedBy || 'Sistem'}</td><td className="px-4 py-3 font-semibold text-slate-700">{fault.assignedTo || '-'}</td><td className="whitespace-nowrap px-4 py-3 font-semibold text-slate-600">{formatDateTime(fault.createdAt)}</td><td className="whitespace-nowrap px-4 py-3 font-semibold text-slate-600">{fault.resolvedAt ? formatDateTime(fault.resolvedAt) : '-'}</td><td className="max-w-[260px] px-4 py-3 text-slate-600">{fault.resolutionNote || '-'}</td></tr>)}</tbody></table></div>
           </section>
+          {stockDetailExportModal}
         </div>
       );
     }
@@ -850,6 +884,7 @@ export const WarehouseManagementView: React.FC<{ currentUser: User }> = ({ curre
             </div>
           </div>
           <div className="flex gap-2">
+            {canManageStock && <button type="button" onClick={() => { setDetailExportError(''); setExportTarget({ item: passportModal }); }} className={secondaryButton}><FileSpreadsheet className="h-3.5 w-3.5" /> Çıktı Al</button>}
             {canManageStock && <button type="button" onClick={() => { const item = passportModal; preparePassportAction(); openReceive(item); }} className={secondaryButton}>+ Depoya Ekle</button>}
             {canManageStock && <button type="button" onClick={() => { const item = passportModal; preparePassportAction(); openAssign(item); }} className={primaryButton}>Odaya / Personele Ver</button>}
           </div>
@@ -1026,6 +1061,7 @@ export const WarehouseManagementView: React.FC<{ currentUser: User }> = ({ curre
           <div className="overflow-x-auto"><table className="w-full min-w-[1050px] text-left text-xs"><thead className="border-b border-slate-200 bg-slate-50 text-[10px] font-black uppercase tracking-wider text-slate-600"><tr><th className="px-4 py-3">Tarih</th><th className="px-4 py-3">İşlem Türü</th><th className="px-4 py-3">Ürün / Cihaz</th><th className="px-4 py-3">Konum / Oda</th><th className="px-4 py-3 text-center">Miktar</th><th className="px-4 py-3">İşlemi Yapan</th><th className="px-4 py-3">Gerekçe</th><th className="px-4 py-3">Açıklama</th></tr></thead><tbody className="divide-y divide-slate-200">{detailMovementsLoading ? <tr><td colSpan={8} className="p-10 text-center font-semibold text-slate-500">Geçmiş yükleniyor...</td></tr> : filteredDetailMovements.length === 0 ? <tr><td colSpan={8} className="p-10 text-center font-semibold text-slate-500">Aramanıza uygun stok hareketi bulunmuyor.</td></tr> : filteredDetailMovements.slice(pageStart, pageStart + pageSize).map((movement) => <tr key={movement.id} className="hover:bg-slate-50"><td className="whitespace-nowrap px-4 py-3 font-semibold text-slate-600">{formatDateTime(movement.createdAt)}</td><td className="px-4 py-3"><span className="inline-flex rounded-md border border-blue-200 bg-blue-50 px-2 py-1 text-[10px] font-black text-[#1e3a8a]">{movementLabels[movement.type] || movement.type}</span></td><td className="max-w-[220px] px-4 py-3 font-black text-slate-900">{movement.itemNameSnapshot}</td><td className="px-4 py-3 font-bold text-slate-700">{movement.roomLabelSnapshot || (movement.employee ? `${movement.employee.firstName} ${movement.employee.lastName}` : 'Ana Depo')}</td><td className={`px-4 py-3 text-center font-black ${movement.quantity < 0 ? 'text-rose-700' : 'text-emerald-700'}`}>{movement.quantity > 0 ? `+${movement.quantity}` : movement.quantity} {movement.stockItem.unit}</td><td className="px-4 py-3 font-semibold text-slate-700">{movement.createdBy?.fullName || 'Sistem'}</td><td className="max-w-[220px] px-4 py-3 text-slate-600">{movement.reason || '-'}</td><td className="max-w-[260px] px-4 py-3 text-slate-600">{movement.notes || '-'}</td></tr>)}</tbody></table></div>
           {pageControls}
         </section>}
+        {stockDetailExportModal}
       </div>
     );
   }

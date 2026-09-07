@@ -2,6 +2,7 @@ import { appConfig } from '../config/appConfig';
 
 export type AssignmentStatus = 'HEALTHY' | 'MAINTENANCE_REQUIRED' | 'DAMAGED' | 'LOST' | 'IN_SERVICE' | 'REPLACEMENT_REQUIRED' | 'RETIRED';
 export type MovementType = 'OPENING' | 'RECEIPT' | 'ADJUSTMENT' | 'ROOM_ASSIGNMENT' | 'ROOM_RETURN' | 'ROOM_TRANSFER' | 'STATUS_CHANGE' | 'REPLACEMENT' | 'RETIREMENT' | 'PERSONNEL_ASSIGNMENT' | 'PERSONNEL_RETURN';
+export type StockDetailExportSection = 'summary' | 'rooms' | 'coverage' | 'faults' | 'movements';
 
 export interface StockRoom {
   id: string;
@@ -159,6 +160,22 @@ export const stockApi = {
     const fileName = disposition.match(/filename="?([^";]+)"?/i)?.[1] || 'depo-stok-oda-zimmetleri.xlsx';
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement('a'); anchor.href = url; anchor.download = fileName;
+    document.body.appendChild(anchor); anchor.click(); anchor.remove(); URL.revokeObjectURL(url);
+  },
+  exportDetailExcel: async (stockItemId: string, sections: StockDetailExportSection[], roomInventoryId?: string) => {
+    const params = new URLSearchParams({ sections: sections.join(',') });
+    if (roomInventoryId) params.set('roomInventoryId', roomInventoryId);
+    const response = await fetch(`${appConfig.apiBaseUrl}/stock/${encodeURIComponent(stockItemId)}/export.xlsx?${params.toString()}`, { credentials: 'include', cache: 'no-store' });
+    if (!response.ok) {
+      const data = await response.json().catch(() => ({}));
+      throw new Error(data.message || 'Stok Excel raporu oluşturulamadı.');
+    }
+    const blob = await response.blob();
+    const disposition = response.headers.get('content-disposition') || '';
+    const fileName = disposition.match(/filename="?([^";]+)"?/i)?.[1] || 'stok-detay-raporu.xlsx';
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url; anchor.download = fileName;
     document.body.appendChild(anchor); anchor.click(); anchor.remove(); URL.revokeObjectURL(url);
   },
 };

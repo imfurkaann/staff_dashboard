@@ -779,4 +779,75 @@ export class StockService {
       },
     });
   }
+
+  public static async getDetailExportData(stockItemId: string, sections: string[], roomInventoryId?: string, maxRows = config.stock.exportMaxRows) {
+    const item = await prisma.stockItem.findUnique({
+      where: { id: stockItemId },
+      include: {
+        roomStandard: true,
+        sharedAssets: { where: { status: { not: 'RETIRED' } }, select: { id: true } },
+      },
+    });
+    if (!item) throw new AppError('Stok kartı bulunamadı.', 404);
+
+    const scopedDevice = roomInventoryId ? await prisma.roomInventory.findFirst({
+      where: { id: roomInventoryId, stockItemId },
+      include: { room: { include: { block: true } } },
+    }) : null;
+    if (roomInventoryId && !scopedDevice) throw new AppError('Seçilen cihaz bu stok kartına ait değil.', 404);
+    if (roomInventoryId && sections.some((section) => section === 'rooms' || section === 'coverage')) {
+      throw new AppError('Tek cihaz raporunda oda dağılımı veya eksik oda kapsamı kullanılamaz.', 400);
+    }
+
+    const includeRooms = sections.includes('rooms');
+    const includeCoverage = sections.includes('coverage');
+    const includeFaults = sections.includes('faults');
+    const includeMovements = sections.includes('movements');
+    const roomWhere: Prisma.RoomInventoryWhereInput = { stockItemId, ...(roomInventoryId ? { id: roomInventoryId } : {}) };
+    const faultWhere: Prisma.MaintenanceLogWhereInput = { type: 'ROOM_INVENTORY', roomInventory: { stockItemId }, ...(roomInventoryId ? { roomInventoryId } : {}) };
+    const movementWhere: Prisma.StockMovementWhereInput = { stockItemId, ...(roomInventoryId ? { roomInventoryId } : {}) };
+
+    const [roomCount, faultCount, movementCount] = await Promise.all([
+      includeRooms ? prisma.roomInventory.count({ where: { ...roomWhere, returnedAt: null } }) : 0,
+      includeFaults ? prisma.maintenanceLog.count({ where: faultWhere }) : 0,
+      includeMovements ? prisma.stockMovement.count({ where: movementWhere }) : 0,
+    ]);
+
+    let coverageRooms: Array<any> = [];
+    if (includeCoverage && item.roomStandard) {
+      coverageRooms = await prisma.room.findMany({
+        where: { roomType: item.roomStandard.roomType },
+        orderBy: [{ block: { name: 'asc' } }, { floor: 'asc' }, { roomNumber: 'asc' }],
+        include: { block: true, inventories: { where: { stockItemId, returnedAt: null }, select: { quantity: true } } },
+      });
+    }
+    const totalRows = (sections.includes('summary') ? 1 : 0) + roomCount + faultCount + movementCount + coverageRooms.length;
+    if (totalRows > maxRows) throw new AppError(`Seçilen rapor kapsamı ${totalRows.toLocaleString('tr-TR')} satır içeriyor ve ${maxRows.toLocaleString('tr-TR')} satır sınırını aşıyor. Kapsamı daraltın.`, 413);
+
+    const [roomAssignments, faults, movements] = await Promise.all([
+      includeRooms ? prisma.roomInventory.findMany({
+        where: { ...roomWhere, returnedAt: null }, orderBy: [{ room: { block: { name: 'asc' } } }, { room: { roomNumber: 'asc' } }, { itemName: 'asc' }],
+        include: { room: { include: { block: true } } },
+      }) : [],
+      includeFaults ? prisma.maintenanceLog.findMany({
+        where: faultWhere, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+        include: { room: { include: { block: true } }, roomInventory: { select: { id: true, itemName: true, brand: true, quantity: true } } },
+      }) : [],
+      includeMovements ? prisma.stockMovement.findMany({
+        where: movementWhere, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+        include: { createdBy: { select: { fullName: true } }, employee: { select: { firstName: true, lastName: true, registrationNo: true } }, maintenance: { select: { id: true, title: true } } },
+      }) : [],
+    ]);
+
+    const activeRoomQuantity = await prisma.roomInventory.aggregate({ where: { stockItemId, returnedAt: null }, _sum: { quantity: true } });
+    const effectiveUsedInRooms = Math.max(item.usedInRooms, activeRoomQuantity._sum.quantity || 0);
+    const availableStock = Math.max(0, item.totalStock - item.usedStock - effectiveUsedInRooms - item.sharedAssets.length);
+    const coverage = item.roomStandard ? coverageRooms.map((room) => {
+      const required = item.roomStandard!.fixedQuantity + (item.roomStandard!.quantityPerBed * room.capacity);
+      const assigned = room.inventories.reduce((sum: number, entry: { quantity: number }) => sum + entry.quantity, 0);
+      return { roomId: room.id, blockName: room.block.name, roomNumber: room.roomNumber, floor: room.floor, capacity: room.capacity, required, assigned, missing: Math.max(0, required - assigned) };
+    }).filter((room) => room.missing > 0) : [];
+
+    return { item: { ...item, availableStock }, device: scopedDevice, roomAssignments, coverage, faults, movements };
+  }
 }

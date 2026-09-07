@@ -1,6 +1,6 @@
 import { NextFunction, Request, Response } from 'express';
 import { AuthenticatedRequest } from '../middleware/authMiddleware';
-import { createStockWorkbook } from '../services/stockExportService';
+import { createStockDetailWorkbook, createStockWorkbook, StockDetailExportSection } from '../services/stockExportService';
 import { StockService } from '../services/stockService';
 import { formatIstanbulDate } from '../utils/dateTime';
 import { StockMovementType } from '@prisma/client';
@@ -149,6 +149,32 @@ export const stockController = {
       const buffer = await createStockWorkbook(rows, generatedBy);
       res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
       res.setHeader('Content-Disposition', `attachment; filename=Depo_Stok_ve_Oda_Zimmetleri_${formatIstanbulDate()}.xlsx`);
+      res.status(200).send(buffer);
+    } catch (error) { next(error); }
+  },
+
+  exportDetailExcel: async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const stockItemId = validateStockId(req.params.id);
+      const rawSections = stockSingleQuery(req.query.sections, 'Rapor kapsamı');
+      const roomInventoryId = stockSingleQuery(req.query.roomInventoryId, 'Oda cihazı filtresi');
+      if (roomInventoryId) validateStockId(roomInventoryId, 'Oda cihazı filtresi');
+      if (!rawSections || rawSections.length > 120) return res.status(400).json({ success: false, message: 'En az bir geçerli rapor kapsamı seçilmelidir.' });
+      const allowedSections = new Set<StockDetailExportSection>(['summary', 'rooms', 'coverage', 'faults', 'movements']);
+      const requested = Array.from(new Set(rawSections.split(',').map((value) => value.trim()).filter(Boolean)));
+      if (requested.length === 0 || requested.length > allowedSections.size || requested.some((value) => !allowedSections.has(value as StockDetailExportSection))) {
+        return res.status(400).json({ success: false, message: 'Geçersiz stok raporu kapsamı.' });
+      }
+      const canonicalOrder: StockDetailExportSection[] = ['summary', 'rooms', 'coverage', 'faults', 'movements'];
+      const sections = canonicalOrder.filter((section) => requested.includes(section));
+      const data = await StockService.getDetailExportData(stockItemId, sections, roomInventoryId, config.stock.exportMaxRows);
+      const generatedBy = (req as AuthenticatedRequest).user?.fullName || 'Lojman Yönetimi';
+      const buffer = await createStockDetailWorkbook(data, sections, generatedBy);
+      const safeCode = String(data.item.itemCode || data.item.id.slice(0, 8)).replace(/[^A-Za-z0-9_-]/g, '_').slice(0, 40);
+      const scopeSuffix = roomInventoryId ? `_Cihaz_${roomInventoryId.replace(/-/g, '').slice(0, 8)}` : '';
+      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+      res.setHeader('Content-Disposition', `attachment; filename=Stok_Raporu_${safeCode}${scopeSuffix}_${formatIstanbulDate()}.xlsx`);
+      res.setHeader('Cache-Control', 'no-store');
       res.status(200).send(buffer);
     } catch (error) { next(error); }
   },
