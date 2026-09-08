@@ -1,7 +1,8 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState } from 'react';
 import { ArchiveRestore, Car, FilePenLine, FileText, LogOut, Phone, RotateCcw, Trash2, UserCheck, Users, X } from 'lucide-react';
 import { Visitor } from '../api/visitorApi';
 import { VisitorDetailModal } from './VisitorDetailModal';
+import { useInfiniteScroll } from '../hooks/useInfiniteScroll';
 
 interface Props {
   visitors: Visitor[];
@@ -80,25 +81,13 @@ export const VisitorRecordsTable: React.FC<Props> = ({
   const [selectedNote, setSelectedNote] = useState<{ title: string; content: string } | null>(null);
   const [selectedDetailVisitor, setSelectedDetailVisitor] = useState<Visitor | null>(null);
 
-  const sentinelRef = useRef<HTMLDivElement | null>(null);
-
-  useEffect(() => {
-    if (!hasMore || loadingMore || !onLoadMore) return;
-    const node = sentinelRef.current;
-    if (!node) return;
-
-    const observer = new IntersectionObserver(
-      (entries) => {
-        if (entries[0].isIntersecting) {
-          onLoadMore();
-        }
-      },
-      { threshold: 0.1, rootMargin: '120px' }
-    );
-
-    observer.observe(node);
-    return () => observer.disconnect();
-  }, [hasMore, loadingMore, onLoadMore]);
+  const sentinelRef = useInfiniteScroll({
+    hasMore,
+    isLoading: loadingMore,
+    onLoadMore,
+    rootMargin: '120px 0px',
+    threshold: 0.1,
+  });
 
   return (
     <div className="bg-white border border-slate-300 rounded-3xl overflow-hidden shadow-sm w-full">
@@ -358,7 +347,7 @@ export const VisitorRecordsTable: React.FC<Props> = ({
 
       {/* Infinite Scroll Sentinel & Loader */}
       {hasMore && (
-        <div ref={sentinelRef} className="py-3.5 text-center border-t border-slate-200 bg-slate-50/70">
+        <div ref={sentinelRef} role="status" aria-live="polite" className="py-3.5 text-center border-t border-slate-200 bg-slate-50/70">
           {loadingMore ? (
             <div className="inline-flex items-center gap-2 text-xs font-bold text-slate-700">
               <span className="w-4 h-4 rounded-full border-2 border-[#1e3a8a] border-t-transparent animate-spin"></span>

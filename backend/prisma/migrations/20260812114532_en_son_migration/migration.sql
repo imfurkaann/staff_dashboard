@@ -5,13 +5,13 @@
 
 */
 -- DropIndex
-DROP INDEX "Employee_status_idx";
+DROP INDEX IF EXISTS "Employee_status_idx";
 
 -- DropIndex
-DROP INDEX "RoomInventory_roomId_itemName_location_key";
+DROP INDEX IF EXISTS "RoomInventory_roomId_itemName_location_key";
 
 -- DropIndex
-DROP INDEX "StockMovement_roomInventoryId_idx";
+DROP INDEX IF EXISTS "StockMovement_roomInventoryId_idx";
 
 -- AlterTable
 ALTER TABLE "DisciplinaryNote" ALTER COLUMN "updatedAt" DROP DEFAULT;
@@ -29,4 +29,4 @@ ALTER TABLE "RoomInventory" ALTER COLUMN "updatedAt" DROP DEFAULT;
 ALTER TABLE "StockItem" ALTER COLUMN "updatedAt" DROP DEFAULT;
 
 -- AlterTable
-ALTER TABLE "SupportTicket" DROP COLUMN "priority";
+ALTER TABLE "SupportTicket" DROP COLUMN IF EXISTS "priority";

@@ -51,7 +51,9 @@ async function main() {
     assert.equal(repeatedAssignment.id, assignment.id);
     assert.equal((await prisma.stockItem.findUniqueOrThrow({ where: { id: card.id } })).usedInRooms, 1);
 
-    await expectStatus(409, () => StockService.assignToRoom(card.id, { roomId: roomIds[1], quantity: 1, serialNo: `SER-${suffix}`, createdById: actor.id }));
+    const secondAssignment = await StockService.assignToRoom(card.id, { roomId: roomIds[1], quantity: 1, serialNo: `SER-${suffix}`, notes: 'İKİNCİ TEST ZİMMETİ', createdById: actor.id });
+    assert.equal(secondAssignment.serialNo, null);
+    assert.notEqual(secondAssignment.assetTag, assignment.assetTag);
     const transferKey = randomUUID();
     await StockService.transferRoom(assignment.id, { roomId: roomIds[1], notes: 'ODA DEĞİŞİKLİĞİ TESTİ', createdById: actor.id, requestKey: transferKey });
     await StockService.transferRoom(assignment.id, { roomId: roomIds[1], notes: 'ODA DEĞİŞİKLİĞİ TESTİ', createdById: actor.id, requestKey: transferKey });
@@ -82,6 +84,7 @@ async function main() {
     const returnKey = randomUUID();
     await StockService.returnFromRoom(assignment.id, { outcome: 'RETURNED', notes: 'SAĞLAM DEPO İADESİ', createdById: actor.id, requestKey: returnKey });
     await StockService.returnFromRoom(assignment.id, { outcome: 'RETURNED', notes: 'SAĞLAM DEPO İADESİ', createdById: actor.id, requestKey: returnKey });
+    await StockService.returnFromRoom(secondAssignment.id, { outcome: 'RETURNED', notes: 'İKİNCİ SAĞLAM DEPO İADESİ', createdById: actor.id });
     assert.equal((await prisma.stockItem.findUniqueOrThrow({ where: { id: card.id } })).usedInRooms, 0);
 
     await assert.rejects(() => prisma.stockItem.update({ where: { id: card.id }, data: { usedInRooms: 99 } }), 'Database balance constraints must reject impossible allocation.');

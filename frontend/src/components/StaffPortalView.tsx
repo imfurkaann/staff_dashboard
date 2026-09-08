@@ -5,6 +5,7 @@ import { sharedAssetApi, SharedAsset } from '../api/sharedAssetApi';
 import { ticketApi, SupportTicket, connectTicketSocket } from '../api/ticketApi';
 import { appConfig } from '../config/appConfig';
 import { portalUrl } from '../utils/navigationUrl';
+import { useInfiniteScroll } from '../hooks/useInfiniteScroll';
 import { 
   Building2, 
   BedDouble, 
@@ -44,6 +45,7 @@ export const StaffPortalView: React.FC<StaffPortalViewProps> = ({ currentUser: _
     if (['room', 'notifications', 'inventories', 'sharedAssets', 'tickets'].includes(pTab)) return pTab;
     return 'room';
   });
+  const [portalVisibleCount, setPortalVisibleCount] = useState(25);
 
   const changePortalTab = (tab: 'room' | 'notifications' | 'inventories' | 'sharedAssets' | 'tickets', skipPushState = false) => {
     setActiveTab(tab);
@@ -58,6 +60,10 @@ export const StaffPortalView: React.FC<StaffPortalViewProps> = ({ currentUser: _
   const [sharedAssetsLoading, setSharedAssetsLoading] = useState<boolean>(false);
   const [sharedAssetsError, setSharedAssetsError] = useState<string | null>(null);
   const [sharedAssetSearch, setSharedAssetSearch] = useState<string>('');
+
+  useEffect(() => {
+    setPortalVisibleCount(25);
+  }, [activeTab, sharedAssetSearch]);
 
   // Support Tickets state
   const [myTickets, setMyTickets] = useState<SupportTicket[]>([]);
@@ -467,6 +473,36 @@ export const StaffPortalView: React.FC<StaffPortalViewProps> = ({ currentUser: _
     }
   };
 
+  const portalInventories = data?.inventories || [];
+  const portalCompanyInventoryCount = portalInventories.filter((item) => item.category !== 'ŞAHSİ_EŞYA').length;
+  const portalPersonalInventoryCount = portalInventories.length - portalCompanyInventoryCount;
+  const portalRecordTotal = activeTab === 'notifications'
+    ? (data?.notifications.items.length || 0)
+    : activeTab === 'inventories'
+      ? portalInventories.length
+      : activeTab === 'sharedAssets'
+        ? sharedAssets.length
+        : activeTab === 'tickets'
+          ? myTickets.length
+          : 0;
+  const portalVisibleTotal = activeTab === 'inventories'
+    ? Math.min(portalVisibleCount, portalCompanyInventoryCount) + Math.min(portalVisibleCount, portalPersonalInventoryCount)
+    : Math.min(portalVisibleCount, portalRecordTotal);
+  const hasMorePortalRecords = portalVisibleTotal < portalRecordTotal;
+  const portalSentinelRef = useInfiniteScroll({
+    hasMore: hasMorePortalRecords,
+    isLoading: (activeTab === 'sharedAssets' && sharedAssetsLoading) || (activeTab === 'tickets' && myTicketsLoading),
+    onLoadMore: () => setPortalVisibleCount((count) => count + 25),
+  });
+  const portalInfiniteFooter = portalRecordTotal > 0 && (
+    <div ref={portalSentinelRef} className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-300 bg-white px-4 py-3 shadow-sm">
+      <span className="text-[11px] font-bold text-slate-500">{portalVisibleTotal} / {portalRecordTotal} kayıt gösteriliyor</span>
+      {hasMorePortalRecords
+        ? <button type="button" onClick={() => setPortalVisibleCount((count) => count + 25)} className="rounded-xl border border-slate-300 bg-slate-50 px-3 py-2 text-xs font-bold text-[#1e3a8a] hover:bg-slate-100">Daha fazla göster</button>
+        : <span className="text-[11px] font-bold text-emerald-700">Tüm kayıtlar gösterildi</span>}
+    </div>
+  );
+
   if (isLoading) {
     return (
       <div className="min-h-screen bg-slate-100 flex flex-col items-center justify-center text-slate-800">
@@ -761,7 +797,7 @@ export const StaffPortalView: React.FC<StaffPortalViewProps> = ({ currentUser: _
 
             {notifications.items.length > 0 ? (
               <div className="space-y-3">
-                {notifications.items.map((item) => {
+                {notifications.items.slice(0, portalVisibleCount).map((item) => {
                   const isUrgent = item.priority === 'URGENT';
                   const isImportant = item.priority === 'IMPORTANT';
 
@@ -808,6 +844,7 @@ export const StaffPortalView: React.FC<StaffPortalViewProps> = ({ currentUser: _
                 Gelen herhangi bir duyuru bulunmuyor.
               </div>
             )}
+            {portalInfiniteFooter}
           </div>
         )}
 
@@ -828,7 +865,7 @@ export const StaffPortalView: React.FC<StaffPortalViewProps> = ({ currentUser: _
 
               {companyInventories.length > 0 ? (
                 <div className="space-y-3">
-                  {companyInventories.map((inv) => {
+                  {companyInventories.slice(0, portalVisibleCount).map((inv) => {
                     const statusObj = formatInventoryStatus(inv.status);
                     const rawDate = inv.assignedDate || (inv as any).createdAt;
                     let displayDate = null;
@@ -885,7 +922,7 @@ export const StaffPortalView: React.FC<StaffPortalViewProps> = ({ currentUser: _
 
               {personalInventories.length > 0 ? (
                 <div className="space-y-3">
-                  {personalInventories.map((inv) => {
+                  {personalInventories.slice(0, portalVisibleCount).map((inv) => {
                     const statusObj = formatInventoryStatus(inv.status);
                     const rawDate = inv.assignedDate || (inv as any).createdAt;
                     let displayDate = null;
@@ -927,6 +964,7 @@ export const StaffPortalView: React.FC<StaffPortalViewProps> = ({ currentUser: _
                 </p>
               )}
             </div>
+            {portalInfiniteFooter}
           </div>
         )}
 
@@ -958,7 +996,7 @@ export const StaffPortalView: React.FC<StaffPortalViewProps> = ({ currentUser: _
               </p>
             ) : (
               <div className="space-y-3">
-                {sharedAssets.map((item) => {
+                {sharedAssets.slice(0, portalVisibleCount).map((item) => {
                   const isCommonRoomAsset = item.currentRoom && item.currentRoom.roomType !== 'PERSONEL_ODASI';
                   const isLoaned = (item.status === 'LOANED' || Boolean(item.currentEmployeeId || (item.currentRoomId && !isCommonRoomAsset))) && !isCommonRoomAsset;
                   const isMaintenance = item.status === 'MAINTENANCE';
@@ -997,6 +1035,7 @@ export const StaffPortalView: React.FC<StaffPortalViewProps> = ({ currentUser: _
                 })}
               </div>
             )}
+            {portalInfiniteFooter}
           </div>
         )}
 
@@ -1057,7 +1096,7 @@ export const StaffPortalView: React.FC<StaffPortalViewProps> = ({ currentUser: _
               </div>
             ) : (
               <div className="space-y-3">
-                {myTickets.map((ticket) => {
+                {myTickets.slice(0, portalVisibleCount).map((ticket) => {
                   return (
                     <div
                       key={ticket.id}
@@ -1109,6 +1148,7 @@ export const StaffPortalView: React.FC<StaffPortalViewProps> = ({ currentUser: _
                 })}
               </div>
             )}
+            {portalInfiniteFooter}
           </div>
         )}
       </main>

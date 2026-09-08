@@ -11,7 +11,7 @@ export class NotificationController {
     try {
       const createdById = req.user!.id;
       const requestKey = validateIdempotencyKey(req.get('Idempotency-Key'));
-      const { title, message, priority, targetType, targetValue } = req.body;
+      const { title, message, priority, targetType, targetValue } = req.body || {};
 
       const result = await NotificationService.sendNotification({
         title,

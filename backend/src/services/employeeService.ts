@@ -262,7 +262,7 @@ export class EmployeeService {
   /**
    * Get list of employees with optional search & filters
    */
-  public static async getAllEmployees(search?: string, status?: string, department?: string, gender?: string, startDate?: string, endDate?: string, maxRows = 5000) {
+  public static async getAllEmployees(search?: string, status?: string, department?: string, gender?: string, startDate?: string, endDate?: string) {
     const validatedStatus = validateEmployeeFilterStatus(status);
     const validatedDepartment = validateEmployeeDepartmentFilter(department);
     const validatedGender = validateEmployeeGenderFilter(gender);
@@ -316,10 +316,7 @@ export class EmployeeService {
         },
       },
       orderBy: { createdAt: 'desc' },
-      take: maxRows + 1,
     });
-
-    if (employees.length > maxRows) throw new AppError(`Personel listesi ${maxRows.toLocaleString('tr-TR')} kayıt sınırını aşıyor. Arama veya filtre kullanın.`, 413);
 
     return employees.map(emp => {
       const latestOccupancy = emp.occupancies && emp.occupancies.length > 0 ? emp.occupancies[0] : null;
@@ -950,9 +947,9 @@ export class EmployeeService {
   /**
    * Add Zimmet veya Şahsi Eşya Beyan Kaydı
    */
-  public static async addInventoryItem(employeeId: string, data: { itemName: string; itemCode?: string; category?: string; serialNo?: string; photoUrl?: string; notes?: string; createdById?: string; stockItemId?: string }) {
-    const employee = await prisma.employee.findUnique({ where: { id: employeeId, isDeleted: false } });
-    if (!employee) throw new AppError('Personel bulunamadı.', 404);
+  public static async addInventoryItem(employeeId: string, data: { itemName: string; itemCode?: string; category?: string; serialNo?: string; photoUrl?: string; notes?: string; createdById?: string; stockItemId?: string; requestKey?: string; requireResident?: boolean }) {
+    const employee = await prisma.employee.findUnique({ where: { id: employeeId, isDeleted: false, ...(data.requireResident && { status: 'RESIDENT' }) } });
+    if (!employee) throw new AppError(data.requireResident ? 'Yalnızca aktif olarak konaklayan personele stok zimmeti verilebilir.' : 'Personel bulunamadı.', 404);
     const category = data.stockItemId ? 'LOJMAN_ZİMMETİ' : (data.category || 'LOJMAN_ZİMMETİ');
     const cleanSerial = normalizeIdentifier(data.serialNo);
     if (!['LOJMAN_ZİMMETİ', 'ŞAHSİ_EŞYA'].includes(category)) throw new AppError('Geçersiz eşya kategorisi.', 400);
@@ -961,6 +958,15 @@ export class EmployeeService {
     if (category === 'LOJMAN_ZİMMETİ' && data.stockItemId) {
       try {
         return await prisma.$transaction(async (tx) => {
+          if (data.requestKey) {
+            const prior = await tx.stockMovement.findUnique({ where: { requestKey: data.requestKey } });
+            if (prior) {
+              if (prior.type !== 'PERSONNEL_ASSIGNMENT' || prior.stockItemId !== data.stockItemId || prior.employeeId !== employeeId || (prior.createdById || null) !== (data.createdById || null) || !prior.personnelInventoryId) {
+                throw new AppError('Tekrar-gönderim anahtarı farklı bir stok işleminde kullanılmış.', 409);
+              }
+              return tx.inventoryItem.findUniqueOrThrow({ where: { id: prior.personnelInventoryId } });
+            }
+          }
           const stockItem = await tx.stockItem.findUnique({ where: { id: data.stockItemId } });
           if (!stockItem || !stockItem.isActive) throw new AppError('Seçilen aktif stok kalemi bulunamadı.', 404);
           if (['ORTAK_EŞYA', 'ORTAK_EKİPMAN', 'ORTAK_KULLANIM'].includes(stockItem.itemType)) {
@@ -997,6 +1003,7 @@ export class EmployeeService {
             data: {
               stockItemId: stockItem.id, employeeId, personnelInventoryId: created.id,
               sharedAssetId,
+              requestKey: data.requestKey || null,
               type: 'PERSONNEL_ASSIGNMENT', quantity: -1, itemNameSnapshot: stockItem.itemName,
               reason: 'PERSONELE ZİMMET', notes: created.notes, createdById: data.createdById,
             }

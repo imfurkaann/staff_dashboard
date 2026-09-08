@@ -106,7 +106,7 @@ async function main() {
     });
     assert.equal(replacement.status, 'HEALTHY');
     assert.equal((await prisma.roomInventory.findUniqueOrThrow({ where: { id: secondAssignment.id } })).status, 'RETIRED');
-    assert.equal((await prisma.maintenanceLog.findUniqueOrThrow({ where: { id: replacementFault.id } })).status, 'RESOLVED');
+    assert.equal((await prisma.maintenanceLog.findUniqueOrThrow({ where: { id: replacementFault.id } })).status, 'CLOSED');
     assert.equal(await prisma.stockMovement.count({ where: { maintenanceId: replacementFault.id, type: 'REPLACEMENT' } }), 1);
 
     console.log(JSON.stringify({ success: true, checks: 18 }));

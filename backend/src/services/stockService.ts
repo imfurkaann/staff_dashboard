@@ -104,9 +104,10 @@ export class StockService {
     return `${prefix}-${String(maxIndex + 1).padStart(3, '0')}`;
   }
 
-  public static async getOverview() {
+  public static async getOverview(options: { includePersonnel?: boolean } = {}) {
     const itemCount = await prisma.stockItem.count();
     if (itemCount > config.stock.overviewMaxItems) throw new AppError(`Stok kartı sayısı ekran sınırı olan ${config.stock.overviewMaxItems.toLocaleString('tr-TR')} kaydı aşıyor. Arşivleme veya sunucu taraflı listeleme yapılandırması gerekir.`, 413);
+    const includePersonnel = options.includePersonnel === true;
     const [items, rooms] = await Promise.all([
       prisma.stockItem.findMany({
         orderBy: [{ isActive: 'desc' }, { itemName: 'asc' }],
@@ -119,11 +120,11 @@ export class StockService {
               maintenances: { orderBy: { createdAt: 'desc' }, select: { id: true, status: true, priority: true, title: true, description: true, reportedBy: true, assignedTo: true, createdAt: true, resolvedAt: true, resolutionNote: true } },
             },
           },
-          inventories: {
+          inventories: includePersonnel ? {
             where: { returnedDate: null, isDeleted: false },
             orderBy: { assignedDate: 'desc' },
             include: { employee: { select: { id: true, firstName: true, lastName: true, registrationNo: true, department: true } } },
-          },
+          } : false,
           sharedAssets: {
             select: { id: true, assetCode: true, assetName: true, serialNo: true, brandModel: true, status: true, locationNote: true, currentRoomId: true, borrowedAt: true },
           },
@@ -158,6 +159,7 @@ export class StockService {
 
       return {
         ...item,
+        inventories: 'inventories' in item ? item.inventories : [],
         usedInRooms: effectiveUsedInRooms,
         sharedAssetsInLocations: sharedAssetsAllocated,
         availableStock,
@@ -208,13 +210,20 @@ export class StockService {
 
   public static async getMovements(filters: {
     search?: string; stockItemId?: string; roomInventoryId?: string; type?: StockMovementType; dateStart?: string; dateEnd?: string; page?: number; pageSize?: number;
-  } = {}) {
+  } = {}, options: { includePersonnel?: boolean } = {}) {
     const page = filters.page && filters.page > 0 ? Math.floor(filters.page) : 1;
     const pageSize = filters.pageSize && filters.pageSize > 0 ? Math.min(Math.floor(filters.pageSize), 100) : 50;
-    const where: Prisma.StockMovementWhereInput = {};
+    const where: Prisma.StockMovementWhereInput = options.includePersonnel === true
+      ? {}
+      : { type: { notIn: ['PERSONNEL_ASSIGNMENT', 'PERSONNEL_RETURN'] } };
     if (filters.stockItemId) where.stockItemId = filters.stockItemId;
     if (filters.roomInventoryId) where.roomInventoryId = filters.roomInventoryId;
-    if (filters.type) where.type = filters.type;
+    if (filters.type) {
+      if (options.includePersonnel !== true && ['PERSONNEL_ASSIGNMENT', 'PERSONNEL_RETURN'].includes(filters.type)) {
+        throw new AppError('Personel stok hareketlerini görüntüleme yetkiniz bulunmamaktadır.', 403);
+      }
+      where.type = filters.type;
+    }
     if (filters.dateStart || filters.dateEnd) {
       const start = parseIstanbulDateBoundary(filters.dateStart, false);
       const end = parseIstanbulDateBoundary(filters.dateEnd, true);
@@ -247,6 +256,14 @@ export class StockService {
       prisma.stockMovement.count({ where }),
     ]);
     return { items, pagination: { page, pageSize, total, totalPages: Math.max(1, Math.ceil(total / pageSize)) } };
+  }
+
+  public static async getPersonnelOptions() {
+    return prisma.employee.findMany({
+      where: { isDeleted: false, status: 'RESIDENT' },
+      orderBy: [{ firstName: 'asc' }, { lastName: 'asc' }],
+      select: { id: true, firstName: true, lastName: true, registrationNo: true, department: true },
+    });
   }
 
   public static async createStockItem(data: {
@@ -557,7 +574,7 @@ export class StockService {
       });
       if (changed.count !== 1) throw new AppError('Zimmet başka bir kullanıcı tarafından güncellendi. Listeyi yenileyip tekrar deneyin.', 409);
 
-      const sharedAssetId = await syncSharedAssetIdentity(tx, assignment.stockItemId, null, brand, processNote, data.createdById);
+      const sharedAssetId = await syncSharedAssetIdentity(tx, assignment.stockItemId, assignment.id, null, brand, processNote, data.createdById);
 
       await tx.stockMovement.create({ data: {
         stockItemId: assignment.stockItemId,
@@ -655,10 +672,10 @@ export class StockService {
     if (!allowedUnits.has(nextUnit)) throw new AppError('Geçersiz ölçü birimi.', 400);
     const nextPhysicalStatus = data.physicalStatus === undefined ? existing.physicalStatus : (cleanOptional(data.physicalStatus, 'Fiziksel durum', 30) || 'KULLANILABİLİR');
     if (!allowedPhysicalStatuses.has(nextPhysicalStatus)) throw new AppError('Geçersiz fiziksel durum.', 400);
-    if (['ORTAK_EKİPMAN', 'ORTAK_KULLANIM'].includes(existing.itemType) && data.physicalStatus !== undefined && nextPhysicalStatus !== existing.physicalStatus) {
+    if (sharedAssetItemTypes.has(existing.itemType) && data.physicalStatus !== undefined && nextPhysicalStatus !== existing.physicalStatus) {
       throw new AppError('Ortak eşyanın fiziksel durumu zimmet, iade ve bakım süreçlerinden otomatik yönetilir.', 409);
     }
-    if (['ORTAK_EKİPMAN', 'ORTAK_KULLANIM'].includes(existing.itemType) && data.isActive === false) {
+    if (sharedAssetItemTypes.has(existing.itemType) && data.isActive === false) {
       throw new AppError('Ortak eşya stok kartı doğrudan pasife alınamaz. Önce ortak eşya yaşam döngüsünü tamamlayın.', 409);
     }
     if (nextPhysicalStatus === 'HURDA' && existing.totalStock > 0) {
@@ -692,7 +709,7 @@ export class StockService {
       reason: 'STOK KARTI GÜNCELLEMESİ', notes: `ÖNCE: ${before} / SONRA: ${after}`, createdById: data.createdById,
     } });
 
-    if (['ORTAK_EKİPMAN', 'ORTAK_KULLANIM'].includes(updatedItem.itemType) || ['ORTAK_EKİPMAN', 'ORTAK_KULLANIM'].includes(existing.itemType)) {
+    if (sharedAssetItemTypes.has(updatedItem.itemType) || sharedAssetItemTypes.has(existing.itemType)) {
       await tx.sharedAsset.updateMany({
         where: { stockItemId: updatedItem.id },
         data: {
@@ -725,7 +742,7 @@ export class StockService {
       await tx.$queryRaw`SELECT "id" FROM "StockItem" WHERE "id" = ${stockItemId} FOR UPDATE`;
       const item = await tx.stockItem.findUnique({ where: { id: stockItemId } });
       if (!item || !item.isActive) throw new AppError('Aktif stok kartı bulunamadı.', 404);
-      if (['ORTAK_EKİPMAN', 'ORTAK_KULLANIM'].includes(item.itemType)) throw new AppError('Ortak eşya sayımı ortak eşya yaşam döngüsünden yönetilmelidir.', 409);
+      if (sharedAssetItemTypes.has(item.itemType)) throw new AppError('Ortak eşya sayımı ortak eşya yaşam döngüsünden yönetilmelidir.', 409);
       const currentAvailable = item.totalStock - item.usedStock - item.usedInRooms;
       const difference = countedAvailable - currentAvailable;
       const notes = cleanOptional(data.notes, 'Sayım açıklaması', 1000);

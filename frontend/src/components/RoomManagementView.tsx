@@ -26,6 +26,7 @@ import { CompleteCleaningModal } from './CompleteCleaningModal';
 import { User } from '../api/authApi';
 import { can } from '../security/accessControl';
 import { managementUrl } from '../utils/navigationUrl';
+import { useInfiniteScroll } from '../hooks/useInfiniteScroll';
 
 type GroupByMode = 'block' | 'floor';
 
@@ -37,6 +38,7 @@ interface RoomManagementViewProps {
 export const RoomManagementView: React.FC<RoomManagementViewProps> = ({ onNavigateTo, currentUser }) => {
   const canManageRooms = can(currentUser.role, 'ROOM_MANAGE');
   const [rooms, setRooms] = useState<Room[]>([]);
+  const [visibleGroupCount, setVisibleGroupCount] = useState(2);
   const [blocks, setBlocks] = useState<BlockSummary[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [refreshing, setRefreshing] = useState<boolean>(false);
@@ -108,6 +110,7 @@ export const RoomManagementView: React.FC<RoomManagementViewProps> = ({ onNaviga
         roomApi.getBlocks(),
       ]);
       setRooms(roomsData);
+      setVisibleGroupCount(2);
       setBlocks(blocksData);
     } catch (err: any) {
       setError(err?.response?.data?.message || err?.message || 'Oda ve yatak bilgileri yüklenirken bir hata oluştu.');
@@ -332,6 +335,15 @@ export const RoomManagementView: React.FC<RoomManagementViewProps> = ({ onNaviga
         .map((floorNum) => groups[floorNum]);
     }
   }, [filteredRooms, groupBy]);
+  useEffect(() => { setVisibleGroupCount(2); }, [groupedData]);
+  const visibleGroups = groupedData.slice(0, visibleGroupCount);
+  const visibleRoomCount = visibleGroups.reduce((total, group) => total + group.rooms.length, 0);
+  const hasMoreRoomGroups = visibleGroupCount < groupedData.length;
+  const loadMoreRoomGroups = () => {
+    if (loading || refreshing || !hasMoreRoomGroups) return;
+    setVisibleGroupCount((current) => Math.min(current + 2, groupedData.length));
+  };
+  const roomSentinelRef = useInfiniteScroll({ hasMore: hasMoreRoomGroups, isLoading: loading || refreshing, onLoadMore: loadMoreRoomGroups });
 
   if (activeRoomDetail) {
     return (
@@ -548,7 +560,7 @@ export const RoomManagementView: React.FC<RoomManagementViewProps> = ({ onNaviga
       ) : (
         /* LISTED ROOMS BY GROUP (BLOCK OR FLOOR) */
         <div className="space-y-6">
-          {groupedData.map((group, groupIdx) => {
+          {visibleGroups.map((group, groupIdx) => {
             const totalGroupRooms = group.rooms.length;
             let totalGroupCapacity = 0;
             let occupiedGroupBeds = 0;
@@ -759,6 +771,10 @@ export const RoomManagementView: React.FC<RoomManagementViewProps> = ({ onNaviga
               </div>
             );
           })}
+          <div ref={roomSentinelRef} role="status" aria-live="polite" className="flex min-h-12 items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-xs font-bold text-slate-600">
+            <span>{visibleRoomCount} / {filteredRooms.length} güncel backend oda kaydı gösteriliyor</span>
+            {hasMoreRoomGroups ? <button type="button" onClick={loadMoreRoomGroups} className="rounded-lg border border-slate-300 bg-white px-3 py-2 font-extrabold text-[#1e3a8a] hover:bg-slate-100">Daha fazla oda grubu göster</button> : filteredRooms.length > 0 ? <span>Tüm oda kayıtları gösteriliyor.</span> : null}
+          </div>
         </div>
       )}
 

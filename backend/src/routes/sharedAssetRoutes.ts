@@ -7,6 +7,10 @@ import { stockMutationRateLimiter } from '../middleware/rateLimiter';
 const router = Router();
 
 router.use(authenticateToken);
+router.use((_req, res, next) => {
+  res.setHeader('Cache-Control', 'private, no-store');
+  next();
+});
 
 router.get('/', authorizePermissions(permissions.SHARED_ASSET_VIEW), SharedAssetController.getOverview);
 router.get('/logs', authorizePermissions(permissions.SHARED_ASSET_MANAGE), SharedAssetController.getLogs);

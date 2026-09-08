@@ -34,6 +34,8 @@ import { MaintenanceDetailModal } from './MaintenanceDetailModal';
 import { MaintenanceReportModal, MaintenanceReportCriteria } from './MaintenanceReportModal';
 import { getInventoryStatusLabel } from '../utils/inventoryStatusLabels';
 import { can } from '../security/accessControl';
+import { useInfiniteScroll } from '../hooks/useInfiniteScroll';
+import { mergeById } from '../utils/pagination';
 
 const buttonBase =
   'group relative inline-flex items-center justify-center h-7 px-2 rounded-lg border transition-all duration-300 ease-out shadow-2xs hover:shadow-xs cursor-pointer overflow-hidden disabled:opacity-40';
@@ -90,8 +92,6 @@ export const MaintenanceManagementView: React.FC<MaintenanceManagementViewProps>
 
   const [isReportModalOpen, setIsReportModalOpen] = useState<boolean>(false);
   const [isExporting, setIsExporting] = useState<boolean>(false);
-
-  const sentinelRef = React.useRef<HTMLDivElement | null>(null);
 
   const handleGenerateReport = async (criteria: MaintenanceReportCriteria) => {
     setIsExporting(true);
@@ -158,7 +158,7 @@ export const MaintenanceManagementView: React.FC<MaintenanceManagementViewProps>
       if (pageToFetch === 1) {
         setMaintenances(result.items);
       } else {
-        setMaintenances((prev) => [...prev, ...result.items]);
+        setMaintenances((prev) => mergeById(prev, result.items));
       }
 
       setPage(pageToFetch);
@@ -183,29 +183,12 @@ export const MaintenanceManagementView: React.FC<MaintenanceManagementViewProps>
     return () => window.clearTimeout(timer);
   }, [queryFilters]);
 
-  // Intersection Observer for Infinite Scroll
-  useEffect(() => {
-    const observer = new IntersectionObserver(
-      (entries) => {
-        const first = entries[0];
-        if (first && first.isIntersecting && hasMore && !isLoadingMore && !isFetching) {
-          loadData(false, page + 1);
-        }
-      },
-      { threshold: 0.2 }
-    );
-
-    const currentSentinel = sentinelRef.current;
-    if (currentSentinel) {
-      observer.observe(currentSentinel);
-    }
-
-    return () => {
-      if (currentSentinel) {
-        observer.unobserve(currentSentinel);
-      }
-    };
-  }, [hasMore, isLoadingMore, isFetching, page, queryFilters]);
+  const sentinelRef = useInfiniteScroll({
+    hasMore,
+    isLoading: isLoadingMore || isFetching,
+    onLoadMore: () => void loadData(false, page + 1),
+    threshold: 0.2,
+  });
 
   const handleQuickStatusChange = async (log: MaintenanceLog, newStatus: MaintenanceStatus) => {
     if (currentUser.role === 'TECHNICIAN' && (log.status === 'RESOLVED' || log.status === 'CLOSED')) {
@@ -770,12 +753,17 @@ export const MaintenanceManagementView: React.FC<MaintenanceManagementViewProps>
             </div>
 
             {/* Infinite Scroll Sentinel & Loading Indicator */}
-            <div ref={sentinelRef} className="py-4 text-center">
+            <div ref={sentinelRef} role="status" aria-live="polite" className="py-4 text-center">
               {isLoadingMore && (
                 <div className="inline-flex items-center gap-2 text-xs font-bold text-slate-500 bg-slate-100 px-4 py-2 rounded-full border border-slate-200 shadow-2xs">
                   <div className="w-4 h-4 border-2 border-[#1e3a8a]/20 border-t-[#1e3a8a] rounded-full animate-spin" />
                   Daha fazla arıza kaydı yükleniyor...
                 </div>
+              )}
+              {hasMore && !isLoadingMore && !isFetching && (
+                <button type="button" onClick={() => void loadData(false, page + 1)} className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-xs font-extrabold text-[#1e3a8a] hover:bg-slate-50">
+                  Daha fazla arıza kaydı yükle
+                </button>
               )}
               {!hasMore && maintenances.length > 0 && (
                 <p className="text-[11px] font-semibold text-slate-400">

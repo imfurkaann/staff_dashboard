@@ -1,10 +1,12 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   Boxes, Calendar, FileSpreadsheet, Filter, History, Pencil, RefreshCw,
   RotateCcw, Search, Trash2, Users, Wrench, X,
 } from 'lucide-react';
 import { SharedAsset, SharedAssetLog, SharedAssetStatus, sharedAssetApi } from '../api/sharedAssetApi';
 import { DateRangePicker } from './DateRangePicker';
+import { useInfiniteScroll } from '../hooks/useInfiniteScroll';
+import { mergeById } from '../utils/pagination';
 
 interface Props {
   assets: SharedAsset[];
@@ -27,10 +29,12 @@ const ASSET_CATEGORIES = [
 export const SharedAssetHistoryView: React.FC<Props> = ({ assets, onBack }) => {
   const [history, setHistory] = useState<{ items: SharedAssetLog[]; pagination: { page: number; pageSize: number; total: number; totalPages: number } } | null>(null);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [editLogForm, setEditLogForm] = useState<{ logId: string; borrowerName: string; notes: string } | null>(null);
   const [deleteLogTarget, setDeleteLogTarget] = useState<{ logId: string; borrowerName: string; assetName: string } | null>(null);
+  const requestIdRef = useRef(0);
 
   const [filters, setFilters] = useState({
     search: '',
@@ -39,43 +43,52 @@ export const SharedAssetHistoryView: React.FC<Props> = ({ assets, onBack }) => {
     category: 'ALL',
     dateStart: '',
     dateEnd: '',
-    page: 1,
   });
 
-  const loadHistory = async () => {
+  const loadHistory = async (pageToFetch = 1) => {
+    const requestId = ++requestIdRef.current;
     try {
-      setLoading(true);
+      if (pageToFetch === 1) setLoading(true);
+      else setLoadingMore(true);
       setError(null);
       const res = await sharedAssetApi.getLogs({
         search: filters.search,
+        category: filters.category === 'ALL' ? undefined : filters.category,
         action: filters.action,
         holderType: filters.holderType,
         dateStart: filters.dateStart,
         dateEnd: filters.dateEnd,
-        page: filters.page,
+        page: pageToFetch,
         pageSize: 25,
       });
-      setHistory(res);
+      if (requestId !== requestIdRef.current) return;
+      setHistory((current) => pageToFetch === 1
+        ? res
+        : { items: mergeById(current?.items || [], res.items), pagination: res.pagination });
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'İşlem geçmişi yüklenemedi.');
+      if (requestId === requestIdRef.current) setError(caught instanceof Error ? caught.message : 'İşlem geçmişi yüklenemedi.');
     } finally {
-      setLoading(false);
+      if (requestId === requestIdRef.current) {
+        setLoading(false);
+        setLoadingMore(false);
+      }
     }
   };
 
   useEffect(() => {
-    const timer = window.setTimeout(loadHistory, 300);
+    requestIdRef.current += 1;
+    setHistory(null);
+    const timer = window.setTimeout(() => void loadHistory(1), 300);
     return () => window.clearTimeout(timer);
   }, [filters]);
 
-  const filteredItems = useMemo(() => {
-    if (!history?.items) return [];
-    if (filters.category === 'ALL') return history.items;
-    return history.items.filter((log) => {
-      const match = assets.find((a) => a.id === log.assetId || a.assetCode === log.assetCodeSnapshot);
-      return match?.category === filters.category;
-    });
-  }, [history, assets, filters.category]);
+  const filteredItems = history?.items || [];
+  const hasMore = Boolean(history && history.pagination.page < history.pagination.totalPages);
+  const loadMore = () => {
+    if (!history || !hasMore || loading || loadingMore) return;
+    void loadHistory(history.pagination.page + 1);
+  };
+  const sentinelRef = useInfiniteScroll({ hasMore, isLoading: loading || loadingMore, onLoadMore: loadMore });
 
   const runAction = async (actionFn: () => Promise<unknown>, successMsg: string) => {
     try {
@@ -84,7 +97,7 @@ export const SharedAssetHistoryView: React.FC<Props> = ({ assets, onBack }) => {
       await actionFn();
       setEditLogForm(null);
       setDeleteLogTarget(null);
-      await loadHistory();
+      await loadHistory(1);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'İşlem sırasında bir hata oluştu.');
     } finally {
@@ -122,7 +135,7 @@ export const SharedAssetHistoryView: React.FC<Props> = ({ assets, onBack }) => {
             <input
               type="text"
               value={filters.search}
-              onChange={(e) => setFilters({ ...filters, search: e.target.value, page: 1 })}
+              onChange={(e) => setFilters({ ...filters, search: e.target.value })}
               placeholder="Ekipman adı, kişi veya konum ara..."
               className="h-9 w-full rounded-xl border border-slate-300 bg-slate-50 pl-9 pr-3 text-xs font-bold text-slate-900 outline-none focus:border-[#1e3a8a] focus:bg-white"
             />
@@ -131,7 +144,7 @@ export const SharedAssetHistoryView: React.FC<Props> = ({ assets, onBack }) => {
           {/* Category Dropdown */}
           <select
             value={filters.category}
-            onChange={(e) => setFilters({ ...filters, category: e.target.value, page: 1 })}
+            onChange={(e) => setFilters({ ...filters, category: e.target.value })}
             className="h-9 rounded-xl border border-slate-300 bg-white px-3 text-[11px] font-extrabold text-slate-700 outline-none hover:border-blue-300"
           >
             <option value="ALL">Tüm Kategoriler</option>
@@ -143,7 +156,7 @@ export const SharedAssetHistoryView: React.FC<Props> = ({ assets, onBack }) => {
           {/* Action/Status Dropdown */}
           <select
             value={filters.action}
-            onChange={(e) => setFilters({ ...filters, action: e.target.value, page: 1 })}
+            onChange={(e) => setFilters({ ...filters, action: e.target.value })}
             className="h-9 rounded-xl border border-slate-300 bg-white px-3 text-[11px] font-extrabold text-slate-700 outline-none hover:border-blue-300"
           >
             <option value="">Tüm İşlem Tipleri</option>
@@ -157,7 +170,7 @@ export const SharedAssetHistoryView: React.FC<Props> = ({ assets, onBack }) => {
             <DateRangePicker
               startDate={filters.dateStart}
               endDate={filters.dateEnd}
-              onChange={(start, end) => setFilters({ ...filters, dateStart: start, dateEnd: end, page: 1 })}
+              onChange={(start, end) => setFilters({ ...filters, dateStart: start, dateEnd: end })}
               buttonClassName="h-9 w-full rounded-xl border border-slate-300 bg-white px-3 text-xs font-bold text-slate-700 hover:border-blue-300"
             />
           </div>
@@ -166,7 +179,7 @@ export const SharedAssetHistoryView: React.FC<Props> = ({ assets, onBack }) => {
         <div className="flex justify-end gap-2 pt-1">
           <button
             type="button"
-            onClick={() => setFilters({ search: '', action: '', holderType: '', category: 'ALL', dateStart: '', dateEnd: '', page: 1 })}
+            onClick={() => setFilters({ search: '', action: '', holderType: '', category: 'ALL', dateStart: '', dateEnd: '' })}
             className="rounded-xl border border-slate-200 bg-slate-100 px-3 py-1.5 text-xs font-bold text-slate-600 hover:bg-slate-200 cursor-pointer"
           >
             Filtreleri Temizle
@@ -216,7 +229,7 @@ export const SharedAssetHistoryView: React.FC<Props> = ({ assets, onBack }) => {
                   return (
                     <tr key={log.id} className="hover:bg-blue-50/40 transition">
                       <td className="px-3 py-2 text-center border-r border-slate-200 font-extrabold text-slate-400">
-                        {((history?.pagination.page || 1) - 1) * (history?.pagination.pageSize || 25) + idx + 1}
+                        {idx + 1}
                       </td>
                       <td className="px-3 py-2 border-r border-slate-200 font-bold text-slate-900">
                         <div className="font-extrabold text-slate-900">{log.assetNameSnapshot}</div>
@@ -289,28 +302,10 @@ export const SharedAssetHistoryView: React.FC<Props> = ({ assets, onBack }) => {
           </table>
         </div>
 
-        {/* Pagination Controls */}
-        {history && history.pagination.totalPages > 1 && (
-          <div className="flex items-center justify-between border-t border-slate-200 bg-slate-50 px-4 py-3 text-xs font-bold text-slate-700">
-            <div>
-              Toplam <span className="font-extrabold text-blue-900">{history.pagination.total}</span> geçmiş kaydı (Sayfa {history.pagination.page} / {history.pagination.totalPages})
-            </div>
-            <div className="flex gap-2">
-              <button
-                disabled={history.pagination.page <= 1}
-                onClick={() => setFilters({ ...filters, page: filters.page - 1 })}
-                className="rounded-lg border border-slate-300 bg-white px-3 py-1 text-xs font-extrabold text-slate-700 disabled:opacity-40 hover:bg-slate-100 cursor-pointer"
-              >
-                Önceki Sayfa
-              </button>
-              <button
-                disabled={history.pagination.page >= history.pagination.totalPages}
-                onClick={() => setFilters({ ...filters, page: filters.page + 1 })}
-                className="rounded-lg border border-slate-300 bg-white px-3 py-1 text-xs font-extrabold text-slate-700 disabled:opacity-40 hover:bg-slate-100 cursor-pointer"
-              >
-                Sonraki Sayfa
-              </button>
-            </div>
+        {history && (
+          <div ref={sentinelRef} role="status" aria-live="polite" className="flex min-h-14 items-center justify-between gap-3 border-t border-slate-200 bg-slate-50 px-4 py-3 text-xs font-bold text-slate-700">
+            <span><span className="font-extrabold text-blue-900">{history.items.length}</span> / {history.pagination.total} kayıt backend üzerinden yüklendi</span>
+            {loadingMore ? <span className="inline-flex items-center gap-2"><RefreshCw className="h-4 w-4 animate-spin" />Daha fazla geçmiş yükleniyor...</span> : hasMore ? <button type="button" onClick={loadMore} className="rounded-lg border border-slate-300 bg-white px-3 py-2 font-extrabold text-blue-900 hover:bg-slate-100">Daha fazla yükle</button> : history.items.length > 0 ? <span>Tüm güncel kayıtlar yüklendi.</span> : null}
           </div>
         )}
       </div>

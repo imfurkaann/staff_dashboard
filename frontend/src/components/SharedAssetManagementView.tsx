@@ -12,6 +12,8 @@ import { stockApi, StockItem } from '../api/stockApi';
 import { SharedAssetHistoryView } from './SharedAssetHistoryView';
 import { generateUUID } from '../utils/cryptoHelpers';
 import { managementUrl } from '../utils/navigationUrl';
+import { useInfiniteScroll } from '../hooks/useInfiniteScroll';
+import { mergeById } from '../utils/pagination';
 
 type ModalState =
   | { type: 'createAsset' }
@@ -327,7 +329,9 @@ export const SharedAssetManagementView: React.FC = () => {
   const operationKeyRef = useRef(generateUUID());
   const [history, setHistory] = useState<{ items: SharedAssetLog[]; pagination: { page: number; pageSize: number; total: number; totalPages: number } } | null>(null);
   const [historyLoading, setHistoryLoading] = useState(false);
-  const [historyFilters, setHistoryFilters] = useState({ search: '', action: '', holderType: '', dateStart: '', dateEnd: '', page: 1 });
+  const [historyLoadingMore, setHistoryLoadingMore] = useState(false);
+  const [historyFilters, setHistoryFilters] = useState({ search: '', action: '', holderType: '', dateStart: '', dateEnd: '' });
+  const historyRequestIdRef = useRef(0);
   const [todayLogs, setTodayLogs] = useState<SharedAssetLog[]>([]);
   const [detailLogs, setDetailLogs] = useState<SharedAssetLog[]>([]);
   const [retireNotes, setRetireNotes] = useState('');
@@ -426,25 +430,53 @@ export const SharedAssetManagementView: React.FC = () => {
     };
   }, [loadOverview]);
 
-  useEffect(() => {
-    const timer = window.setTimeout(async () => {
-      try {
-        setHistoryLoading(true);
-        setHistory(await sharedAssetApi.getLogs({ ...historyFilters, pageSize: 50 }));
-      } catch (caught) {
-        setError(caught instanceof Error ? caught.message : 'Ortak eşya geçmişi yüklenemedi.');
-      } finally { setHistoryLoading(false); }
-    }, 250);
-    return () => window.clearTimeout(timer);
+  const loadHistory = useCallback(async (pageToFetch = 1) => {
+    const requestId = ++historyRequestIdRef.current;
+    try {
+      if (pageToFetch === 1) setHistoryLoading(true);
+      else setHistoryLoadingMore(true);
+      setError(null);
+      const result = await sharedAssetApi.getLogs({ ...historyFilters, page: pageToFetch, pageSize: 50 });
+      if (requestId !== historyRequestIdRef.current) return;
+      setHistory((current) => pageToFetch === 1
+        ? result
+        : { items: mergeById(current?.items || [], result.items), pagination: result.pagination });
+    } catch (caught) {
+      if (requestId === historyRequestIdRef.current) setError(caught instanceof Error ? caught.message : 'Ortak eşya geçmişi yüklenemedi.');
+    } finally {
+      if (requestId === historyRequestIdRef.current) {
+        setHistoryLoading(false);
+        setHistoryLoadingMore(false);
+      }
+    }
   }, [historyFilters]);
+
+  useEffect(() => {
+    if (modal?.type !== 'fullHistory') return;
+    historyRequestIdRef.current += 1;
+    setHistory(null);
+    const timer = window.setTimeout(() => void loadHistory(1), 250);
+    return () => window.clearTimeout(timer);
+  }, [loadHistory, modal?.type]);
+
+  const historyHasMore = Boolean(history && history.pagination.page < history.pagination.totalPages);
+  const loadMoreHistory = () => {
+    if (!history || !historyHasMore || historyLoading || historyLoadingMore) return;
+    void loadHistory(history.pagination.page + 1);
+  };
+  const historySentinelRef = useInfiniteScroll({
+    hasMore: historyHasMore,
+    isLoading: historyLoading || historyLoadingMore,
+    onLoadMore: loadMoreHistory,
+  });
 
   // "Bugünün Kayıtları" cihaz durumundan türetilmez. Teslim alma gerçekleşse
   // dahi aynı günün kullanım kaydı burada kalmalıdır.
   useEffect(() => {
     const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Istanbul' }).format(new Date());
     let active = true;
-    sharedAssetApi.getLogs({ dateStart: today, dateEnd: today, page: 1, pageSize: 100 })
-      .then((result) => { if (active) setTodayLogs(result.items); })
+    sharedAssetApi.getAllLogs({ dateStart: today, dateEnd: today })
+      .then((items) => { if (active) setTodayLogs(items); })
       .catch((caught) => { if (active) setError(caught instanceof Error ? caught.message : 'Bugünün kullanım kayıtları yüklenemedi.'); });
     return () => { active = false; };
   }, [overview?.assets]);
@@ -452,8 +484,8 @@ export const SharedAssetManagementView: React.FC = () => {
   useEffect(() => {
     if (modal?.type !== 'detail') { setDetailLogs([]); return; }
     let active = true;
-    sharedAssetApi.getLogs({ assetId: modal.asset.id, page: 1, pageSize: 50 })
-      .then((result) => { if (active) setDetailLogs(result.items); })
+    sharedAssetApi.getAllLogs({ assetId: modal.asset.id })
+      .then((items) => { if (active) setDetailLogs(items); })
       .catch((caught) => { if (active) setError(caught instanceof Error ? caught.message : 'Eşya geçmişi yüklenemedi.'); });
     return () => { active = false; };
   }, [modal]);
@@ -568,6 +600,7 @@ export const SharedAssetManagementView: React.FC = () => {
   }, [overview, search, categoryFilter, statusFilter]);
 
   const [statusTab, setStatusTab] = useState<'TODAY' | 'LOANED'>('TODAY');
+  const [visibleAssetRecordCount, setVisibleAssetRecordCount] = useState(25);
 
   const { displayRecords, todayCount, loanedCount } = useMemo(() => {
     const assets = overview?.assets || [];
@@ -612,6 +645,13 @@ export const SharedAssetManagementView: React.FC = () => {
       loanedCount: activeRecords.length,
     };
   }, [overview?.assets, todayLogs, loanRecords, statusTab, search, categoryFilter]);
+  useEffect(() => { setVisibleAssetRecordCount(25); }, [displayRecords]);
+  const hasMoreAssetRecords = visibleAssetRecordCount < displayRecords.length;
+  const loadMoreAssetRecords = () => {
+    if (loading || !hasMoreAssetRecords) return;
+    setVisibleAssetRecordCount((current) => Math.min(current + 25, displayRecords.length));
+  };
+  const assetRecordSentinelRef = useInfiniteScroll({ hasMore: hasMoreAssetRecords, isLoading: loading, onLoadMore: loadMoreAssetRecords });
 
   const runAction = async (action: () => Promise<unknown>, _message: string) => {
     try {
@@ -840,7 +880,7 @@ export const SharedAssetManagementView: React.FC = () => {
                   </td>
                 </tr>
               ) : (
-                displayRecords.map((row, idx) => (
+                displayRecords.slice(0, visibleAssetRecordCount).map((row, idx) => (
                   <tr
                     key={row.id}
                     onClick={() => setModal({ type: 'detail', asset: row.asset })}
@@ -970,6 +1010,10 @@ export const SharedAssetManagementView: React.FC = () => {
               )}
             </tbody>
           </table>
+        </div>
+        <div ref={assetRecordSentinelRef} role="status" aria-live="polite" className="flex min-h-12 items-center justify-between gap-3 border-t border-slate-200 bg-slate-50 px-4 py-3 text-xs font-bold text-slate-600">
+          <span>{Math.min(visibleAssetRecordCount, displayRecords.length)} / {displayRecords.length} güncel backend kaydı gösteriliyor</span>
+          {hasMoreAssetRecords ? <button type="button" onClick={loadMoreAssetRecords} className={secondaryButton}>Daha fazla cihaz göster</button> : displayRecords.length > 0 ? <span>Tüm cihaz kayıtları gösteriliyor.</span> : null}
         </div>
       </div>
 
@@ -1361,8 +1405,8 @@ export const SharedAssetManagementView: React.FC = () => {
               </span>
             </div>
             <div className="grid gap-2 md:grid-cols-5">
-              <input className={inputClass} value={historyFilters.search} onChange={(e) => setHistoryFilters({ ...historyFilters, search: e.target.value, page: 1 })} placeholder="Kod, eşya, kişi, oda veya not ara..." />
-              <select className={inputClass} value={historyFilters.action} onChange={(e) => setHistoryFilters({ ...historyFilters, action: e.target.value, page: 1 })}>
+              <input className={inputClass} value={historyFilters.search} onChange={(e) => setHistoryFilters({ ...historyFilters, search: e.target.value })} placeholder="Kod, eşya, kişi, oda veya not ara..." />
+              <select className={inputClass} value={historyFilters.action} onChange={(e) => setHistoryFilters({ ...historyFilters, action: e.target.value })}>
                 <option value="">Tüm işlem türleri</option>
                 <option value="CHECK_OUT">Zimmet / Teslim</option>
                 <option value="CHECK_IN">İade</option>
@@ -1372,14 +1416,14 @@ export const SharedAssetManagementView: React.FC = () => {
                 <option value="MAINTENANCE_END">Bakım bitişi</option>
                 <option value="STATUS_CHANGE">Durum değişikliği</option>
               </select>
-              <select className={inputClass} value={historyFilters.holderType} onChange={(e) => setHistoryFilters({ ...historyFilters, holderType: e.target.value, page: 1 })}>
+              <select className={inputClass} value={historyFilters.holderType} onChange={(e) => setHistoryFilters({ ...historyFilters, holderType: e.target.value })}>
                 <option value="">Tüm zimmet hedefleri</option>
                 <option value="EMPLOYEE">Personel</option>
                 <option value="ROOM">Oda</option>
                 <option value="OTHER">Harici kişi/kurum</option>
               </select>
-              <input type="date" className={inputClass} value={historyFilters.dateStart} onChange={(e) => setHistoryFilters({ ...historyFilters, dateStart: e.target.value, page: 1 })} />
-              <input type="date" className={inputClass} value={historyFilters.dateEnd} onChange={(e) => setHistoryFilters({ ...historyFilters, dateEnd: e.target.value, page: 1 })} />
+              <input type="date" className={inputClass} value={historyFilters.dateStart} onChange={(e) => setHistoryFilters({ ...historyFilters, dateStart: e.target.value })} />
+              <input type="date" className={inputClass} value={historyFilters.dateEnd} onChange={(e) => setHistoryFilters({ ...historyFilters, dateEnd: e.target.value })} />
             </div>
 
             <div className="overflow-x-auto rounded-2xl border border-slate-200">
@@ -1415,11 +1459,10 @@ export const SharedAssetManagementView: React.FC = () => {
               </table>
             </div>
 
-            {history && history.pagination.totalPages > 1 && (
-              <div className="flex items-center justify-between border-t border-slate-200 pt-3 text-xs font-bold text-slate-600">
-                <button className={secondaryButton} disabled={history.pagination.page <= 1 || historyLoading} onClick={() => setHistoryFilters({ ...historyFilters, page: historyFilters.page - 1 })}>Önceki</button>
-                <span>Sayfa {history.pagination.page} / {history.pagination.totalPages}</span>
-                <button className={secondaryButton} disabled={history.pagination.page >= history.pagination.totalPages || historyLoading} onClick={() => setHistoryFilters({ ...historyFilters, page: historyFilters.page + 1 })}>Sonraki</button>
+            {history && (
+              <div ref={historySentinelRef} role="status" aria-live="polite" className="flex min-h-12 items-center justify-between gap-3 border-t border-slate-200 pt-3 text-xs font-bold text-slate-600">
+                <span>{history.items.length} / {history.pagination.total} kayıt backend üzerinden yüklendi</span>
+                {historyLoadingMore ? <span className="inline-flex items-center gap-2"><RefreshCw className="h-4 w-4 animate-spin" />Daha fazla geçmiş yükleniyor...</span> : historyHasMore ? <button type="button" className={secondaryButton} onClick={loadMoreHistory}>Daha fazla yükle</button> : history.items.length > 0 ? <span>Tüm güncel kayıtlar yüklendi.</span> : null}
               </div>
             )}
           </div>

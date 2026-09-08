@@ -92,6 +92,7 @@ export interface SharedAssetOverview {
 const request = async <T>(path: string, init?: RequestInit): Promise<T> => {
   const response = await fetch(`${appConfig.apiBaseUrl}/shared-assets${path}`, {
     credentials: 'include',
+    cache: 'no-store',
     ...init,
     headers: { 'Content-Type': 'application/json', ...(init?.headers || {}) },
   });
@@ -100,13 +101,28 @@ const request = async <T>(path: string, init?: RequestInit): Promise<T> => {
   return data.data;
 };
 
+type SharedAssetLogFilters = { search?: string; assetId?: string; category?: string; action?: string; holderType?: string; dateStart?: string; dateEnd?: string; page?: number; pageSize?: number };
+
+const getLogs = (params: SharedAssetLogFilters) => {
+  const query = new URLSearchParams();
+  Object.entries(params).forEach(([key, value]) => { if (value !== undefined && value !== '') query.set(key, String(value)); });
+  return request<SharedAssetLogList>(`/logs?${query.toString()}`);
+};
+
+const getAllLogs = async (filters: Omit<SharedAssetLogFilters, 'page' | 'pageSize'>): Promise<SharedAssetLog[]> => {
+  const first = await getLogs({ ...filters, page: 1, pageSize: 100 });
+  const items = [...first.items];
+  for (let page = 2; page <= first.pagination.totalPages; page += 1) {
+    const next = await getLogs({ ...filters, page, pageSize: 100 });
+    items.push(...next.items);
+  }
+  return items;
+};
+
 export const sharedAssetApi = {
   getOverview: () => request<SharedAssetOverview>(''),
-  getLogs: (params: { search?: string; assetId?: string; action?: string; holderType?: string; dateStart?: string; dateEnd?: string; page?: number; pageSize?: number }) => {
-    const query = new URLSearchParams();
-    Object.entries(params).forEach(([key, value]) => { if (value !== undefined && value !== '') query.set(key, String(value)); });
-    return request<SharedAssetLogList>(`/logs?${query.toString()}`);
-  },
+  getLogs,
+  getAllLogs,
   createAsset: (payload: Partial<SharedAsset> & { stockItemId: string }, key?: string) => request<SharedAsset>('', { method: 'POST', body: JSON.stringify(payload), headers: key ? { 'X-Idempotency-Key': key } : undefined }),
   checkOutAsset: (id: string, payload: { holderType: 'EMPLOYEE' | 'ROOM' | 'OTHER'; employeeId?: string; customBorrowerName?: string; roomId?: string; expectedReturnDate?: string; notes?: string }, key?: string) =>
     request<SharedAsset>(`/${id}/check-out`, { method: 'POST', body: JSON.stringify(payload), headers: key ? { 'X-Idempotency-Key': key } : undefined }),

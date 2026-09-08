@@ -7,6 +7,10 @@ import { ticketCreateRateLimiter } from '../middleware/rateLimiter';
 const router = Router();
 
 router.use(authenticateToken);
+router.use((_req, res, next) => {
+  res.setHeader('Cache-Control', 'private, no-store');
+  next();
+});
 
 router.get('/', authorizePermissions(permissions.TICKET_VIEW), SupportTicketController.getTickets);
 router.get('/my-tickets', SupportTicketController.getMyTickets);

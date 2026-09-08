@@ -10,7 +10,7 @@ export class AuthController {
   public static async login(req: Request, res: Response, next: NextFunction) {
     try {
       res.setHeader('Cache-Control', 'no-store');
-      const { usernameOrEmail, password } = req.body;
+      const { usernameOrEmail, password } = req.body || {};
       const result = await AuthService.login({ usernameOrEmail, password });
 
       // Set Secure HTTP-Only Cookie via central config
@@ -79,7 +79,7 @@ export class AuthController {
     try {
       res.setHeader('Cache-Control', 'no-store');
       const userId = req.user!.id;
-      const { oldPassword, newPassword } = req.body;
+      const { oldPassword, newPassword } = req.body || {};
 
       const result = await AuthService.changePassword({ userId, oldPassword, newPassword });
 

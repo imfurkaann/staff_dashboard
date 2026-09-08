@@ -103,6 +103,14 @@ export interface StockOverview {
   summary: { totalRegistered: number; available: number; inRooms: number; inService: number; issues: number };
 }
 
+export interface StockPersonnelOption {
+  id: string;
+  firstName: string;
+  lastName: string;
+  registrationNo?: string | null;
+  department: string;
+}
+
 export interface StockMovementList {
   items: StockMovement[];
   pagination: { page: number; pageSize: number; total: number; totalPages: number };
@@ -111,6 +119,7 @@ export interface StockMovementList {
 const request = async <T>(path: string, init?: RequestInit): Promise<T> => {
   const response = await fetch(`${appConfig.apiBaseUrl}/stock${path}`, {
     credentials: 'include',
+    cache: 'no-store',
     ...init,
     headers: { 'Content-Type': 'application/json', ...(init?.headers || {}) },
   });
@@ -119,21 +128,37 @@ const request = async <T>(path: string, init?: RequestInit): Promise<T> => {
   return data.data;
 };
 
+type StockMovementFilters = { search?: string; stockItemId?: string; roomInventoryId?: string; type?: MovementType | 'ALL'; dateStart?: string; dateEnd?: string; page?: number; pageSize?: number };
+
+const getMovements = (filters: StockMovementFilters = {}) => {
+  const params = new URLSearchParams();
+  if (filters.search) params.set('search', filters.search);
+  if (filters.stockItemId) params.set('stockItemId', filters.stockItemId);
+  if (filters.roomInventoryId) params.set('roomInventoryId', filters.roomInventoryId);
+  if (filters.type && filters.type !== 'ALL') params.set('type', filters.type);
+  if (filters.dateStart) params.set('dateStart', filters.dateStart);
+  if (filters.dateEnd) params.set('dateEnd', filters.dateEnd);
+  if (filters.page) params.set('page', String(filters.page));
+  if (filters.pageSize) params.set('pageSize', String(filters.pageSize));
+  return request<StockMovementList>(`/movements?${params.toString()}`);
+};
+
+const getAllMovements = async (filters: Omit<StockMovementFilters, 'page' | 'pageSize'> = {}): Promise<StockMovement[]> => {
+  const first = await getMovements({ ...filters, page: 1, pageSize: 100 });
+  const items = [...first.items];
+  for (let page = 2; page <= first.pagination.totalPages; page += 1) {
+    const next = await getMovements({ ...filters, page, pageSize: 100 });
+    items.push(...next.items);
+  }
+  return items;
+};
+
 export const stockApi = {
   getOverview: () => request<StockOverview>(''),
-  getMovements: (filters: { search?: string; stockItemId?: string; roomInventoryId?: string; type?: MovementType | 'ALL'; dateStart?: string; dateEnd?: string; page?: number; pageSize?: number } = {}) => {
-    const params = new URLSearchParams();
-    if (filters.search) params.set('search', filters.search);
-    if (filters.stockItemId) params.set('stockItemId', filters.stockItemId);
-    if (filters.roomInventoryId) params.set('roomInventoryId', filters.roomInventoryId);
-    if (filters.type && filters.type !== 'ALL') params.set('type', filters.type);
-    if (filters.dateStart) params.set('dateStart', filters.dateStart);
-    if (filters.dateEnd) params.set('dateEnd', filters.dateEnd);
-    if (filters.page) params.set('page', String(filters.page));
-    if (filters.pageSize) params.set('pageSize', String(filters.pageSize));
-    return request<StockMovementList>(`/movements?${params.toString()}`);
-  },
+  getMovements,
+  getAllMovements,
   getNextItemCode: (category?: string) => request<{ itemCode: string }>(`/next-code${category ? `?category=${encodeURIComponent(category)}` : ''}`),
+  getPersonnelOptions: () => request<StockPersonnelOption[]>('/personnel-options'),
   // Compatibility for employee/room detail selectors; all data still comes from the central stock overview.
   getStockItems: async () => (await request<StockOverview>('')).items,
   setRoomStandard: (id: string, payload: { fixedQuantity: number; quantityPerBed: number; roomType?: string }) => request(`/` + id + '/room-standard', { method: 'PUT', body: JSON.stringify(payload) }),
@@ -143,6 +168,7 @@ export const stockApi = {
   reconcileCount: (id: string, payload: { countedAvailable: number; notes?: string }, key?: string) => request<{ item: StockItem; previousAvailable: number; countedAvailable: number; difference: number }>(`/${id}/reconcile-count`, { method: 'POST', headers: key ? { 'X-Idempotency-Key': key } : undefined, body: JSON.stringify(payload) }),
   assignRoom: (id: string, payload: { roomId: string; quantity: number; brand?: string; notes?: string }, key?: string) => request<RoomAssignment>(`/${id}/assign-room`, { method: 'POST', headers: key ? { 'X-Idempotency-Key': key } : undefined, body: JSON.stringify(payload) }),
   assignRooms: (id: string, payload: { roomIds: string[]; quantityPerRoom: number; brand?: string; notes?: string }, key?: string) => request<{ assignments: RoomAssignment[]; roomCount: number; totalQuantity: number }>(`/${id}/assign-rooms`, { method: 'POST', headers: key ? { 'X-Idempotency-Key': key } : undefined, body: JSON.stringify(payload) }),
+  assignPersonnel: (id: string, payload: { employeeId: string; notes?: string }, key?: string) => request<PersonnelAssignment>(`/${id}/assign-personnel`, { method: 'POST', headers: key ? { 'X-Idempotency-Key': key } : undefined, body: JSON.stringify(payload) }),
   returnAssignment: (id: string, payload: { outcome: 'RETURNED' | 'RETIRED'; notes?: string }, key?: string) => request<RoomAssignment>(`/assignments/${id}/return`, { method: 'POST', headers: key ? { 'X-Idempotency-Key': key } : undefined, body: JSON.stringify(payload) }),
   transferAssignment: (id: string, payload: { roomId: string; notes?: string }, key?: string) => request<RoomAssignment>(`/assignments/${id}/transfer`, { method: 'POST', headers: key ? { 'X-Idempotency-Key': key } : undefined, body: JSON.stringify(payload) }),
   updateAssignmentIdentity: (id: string, payload: { brand?: string; notes?: string }, key?: string) => request<RoomAssignment>(`/assignments/${id}/identity`, { method: 'PATCH', headers: key ? { 'X-Idempotency-Key': key } : undefined, body: JSON.stringify(payload) }),

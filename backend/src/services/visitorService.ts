@@ -212,7 +212,7 @@ export class VisitorService {
 
     const overdueThreshold = new Date(Date.now() - 24 * 60 * 60 * 1000);
     const [rows, total, insideSum, overdueInsideSum, todayExitedSum, todayDeletedCount] = await prisma.$transaction([
-      prisma.visitor.findMany({ where, select: visitorSelect, orderBy: { [sortBy]: sortOrder }, skip: (page - 1) * pageSize, take: pageSize }),
+      prisma.visitor.findMany({ where, select: visitorSelect, orderBy: [{ [sortBy]: sortOrder }, { id: sortOrder }], skip: (page - 1) * pageSize, take: pageSize }),
       prisma.visitor.count({ where }),
       prisma.visitor.aggregate({
         where: { status: VisitorStatus.INSIDE, isDeleted: false },

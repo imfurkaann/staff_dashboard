@@ -42,7 +42,7 @@ export class EmployeeController {
       const startDate = singleQuery(req.query.startDate, 'Başlangıç tarihi');
       const endDate = singleQuery(req.query.endDate, 'Bitiş tarihi');
 
-      const employees = scopeEmployeeData(await EmployeeService.getAllEmployees(search, status, department, gender, startDate, endDate, config.employee.listMaxRows), req.user?.role);
+      const employees = scopeEmployeeData(await EmployeeService.getAllEmployees(search, status, department, gender, startDate, endDate), req.user?.role);
 
       res.status(200).json({
         success: true,
@@ -175,10 +175,11 @@ export class EmployeeController {
       const { id } = req.params;
       validateEmployeeId(id);
       const createdById = req.user?.id;
+      const body = requestBody(req.body);
       const item = await EmployeeService.addInventoryItem(id, {
-        ...req.body,
+        ...body,
         createdById,
-      });
+      } as Parameters<typeof EmployeeService.addInventoryItem>[1]);
 
       res.status(201).json({
         success: true,
@@ -198,10 +199,11 @@ export class EmployeeController {
       const { id } = req.params;
       validateEmployeeId(id);
       const createdById = req.user?.id;
+      const body = requestBody(req.body);
       const note = await EmployeeService.addDisciplinaryNote(id, {
-        ...req.body,
+        ...body,
         createdById,
-      });
+      } as Parameters<typeof EmployeeService.addDisciplinaryNote>[1]);
 
       res.status(201).json({
         success: true,
@@ -220,7 +222,7 @@ export class EmployeeController {
     try {
       const { inventoryId } = req.params;
       validateEmployeeId(inventoryId, 'Zimmet kimliği');
-      const item = await EmployeeService.updateInventoryItem(inventoryId, req.body);
+      const item = await EmployeeService.updateInventoryItem(inventoryId, requestBody(req.body));
 
       res.status(200).json({
         success: true,
@@ -258,7 +260,7 @@ export class EmployeeController {
       const { inventoryId } = req.params;
       validateEmployeeId(inventoryId, 'Zimmet kimliği');
       const returnedById = req.user?.id;
-      const { status, notes } = req.body || {};
+      const { status, notes } = requestBody(req.body);
       const item = await EmployeeService.returnInventoryItem(inventoryId, returnedById, status, notes);
 
       res.status(200).json({
@@ -278,7 +280,7 @@ export class EmployeeController {
     try {
       const { noteId } = req.params;
       validateEmployeeId(noteId, 'Disiplin notu kimliği');
-      const note = await EmployeeService.updateDisciplinaryNote(noteId, req.body);
+      const note = await EmployeeService.updateDisciplinaryNote(noteId, requestBody(req.body));
 
       res.status(200).json({
         success: true,

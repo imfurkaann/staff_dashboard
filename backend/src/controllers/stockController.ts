@@ -7,7 +7,10 @@ import { StockMovementType } from '@prisma/client';
 import { stockPositivePage, stockRequestBody, stockSingleQuery, validateStockId } from '../security/stockPolicy';
 import { config } from '../config';
 import { scopeStockData } from '../security/dataScope';
+import { hasPermission, permissions } from '../security/permissions';
+import { EmployeeService } from '../services/employeeService';
 const userId = (req: Request) => (req as AuthenticatedRequest).user?.id;
+const mayViewPersonnelStock = (req: Request) => hasPermission((req as AuthenticatedRequest).user?.role, permissions.STOCK_MANAGE);
 const requestKey = (req: Request) => {
   const value = req.get('X-Idempotency-Key');
   return value ? validateStockId(value, 'Tekrar-gönderim anahtarı') : undefined;
@@ -15,7 +18,10 @@ const requestKey = (req: Request) => {
 
 export const stockController = {
   getOverview: async (req: Request, res: Response, next: NextFunction) => {
-    try { res.status(200).json({ success: true, data: scopeStockData(await StockService.getOverview(), (req as AuthenticatedRequest).user?.role) }); } catch (error) { next(error); }
+    try {
+      const role = (req as AuthenticatedRequest).user?.role;
+      res.status(200).json({ success: true, data: scopeStockData(await StockService.getOverview({ includePersonnel: mayViewPersonnelStock(req) }), role) });
+    } catch (error) { next(error); }
   },
 
   getMovements: async (req: Request, res: Response, next: NextFunction) => {
@@ -35,8 +41,29 @@ export const stockController = {
         search, stockItemId, roomInventoryId, type: type as StockMovementType | undefined, dateStart, dateEnd,
         page: stockPositivePage(req.query.page, 'Sayfa', 1),
         pageSize: Math.min(stockPositivePage(req.query.pageSize, 'Sayfa boyutu', 50), 100),
-      });
+      }, { includePersonnel: mayViewPersonnelStock(req) });
       res.status(200).json({ success: true, data: scopeStockData(data, (req as AuthenticatedRequest).user?.role) });
+    } catch (error) { next(error); }
+  },
+
+  getPersonnelOptions: async (_req: Request, res: Response, next: NextFunction) => {
+    try { res.status(200).json({ success: true, data: await StockService.getPersonnelOptions() }); } catch (error) { next(error); }
+  },
+
+  assignPersonnel: async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const body = stockRequestBody(req.body);
+      const stockItemId = validateStockId(req.params.id);
+      const employeeId = validateStockId(body.employeeId, 'Personel kimliği');
+      const item = await EmployeeService.addInventoryItem(employeeId, {
+        stockItemId,
+        itemName: 'STOK ZİMMETİ',
+        notes: body.notes,
+        createdById: userId(req),
+        requestKey: requestKey(req),
+        requireResident: true,
+      });
+      res.status(201).json({ success: true, data: item, message: 'Ürün personele zimmetlendi.' });
     } catch (error) { next(error); }
   },
 

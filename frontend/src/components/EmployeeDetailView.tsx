@@ -49,6 +49,7 @@ import { AddVisitorModal } from './AddVisitorModal';
 import { User as UserEntity } from '../api/authApi';
 import { can } from '../security/accessControl';
 import { appConfig } from '../config/appConfig';
+import { useInfiniteScroll } from '../hooks/useInfiniteScroll';
 
 interface EmployeeDetailViewProps {
   employee: Employee;
@@ -150,9 +151,11 @@ export const EmployeeDetailView: React.FC<EmployeeDetailViewProps> = ({
     }
     return 'general';
   });
+  const [detailVisibleCount, setDetailVisibleCount] = useState(25);
 
   const handleTabSwitch = (tab: TabType) => {
     setActiveTab(tab);
+    setDetailVisibleCount(25);
     localStorage.setItem('staff_app_emp_detail_tab', tab);
   };
   useEffect(() => {
@@ -444,28 +447,43 @@ export const EmployeeDetailView: React.FC<EmployeeDetailViewProps> = ({
   };
 
   // Visitor Records State
-  // Ziyaretçi API'si tamamlandığında bu state gerçek kayıtlardan beslenecek.
-  const [visitors, setVisitors] = useState<Array<{
-    id: string;
-    visitorName: string;
-    visitorTcNo: string;
-    relation: string;
-    entryDate: string;
-    exitDate: string | null;
-    status: string;
-    notes: string;
-  }>>([]);
   const [visitorRecords, setVisitorRecords] = useState<Visitor[]>([]);
   const [visitorRecordsLoading, setVisitorRecordsLoading] = useState(false);
   const [visitorRecordsError, setVisitorRecordsError] = useState<string | null>(null);
   const [isVisitorModalOpen, setIsVisitorModalOpen] = useState(false);
+  const detailRecordTotal = activeTab === 'inventory'
+    ? deliveredInventories.length + personalBelongings.length
+    : activeTab === 'complaints'
+      ? complaints.length
+      : activeTab === 'visitors'
+        ? visitorRecords.length
+        : activeTab === 'occupancyHistory'
+          ? (currentEmp.occupancies?.length || 0)
+          : 0;
+  const visibleDetailTotal = activeTab === 'inventory'
+    ? Math.min(detailVisibleCount, deliveredInventories.length) + Math.min(detailVisibleCount, personalBelongings.length)
+    : Math.min(detailVisibleCount, detailRecordTotal);
+  const hasMoreDetailRecords = visibleDetailTotal < detailRecordTotal;
+  const detailSentinelRef = useInfiniteScroll({
+    hasMore: hasMoreDetailRecords,
+    isLoading: activeTab === 'visitors' && visitorRecordsLoading,
+    onLoadMore: () => setDetailVisibleCount((count) => count + 25),
+  });
+  const detailInfiniteFooter = detailRecordTotal > 0 && (
+    <div ref={detailSentinelRef} className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
+      <span className="text-[11px] font-bold text-slate-500">{visibleDetailTotal} / {detailRecordTotal} kayıt gösteriliyor</span>
+      {hasMoreDetailRecords
+        ? <button type="button" onClick={() => setDetailVisibleCount((count) => count + 25)} className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-bold text-slate-700 hover:bg-slate-100">Daha fazla göster</button>
+        : <span className="text-[11px] font-bold text-emerald-700">Tüm kayıtlar gösterildi</span>}
+    </div>
+  );
 
   const loadVisitorRecords = async () => {
     setVisitorRecordsLoading(true);
     setVisitorRecordsError(null);
     try {
-      const result = await visitorApi.getVisitors({ hostEmployeeId: employee.id, pageSize: 100, sortBy: 'entryTime', sortOrder: 'desc' });
-      setVisitorRecords(result.items);
+      const records = await visitorApi.getAllVisitors({ hostEmployeeId: employee.id, sortBy: 'entryTime', sortOrder: 'desc' });
+      setVisitorRecords(records);
     } catch (error) {
       setVisitorRecordsError(error instanceof Error ? error.message : 'Ziyaretçi kayıtları yüklenemedi.');
     } finally {
@@ -478,7 +496,7 @@ export const EmployeeDetailView: React.FC<EmployeeDetailViewProps> = ({
   }, [employee.id, canViewVisitors]);
 
   // Edit Item State for Excel Tables, Complaints & Visitors
-  const [editingItem, setEditingItem] = useState<{ id: string; type: 'delivered' | 'personal' | 'returned' | 'complaint' | 'visitor'; itemName: string; serialNo?: string; content?: string; relation?: string } | null>(null);
+  const [editingItem, setEditingItem] = useState<{ id: string; type: 'delivered' | 'personal' | 'returned' | 'complaint'; itemName: string; serialNo?: string; content?: string } | null>(null);
 
   // Unreturned Item Modal State
   const [unreturnedModalItem, setUnreturnedModalItem] = useState<{ id: string; itemName: string } | null>(null);
@@ -533,20 +551,18 @@ export const EmployeeDetailView: React.FC<EmployeeDetailViewProps> = ({
     onConfirm: () => void;
   } | null>(null);
 
-  const handleDeleteItem = (id: string, type: 'delivered' | 'personal' | 'returned' | 'complaint' | 'visitor') => {
+  const handleDeleteItem = (id: string, type: 'delivered' | 'personal' | 'returned' | 'complaint') => {
     const itemName = type === 'delivered'
       ? deliveredInventories.find(i => i.id === id)?.itemName
       : type === 'personal'
         ? personalBelongings.find(p => p.id === id)?.itemName
         : type === 'returned'
           ? returnedInventories.find(r => r.id === id)?.itemName
-          : type === 'complaint'
-            ? complaints.find(c => c.id === id)?.title
-            : visitors.find(v => v.id === id)?.visitorName;
+          : complaints.find(c => c.id === id)?.title;
 
     setConfirmModal({
       isOpen: true,
-      title: type === 'visitor' ? 'Ziyaretçi Kaydını Silme Onayı' : type === 'complaint' ? 'Şikayet Kaydını Silme Onayı' : 'Kaydı Silme Onayı',
+      title: type === 'complaint' ? 'Şikayet Kaydını Silme Onayı' : 'Kaydı Silme Onayı',
       message: itemName
         ? `"${itemName}" kaydını silmek istediğinizden emin misiniz?`
         : 'Bu kaydı silmek istediğinizden emin misiniz?',
@@ -574,10 +590,8 @@ export const EmployeeDetailView: React.FC<EmployeeDetailViewProps> = ({
           setPersonalBelongings(personalBelongings.filter(p => p.id !== id));
         } else if (type === 'returned') {
           setReturnedInventories(returnedInventories.filter(r => r.id !== id));
-        } else if (type === 'complaint') {
+        } else {
           setComplaints(complaints.filter(c => c.id !== id));
-        } else if (type === 'visitor') {
-          setVisitors(visitors.filter(v => v.id !== id));
         }
         setConfirmModal(null);
       }
@@ -649,16 +663,8 @@ export const EmployeeDetailView: React.FC<EmployeeDetailViewProps> = ({
       setPersonalBelongings(personalBelongings.map(p => p.id === editingItem.id ? { ...p, itemName: editingItem.itemName, serialNo: editingItem.serialNo || p.serialNo } : p));
     } else if (editingItem.type === 'returned') {
       setReturnedInventories(returnedInventories.map(r => r.id === editingItem.id ? { ...r, itemName: editingItem.itemName } : r));
-    } else if (editingItem.type === 'complaint') {
+    } else {
       setComplaints(complaints.map(c => c.id === editingItem.id ? { ...c, title: editingItem.itemName, content: editingItem.content || c.content } : c));
-    } else if (editingItem.type === 'visitor') {
-      setVisitors(visitors.map(v => v.id === editingItem.id ? {
-        ...v,
-        visitorName: editingItem.itemName,
-        visitorTcNo: editingItem.serialNo || v.visitorTcNo,
-        relation: editingItem.relation || v.relation,
-        notes: editingItem.content || v.notes,
-      } : v));
     }
 
     setEditingItem(null);
@@ -834,67 +840,7 @@ export const EmployeeDetailView: React.FC<EmployeeDetailViewProps> = ({
             </div>
 
             <form onSubmit={handleSaveEdit} className="space-y-3.5 text-xs">
-              {editingItem.type === 'visitor' ? (
-                <>
-                  <div>
-                    <label className="block font-bold text-slate-800 mb-1">
-                      Ziyaretçi Adı Soyadı *
-                    </label>
-                    <input
-                      type="text"
-                      required
-                      value={editingItem.itemName}
-                      onChange={(e) => setEditingItem({ ...editingItem, itemName: e.target.value })}
-                      className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl font-semibold text-slate-900 outline-none"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block font-bold text-slate-800 mb-1">
-                      TC Kimlik No
-                    </label>
-                    <input
-                      type="text"
-                      maxLength={11}
-                      value={editingItem.serialNo || ''}
-                      onChange={(e) => setEditingItem({ ...editingItem, serialNo: e.target.value })}
-                      className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl font-semibold text-slate-900 outline-none"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block font-bold text-slate-800 mb-1">
-                      Yakınlık / İlişkisi *
-                    </label>
-                    <select
-                      value={editingItem.relation || 'Kardeşi'}
-                      onChange={(e) => setEditingItem({ ...editingItem, relation: e.target.value })}
-                      className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl font-bold text-slate-900 outline-none cursor-pointer"
-                    >
-                      <option value="Kardeşi">Kardeşi</option>
-                      <option value="Babası">Babası</option>
-                      <option value="Annesi">Annesi</option>
-                      <option value="Eşi">Eşi</option>
-                      <option value="Çocuğu">Çocuğu</option>
-                      <option value="Arkadaşı">Arkadaşı</option>
-                      <option value="Akrabası">Akrabası</option>
-                      <option value="Diğer">Diğer</option>
-                    </select>
-                  </div>
-
-                  <div>
-                    <label className="block font-bold text-slate-800 mb-1">
-                      Açıklama / Not
-                    </label>
-                    <textarea
-                      rows={2}
-                      value={editingItem.content || ''}
-                      onChange={(e) => setEditingItem({ ...editingItem, content: e.target.value })}
-                      className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl font-semibold text-slate-900 outline-none"
-                    />
-                  </div>
-                </>
-              ) : editingItem.type === 'complaint' ? (
+              {editingItem.type === 'complaint' ? (
                 <>
                   <div>
                     <label className="block font-extrabold text-slate-800 mb-1.5">
@@ -2124,7 +2070,7 @@ export const EmployeeDetailView: React.FC<EmployeeDetailViewProps> = ({
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-200">
-                      {deliveredInventories.map((inv) => (
+                      {deliveredInventories.slice(0, detailVisibleCount).map((inv) => (
                         <tr key={inv.id} className="hover:bg-slate-50 transition-colors">
                           <td className="py-1.5 px-3 font-extrabold text-slate-900 border-r border-slate-200 flex items-center gap-2">
                             <Key className="w-3.5 h-3.5 text-[#1e3a8a] shrink-0" />
@@ -2241,7 +2187,7 @@ export const EmployeeDetailView: React.FC<EmployeeDetailViewProps> = ({
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-purple-200/60">
-                      {personalBelongings.map((pb) => (
+                      {personalBelongings.slice(0, detailVisibleCount).map((pb) => (
                         <tr key={pb.id} className="hover:bg-purple-50/40 transition-colors">
                           <td className="py-1 px-2 border-r border-purple-200 text-center">
                             {(pb as any).photoUrl ? (
@@ -2319,6 +2265,8 @@ export const EmployeeDetailView: React.FC<EmployeeDetailViewProps> = ({
                 </div>
               </div>
 
+              {detailInfiniteFooter}
+
             </div>
           )}
 
@@ -2350,7 +2298,7 @@ export const EmployeeDetailView: React.FC<EmployeeDetailViewProps> = ({
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-amber-200/60">
-                      {complaints.map((cmp) => (
+                      {complaints.slice(0, detailVisibleCount).map((cmp) => (
                         <tr key={cmp.id} className="hover:bg-amber-50/40 transition-colors">
                           <td className="py-2 px-3 font-extrabold text-slate-900 border-r border-amber-200 align-top">
                             <div className="flex items-center gap-1.5">
@@ -2401,6 +2349,7 @@ export const EmployeeDetailView: React.FC<EmployeeDetailViewProps> = ({
                   Bu personel hakkında verilmiş herhangi bir şikayet veya disiplin notu bulunmamaktadır.
                 </div>
               )}
+              {detailInfiniteFooter}
             </div>
           )}
 
@@ -2414,10 +2363,11 @@ export const EmployeeDetailView: React.FC<EmployeeDetailViewProps> = ({
               </div>
               {visitorRecordsError && <div className="rounded-xl border border-rose-200 bg-rose-50 p-3 text-xs font-bold text-rose-800">{visitorRecordsError}</div>}
               <VisitorRecordsTable
-                visitors={visitorRecords}
+                visitors={visitorRecords.slice(0, detailVisibleCount)}
                 loading={visitorRecordsLoading}
                 readOnly={true}
               />
+              {detailInfiniteFooter}
               {canManageVisitors && <AddVisitorModal isOpen={isVisitorModalOpen} fixedHostEmployeeId={employee.id} onClose={() => setIsVisitorModalOpen(false)} onSuccess={loadVisitorRecords} />}
             </div>
           )}
@@ -2445,7 +2395,7 @@ export const EmployeeDetailView: React.FC<EmployeeDetailViewProps> = ({
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-200">
-                      {currentEmp.occupancies.map((log: any) => {
+                      {currentEmp.occupancies.slice(0, detailVisibleCount).map((log: any) => {
                         const blockName = log.bed?.room?.block?.name || '-';
                         const roomNumber = log.bed?.room?.roomNumber || '-';
                         const bedLabel = log.bed?.bedLabel || '-';
@@ -2484,6 +2434,7 @@ export const EmployeeDetailView: React.FC<EmployeeDetailViewProps> = ({
                   Bu personel için henüz bir konaklama geçmişi kaydı bulunmamaktadır.
                 </div>
               )}
+              {detailInfiniteFooter}
             </div>
           )}
 

@@ -1,3 +1,7 @@
+-- Older databases may have recorded the earlier room-type migration before this
+-- column was added to that migration. Keep this hardening migration self-contained.
+ALTER TABLE "Room" ADD COLUMN IF NOT EXISTS "roomType" TEXT DEFAULT 'PERSONEL_ODASI';
+
 UPDATE "Room" SET "roomType" = 'PERSONEL_ODASI' WHERE "roomType" IS NULL;
 ALTER TABLE "Room" ALTER COLUMN "roomType" SET NOT NULL;
 

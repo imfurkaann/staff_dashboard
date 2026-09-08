@@ -13,7 +13,6 @@ async function main() {
     UNION ALL
     SELECT 'cachedPersonnelBalanceMismatch', COUNT(*)::bigint FROM "StockItem" s
       WHERE s."usedStock" <> COALESCE((SELECT COUNT(*)::int FROM "InventoryItem" i WHERE i."stockItemId" = s.id AND i."returnedDate" IS NULL AND i."isDeleted" = false), 0)
-        + COALESCE((SELECT COUNT(*)::int FROM "SharedAsset" a WHERE a."stockItemId" = s.id AND a.status = 'LOANED' AND a."currentHolderType" = 'OTHER'), 0)
     UNION ALL
     SELECT 'roomReturnStateMismatch', COUNT(*)::bigint FROM "RoomInventory"
       WHERE ("returnedAt" IS NULL AND status IN ('RETIRED','LOST')) OR ("returnedAt" IS NOT NULL AND status NOT IN ('RETIRED','LOST'))

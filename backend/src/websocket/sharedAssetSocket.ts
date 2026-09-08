@@ -5,6 +5,7 @@ import { WebSocketServer, WebSocket } from 'ws';
 import prisma from '../db/prisma';
 import { config } from '../config';
 import { AuthService } from '../services/authService';
+import { hasPermission, permissions } from '../security/permissions';
 
 type SharedAssetEvent = 'SHARED_ASSET_UPDATED' | 'SHARED_ASSET_CHECKOUT' | 'SHARED_ASSET_CHECKIN';
 type SharedAssetPayload = { assetId?: string; status?: string; borrowerName?: string } & Record<string, unknown>;
@@ -46,6 +47,7 @@ async function authenticateUpgrade(request: IncomingMessage) {
       },
     });
     if (!user?.isActive || user.mustChangePassword || decoded.pwd !== AuthService.passwordVersion(user.passwordHash)) return null;
+    if (!hasPermission(user.role, permissions.SHARED_ASSET_VIEW)) return null;
     return {
       userId: user.id,
       employeeId: user.employee?.id,

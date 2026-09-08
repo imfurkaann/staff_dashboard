@@ -9,6 +9,10 @@ const router = Router();
 // Authenticated route for staff members to access their own portal
 router.use(authenticateToken);
 router.use(authorizePermissions(permissions.PORTAL_SELF));
+router.use((_req, res, next) => {
+  res.setHeader('Cache-Control', 'private, no-store');
+  next();
+});
 
 // GET /api/portal/me (Fetch staff room, roommates, inventories, and notifications)
 router.get('/me', PortalController.getMyPortalData);

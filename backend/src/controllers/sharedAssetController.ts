@@ -24,6 +24,7 @@ export class SharedAssetController {
       const data = await SharedAssetService.getLogs({
         assetId,
         search: sharedAssetQuery(req.query.search, 'Arama filtresi'),
+        category: sharedAssetQuery(req.query.category, 'Kategori filtresi'),
         action: sharedAssetQuery(req.query.action, 'İşlem türü filtresi'),
         holderType: sharedAssetQuery(req.query.holderType, 'Zimmet türü filtresi'),
         dateStart: sharedAssetQuery(req.query.dateStart, 'Başlangıç tarihi'),
@@ -96,7 +97,7 @@ export class SharedAssetController {
   public static async updateLog(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
     try {
       sharedAssetId(req.params.logId, 'İşlem kaydı kimliği');
-      const updated = await SharedAssetService.updateLog(req.params.logId, req.body);
+      const updated = await SharedAssetService.updateLog(req.params.logId, sharedAssetBody(req.body));
       res.json({ success: true, message: 'İşlem kaydı güncellendi.', data: updated });
     } catch (error) { next(error); }
   }

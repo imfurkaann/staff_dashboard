@@ -75,7 +75,6 @@ const maintenanceInclude = {
   updatedBy: { select: { id: true, fullName: true } },
   events: {
     orderBy: { createdAt: 'desc' as const },
-    take: 100,
     include: { performedByUser: { select: { id: true, fullName: true } } },
   },
 } satisfies Prisma.MaintenanceLogInclude;
@@ -196,6 +195,7 @@ export const maintenanceService = {
           { status: 'asc' },
           { priority: 'desc' },
           { createdAt: 'desc' },
+          { id: 'desc' },
         ],
         skip,
         take: limit,

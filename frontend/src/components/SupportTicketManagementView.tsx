@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   AlertTriangle, Check, CheckCircle2, Clock, Filter, MessageSquareWarning,
   RefreshCw, Search, X, User, ArrowRight, CornerDownRight, MessageSquare, Edit3
@@ -7,6 +7,7 @@ import { SupportTicket, SupportTicketStatus, ticketApi, connectTicketSocket, pla
 import { User as UserType } from '../api/authApi';
 import { can } from '../security/accessControl';
 import { managementUrl } from '../utils/navigationUrl';
+import { useInfiniteScroll } from '../hooks/useInfiniteScroll';
 
 const TICKET_CATEGORIES = [
   'GÜRÜLTÜ / RAHATSIZLIK',
@@ -40,9 +41,10 @@ interface SupportTicketManagementViewProps {
 }
 
 export const SupportTicketManagementView: React.FC<SupportTicketManagementViewProps> = ({ currentUser }) => {
-  const canManage = currentUser ? can(currentUser.role, 'TICKET_MANAGE') : true;
+  const canManage = Boolean(currentUser && can(currentUser.role, 'TICKET_MANAGE'));
 
   const [tickets, setTickets] = useState<SupportTicket[]>([]);
+  const [visibleCount, setVisibleCount] = useState(25);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -50,6 +52,8 @@ export const SupportTicketManagementView: React.FC<SupportTicketManagementViewPr
   const [statusFilter, setStatusFilter] = useState<string>('ALL');
   const [categoryFilter, setCategoryFilter] = useState<string>('ALL');
   const [search, setSearch] = useState<string>('');
+  const searchRef = useRef(search);
+  searchRef.current = search;
 
   // Selected Ticket Modal
   const [selectedTicket, setSelectedTicket] = useState<SupportTicket | null>(null);
@@ -59,16 +63,17 @@ export const SupportTicketManagementView: React.FC<SupportTicketManagementViewPr
   const [updateStatus, setUpdateStatus] = useState<SupportTicketStatus>('OPEN');
   const [updateNote, setUpdateNote] = useState<string>('');
 
-  const loadData = async () => {
+  const loadData = async (searchValue = search) => {
     try {
       setLoading(true);
       setError(null);
       const res = await ticketApi.getTickets({
         status: statusFilter,
         category: categoryFilter,
-        search,
+        search: searchValue,
       });
       setTickets(res.tickets || []);
+      setVisibleCount(25);
     } catch (err: any) {
       setError(err instanceof Error ? err.message : 'Talep listesi yüklenemedi.');
     } finally {
@@ -82,12 +87,8 @@ export const SupportTicketManagementView: React.FC<SupportTicketManagementViewPr
     const cleanupSocket = connectTicketSocket((event) => {
       if (event.type === 'TICKET_CREATED') {
         playChimeSound();
-        setTickets((prev) => [event.data, ...prev.filter((t) => t.id !== event.data.id)]);
-      } else if (event.type === 'TICKET_UPDATED') {
-        setTickets((prev) =>
-          prev.map((t) => (t.id === event.data.id ? { ...t, ...event.data } : t))
-        );
       }
+      if (event.type === 'TICKET_CREATED' || event.type === 'TICKET_UPDATED') void loadData(searchRef.current);
     });
 
     return () => {
@@ -160,6 +161,12 @@ export const SupportTicketManagementView: React.FC<SupportTicketManagementViewPr
         return <span className="px-2.5 py-1 text-[10px] font-bold rounded-xl border border-slate-200 bg-slate-100 text-slate-700">{status}</span>;
     }
   };
+  const hasMoreTickets = visibleCount < tickets.length;
+  const loadMoreTickets = () => {
+    if (loading || !hasMoreTickets) return;
+    setVisibleCount((current) => Math.min(current + 25, tickets.length));
+  };
+  const ticketSentinelRef = useInfiniteScroll({ hasMore: hasMoreTickets, isLoading: loading, onLoadMore: loadMoreTickets });
 
   return (
     <div className="w-full max-w-full space-y-4 overflow-hidden animate-fadeIn">
@@ -176,7 +183,7 @@ export const SupportTicketManagementView: React.FC<SupportTicketManagementViewPr
         </div>
 
         <div className="flex items-center gap-2">
-          <button type="button" onClick={loadData} disabled={loading} className="p-2.5 rounded-xl border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 transition cursor-pointer" title="Listeyi Yenile">
+          <button type="button" onClick={() => void loadData()} disabled={loading} className="p-2.5 rounded-xl border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 transition cursor-pointer" title="Listeyi Yenile">
             <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
           </button>
         </div>
@@ -254,7 +261,7 @@ export const SupportTicketManagementView: React.FC<SupportTicketManagementViewPr
                   </td>
                 </tr>
               ) : (
-                tickets.map((ticket, idx) => {
+                tickets.slice(0, visibleCount).map((ticket, idx) => {
                   const isDone = ticket.status === 'RESOLVED' || ticket.status === 'REJECTED';
                   return (
                     <tr
@@ -318,6 +325,10 @@ export const SupportTicketManagementView: React.FC<SupportTicketManagementViewPr
               )}
             </tbody>
           </table>
+        </div>
+        <div ref={ticketSentinelRef} role="status" aria-live="polite" className="flex min-h-12 items-center justify-between gap-3 border-t border-slate-200 bg-slate-50 px-4 py-3 text-xs font-bold text-slate-600">
+          <span>{Math.min(visibleCount, tickets.length)} / {tickets.length} güncel backend kaydı gösteriliyor</span>
+          {hasMoreTickets ? <button type="button" onClick={loadMoreTickets} className="rounded-lg border border-slate-300 bg-white px-3 py-2 font-extrabold text-[#1e3a8a] hover:bg-slate-100">Daha fazla ticket göster</button> : tickets.length > 0 ? <span>Tüm ticket kayıtları gösteriliyor.</span> : null}
         </div>
       </div>
 

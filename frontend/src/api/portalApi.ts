@@ -95,7 +95,7 @@ export const portalApi = {
     return data.data as { sent: number; failed: number; disabled: boolean };
   },
   getPortalData: async (): Promise<StaffPortalData> => {
-    const res = await fetch(`${API_BASE_URL}/portal/me`, { credentials: 'include' });
+    const res = await fetch(`${API_BASE_URL}/portal/me`, { credentials: 'include', cache: 'no-store' });
     const data = await res.json();
     if (!res.ok) throw new Error(data.message || 'Portal verileri alınamadı.');
     return data.data;

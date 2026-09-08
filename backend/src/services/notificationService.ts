@@ -214,7 +214,7 @@ export class NotificationService {
     const [notifications, totalFiltered, total, normalCount, importantCount, urgentCount] = await prisma.$transaction([
       prisma.notification.findMany({
         where,
-        orderBy: { createdAt: 'desc' },
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
         skip: (page - 1) * pageSize,
         take: pageSize,
         include: {
@@ -303,21 +303,17 @@ export class NotificationService {
    * Get notifications for a specific user (Staff Portal view)
    */
   public static async getUserNotifications(userId: string) {
-    const [recipients, total] = await prisma.$transaction([
-      prisma.notificationRecipient.findMany({
-        where: { userId, notification: { isDeleted: false } },
-        take: 100,
-        include: {
-          notification: {
-            include: {
-              createdBy: { select: { fullName: true } },
-            },
+    const recipients = await prisma.notificationRecipient.findMany({
+      where: { userId, notification: { isDeleted: false } },
+      include: {
+        notification: {
+          include: {
+            createdBy: { select: { fullName: true } },
           },
         },
-        orderBy: { notification: { createdAt: 'desc' } },
-      }),
-      prisma.notificationRecipient.count({ where: { userId, notification: { isDeleted: false } } }),
-    ]);
+      },
+      orderBy: { notification: { createdAt: 'desc' } },
+    });
 
     const items = recipients.map((r) => ({
       recipientId: r.id,
@@ -330,8 +326,8 @@ export class NotificationService {
     }));
 
     return {
-      total,
-      hasMore: total > recipients.length,
+      total: recipients.length,
+      hasMore: false,
       items,
     };
   }
