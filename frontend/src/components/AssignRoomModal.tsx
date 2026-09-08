@@ -28,6 +28,7 @@ export const AssignRoomModal: React.FC<AssignRoomModalProps> = ({
   const [loadingBeds, setLoadingBeds] = useState<boolean>(false);
   const [submitting, setSubmitting] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
+  const isTransfer = Boolean(employee?.beds?.length);
 
   useEffect(() => {
     if (isOpen && employee) {
@@ -42,7 +43,7 @@ export const AssignRoomModal: React.FC<AssignRoomModalProps> = ({
     setLoadingBeds(true);
     setError(null);
     try {
-      const beds = await employeeApi.getAvailableBeds(employee?.gender);
+      const beds = await employeeApi.getRoomTransferOptions(employee!.id);
       setAvailableBeds(beds);
 
       if (beds.length > 0) {
@@ -67,9 +68,7 @@ export const AssignRoomModal: React.FC<AssignRoomModalProps> = ({
     setError(null);
 
     try {
-      await employeeApi.updateEmployee(employee.id, {
-        bedId: selectedBedId,
-      });
+      await employeeApi.transferRoom(employee.id, selectedBedId);
 
       onSuccess();
       onClose();
@@ -99,8 +98,8 @@ export const AssignRoomModal: React.FC<AssignRoomModalProps> = ({
               <BedDouble className="w-5 h-5" />
             </div>
             <div>
-              <h3 className="font-extrabold text-slate-900 text-sm">Personele Oda & Yatak Ata</h3>
-              <p className="text-xs text-slate-500">Müsait lojman odasına yerleşim yapın</p>
+              <h3 className="font-extrabold text-slate-900 text-sm">{isTransfer ? 'Oda & Yatak Değiştir' : 'Personele Oda & Yatak Ata'}</h3>
+              <p className="text-xs text-slate-500">Boş yatağa geçirin veya dolu yataktaki personelle doğrudan takas edin</p>
             </div>
           </div>
           <button
@@ -148,7 +147,7 @@ export const AssignRoomModal: React.FC<AssignRoomModalProps> = ({
         <form onSubmit={handleAssignSubmit} className="space-y-4">
           <div>
             <label className="block text-xs font-bold text-slate-700 mb-1.5">
-              Müsait Oda & Yatak Seçimi *
+              Hedef Oda & Yatak Seçimi *
             </label>
 
             {loadingBeds ? (
@@ -158,7 +157,7 @@ export const AssignRoomModal: React.FC<AssignRoomModalProps> = ({
               </div>
             ) : availableBeds.length === 0 ? (
               <div className="p-4 bg-amber-50 border border-amber-200 rounded-2xl text-center text-amber-900 text-xs font-semibold space-y-1">
-                <p className="font-bold">Müsait Boş Yatak Bulunamadı!</p>
+                <p className="font-bold">Uygun Oda veya Takas Seçeneği Bulunamadı!</p>
                 <p className="text-[11px] text-amber-700">
                   Lütfen önce Odalar sayfasından uygun bir oda/yatak ekleyin veya mevcut odaları boşaltın.
                 </p>
@@ -173,6 +172,7 @@ export const AssignRoomModal: React.FC<AssignRoomModalProps> = ({
                 {availableBeds.map((bed) => (
                   <option key={bed.id} value={bed.id}>
                     {bed.room.block.name} • Oda {bed.room.roomNumber} ({bed.room.floor}. Kat) - {bed.bedLabel}
+                    {bed.currentEmployee ? ` — TAKAS: ${bed.currentEmployee.firstName} ${bed.currentEmployee.lastName}` : ' — BOŞ'}
                   </option>
                 ))}
               </select>
@@ -198,7 +198,7 @@ export const AssignRoomModal: React.FC<AssignRoomModalProps> = ({
               ) : (
                 <UserCheck className="w-3.5 h-3.5" />
               )}
-              <span>Oda Atamasını Kaydet</span>
+              <span>{isTransfer ? 'Oda Geçişini Tamamla' : 'Oda Atamasını Kaydet'}</span>
             </button>
           </div>
         </form>

@@ -48,6 +48,7 @@ import { VisitorRecordsTable } from './VisitorRecordsTable';
 import { AddVisitorModal } from './AddVisitorModal';
 import { User as UserEntity } from '../api/authApi';
 import { can } from '../security/accessControl';
+import { appConfig } from '../config/appConfig';
 
 interface EmployeeDetailViewProps {
   employee: Employee;
@@ -95,8 +96,26 @@ export const EmployeeDetailView: React.FC<EmployeeDetailViewProps> = ({
   // currentEmp tracks local state for immediate UI updates after edit
   const [currentEmp, setCurrentEmp] = useState<Employee>(employee || {} as Employee);
   const [operationError, setOperationError] = useState<string | null>(null);
+  const [printAllHistory, setPrintAllHistory] = useState(false);
 
-  const handlePrint = () => {
+  const currentStayOccupancies = (() => {
+    const logs = [...(currentEmp.occupancies || [])].sort((a: any, b: any) => new Date(b.checkInDate).getTime() - new Date(a.checkInDate).getTime());
+    if (logs.length < 2) return logs;
+    const currentPeriod = [logs[0]];
+    for (let index = 1; index < logs.length; index += 1) {
+      const newer = currentPeriod[currentPeriod.length - 1] as any;
+      const older = logs[index] as any;
+      if (!older.checkOutDate) break;
+      const transferGap = new Date(newer.checkInDate).getTime() - new Date(older.checkOutDate).getTime();
+      if (transferGap < 0 || transferGap > 60_000) break;
+      currentPeriod.push(older);
+    }
+    return currentPeriod;
+  })();
+  const printableOccupancies = printAllHistory ? (currentEmp.occupancies || []) : currentStayOccupancies;
+
+  const handlePrint = (allHistory = false) => {
+    setPrintAllHistory(allHistory);
     const originalTitle = document.title;
     const employeeName = `${currentEmp.firstName} ${currentEmp.lastName}`.trim();
     document.title = employeeName || 'Personel Lojman İkamet Dökümü';
@@ -107,7 +126,7 @@ export const EmployeeDetailView: React.FC<EmployeeDetailViewProps> = ({
     };
 
     window.addEventListener('afterprint', restoreTitle);
-    window.print();
+    window.requestAnimationFrame(() => window.requestAnimationFrame(() => window.print()));
   };
 
   if (!employee && !currentEmp?.id) {
@@ -160,11 +179,11 @@ export const EmployeeDetailView: React.FC<EmployeeDetailViewProps> = ({
   };
 
   const formatCleanTcNo = (tc?: string | null, masked?: string | null) => {
-    if (tc && tc.length === 11 && !tc.includes(':') && /^\d+$/.test(tc)) {
-      return tc;
-    }
     if (masked && masked.length > 3 && !masked.includes(':')) {
       return masked;
+    }
+    if (tc && !tc.includes(':')) {
+      return tc.length <= 4 ? tc : `${'*'.repeat(tc.length - 4)}${tc.slice(-4)}`;
     }
     return 'Belirtilmedi';
   };
@@ -227,6 +246,7 @@ export const EmployeeDetailView: React.FC<EmployeeDetailViewProps> = ({
     ? currentEmp.inventories.filter((i: any) => i.category === 'LOJMAN_ZİMMETİ').map((i: any) => ({
       id: i.id,
       itemName: i.itemName,
+      stockItemId: i.stockItemId || null,
       assignedDate: formatDateTime(i.assignedDate || i.createdAt),
       returnedDate: i.returnedDate ? formatDateTime(i.returnedDate) : null,
       status: i.status === 'TAM_İADE_ALINDI' ? 'Tam İade Alındı' : 'Teslim Edildi',
@@ -291,6 +311,7 @@ export const EmployeeDetailView: React.FC<EmployeeDetailViewProps> = ({
           id: i.id,
           itemName: i.itemName,
           itemCode: i.itemCode || 'ZMM-101',
+          stockItemId: i.stockItemId || null,
           assignedDate: formatDateTime(i.assignedDate || i.createdAt),
           returnedDate: i.returnedDate ? formatDateTime(i.returnedDate) : null,
           status: i.status === 'TAM_İADE_ALINDI' ? 'Tam İade Alındı' : i.status === 'TESLİM_ALINAMADI' ? 'Teslim Alınamadı' : 'Teslim Edildi',
@@ -405,6 +426,7 @@ export const EmployeeDetailView: React.FC<EmployeeDetailViewProps> = ({
           id: `inv-${Date.now()}`,
           itemName: newLojmanName.trim(),
           itemCode: 'ZMM-101',
+          stockItemId: null,
           assignedDate: formatDateTime(new Date().toISOString()),
           returnedDate: null,
           status: 'Teslim Edildi',
@@ -528,7 +550,7 @@ export const EmployeeDetailView: React.FC<EmployeeDetailViewProps> = ({
       message: itemName
         ? `"${itemName}" kaydını silmek istediğinizden emin misiniz?`
         : 'Bu kaydı silmek istediğinizden emin misiniz?',
-      subMessage: 'Bu işlem kalıcı olarak silinecektir.',
+      subMessage: 'Kayıt görünümden kaldırılır; işlem bilgisi denetim geçmişinde korunur.',
       confirmText: 'Evet, Sil',
       confirmVariant: 'rose',
       onConfirm: async () => {
@@ -540,8 +562,8 @@ export const EmployeeDetailView: React.FC<EmployeeDetailViewProps> = ({
           } else if (!id.startsWith('inv-') && !id.startsWith('pr-') && !id.startsWith('ret-') && !id.startsWith('vst-')) {
             await employeeApi.deleteInventoryItem(id);
           }
-        } catch (err) {
-          setOperationError('Kayıt silinemedi. Lütfen tekrar deneyin.');
+        } catch (err: any) {
+          setOperationError(err?.message || 'Kayıt silinemedi. Lütfen tekrar deneyin.');
           setConfirmModal(null);
           return;
         }
@@ -729,7 +751,7 @@ export const EmployeeDetailView: React.FC<EmployeeDetailViewProps> = ({
                     const updated = await employeeApi.checkoutRoom(currentEmp.id);
                     setCurrentEmp(updated);
                   } catch (err: any) {
-                    alert(err.message || 'Odadan çıkış yapılırken bir hata oluştu.');
+                    setOperationError(err.message || 'Odadan çıkış yapılırken bir hata oluştu.');
                   }
                 }}
                 className="py-2.5 px-4 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-extrabold shadow-md cursor-pointer transition-colors"
@@ -776,7 +798,7 @@ export const EmployeeDetailView: React.FC<EmployeeDetailViewProps> = ({
                     await employeeApi.deleteEmployee(currentEmp.id);
                     onBack();
                   } catch (err: any) {
-                    alert(err.message || 'Personel silinirken bir hata oluştu.');
+                    setOperationError(err.message || 'Personel silinirken bir hata oluştu.');
                   }
                 }}
                 className="py-2.5 px-4 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-extrabold shadow-md cursor-pointer transition-colors"
@@ -1455,7 +1477,7 @@ export const EmployeeDetailView: React.FC<EmployeeDetailViewProps> = ({
         {/* Corporate Header */}
         <div className="border-b-2 border-slate-900 pb-2">
           <h1 className="text-sm font-black uppercase tracking-wide text-slate-900">
-            DOSİNİA RESORT LOJMAN YÖNETİMİ
+            {appConfig.appName.toLocaleUpperCase('tr-TR')}
           </h1>
           <h2 className="text-xs font-extrabold text-slate-800 uppercase mt-0.5">
             PERSONEL SİCİL, ODA VE ZİMMET DETAYLI İKAMET DÖKÜMÜ
@@ -1492,7 +1514,7 @@ export const EmployeeDetailView: React.FC<EmployeeDetailViewProps> = ({
                 <td className="p-1.5 font-bold bg-slate-100 border-r border-slate-400 whitespace-nowrap">Telefon Numarası:</td>
                 <td className="p-1.5 font-semibold border-r border-slate-400">{formatPhone(currentEmp.phone)}</td>
                 <td className="p-1.5 font-bold bg-slate-100 border-r border-slate-400 whitespace-nowrap">Bağlı Şirket / Taşeron:</td>
-                <td className="p-1.5 font-semibold">{currentEmp.company || 'Dosinia Resort'}</td>
+                <td className="p-1.5 font-semibold">{currentEmp.company || ''}</td>
               </tr>
               <tr>
                 <td className="p-1.5 font-bold bg-slate-100 border-r border-slate-400 whitespace-nowrap">Mevcut Lojman & Oda:</td>
@@ -1511,7 +1533,7 @@ export const EmployeeDetailView: React.FC<EmployeeDetailViewProps> = ({
           <div className="bg-slate-200 font-black px-2 py-1 border-b border-slate-500 uppercase text-[10px] text-slate-900">
             2. ODA DEĞİŞTİRME VE HAREKET GEÇMİŞİ
           </div>
-          {currentEmp.occupancies && currentEmp.occupancies.length > 0 ? (
+          {printableOccupancies.length > 0 ? (
             <table className="w-full table-fixed text-left border-collapse text-[10px]">
               <colgroup><col className="w-[40%]"/><col className="w-[30%]"/><col className="w-[30%]"/></colgroup>
               <thead>
@@ -1522,7 +1544,7 @@ export const EmployeeDetailView: React.FC<EmployeeDetailViewProps> = ({
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-300">
-                {currentEmp.occupancies.map(log => {
+                {printableOccupancies.map(log => {
                   const blockName = log.bed?.room?.block?.name || '-';
                   const roomNumber = log.bed?.room?.roomNumber || '-';
                   const bedLabel = log.bed?.bedLabel || '-';
@@ -1723,14 +1745,24 @@ export const EmployeeDetailView: React.FC<EmployeeDetailViewProps> = ({
             <div className="flex flex-col sm:flex-row items-center justify-center sm:justify-end gap-2">
               {canManage && (
                 currentBed ? (
-                  <button
-                    type="button"
-                    onClick={() => setIsCheckoutConfirmOpen(true)}
-                    className="py-2.5 px-4 bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs rounded-2xl border border-rose-700 flex items-center justify-center gap-1.5 transition-all cursor-pointer shadow-md w-full sm:w-auto"
-                  >
-                    <DoorOpen className="w-4 h-4 text-white" />
-                    <span>Odadan Çıkış Yap</span>
-                  </button>
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => setIsAssignRoomOpen(true)}
+                      className="py-2.5 px-4 bg-blue-700 hover:bg-blue-800 text-white font-bold text-xs rounded-2xl border border-blue-800 flex items-center justify-center gap-1.5 transition-all cursor-pointer shadow-md w-full sm:w-auto"
+                    >
+                      <ArrowRightLeft className="w-4 h-4 text-white" />
+                      <span>Oda Değiştir / Takas</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setIsCheckoutConfirmOpen(true)}
+                      className="py-2.5 px-4 bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs rounded-2xl border border-rose-700 flex items-center justify-center gap-1.5 transition-all cursor-pointer shadow-md w-full sm:w-auto"
+                    >
+                      <DoorOpen className="w-4 h-4 text-white" />
+                      <span>Odadan Çıkış Yap</span>
+                    </button>
+                  </>
                 ) : (
                   <button
                     type="button"
@@ -1756,13 +1788,24 @@ export const EmployeeDetailView: React.FC<EmployeeDetailViewProps> = ({
 
               <button
                 type="button"
-                onClick={handlePrint}
+                onClick={() => handlePrint(false)}
                 title="Yazdırma ekranındaki Hedef alanından PDF olarak kaydet seçeneğini kullanabilirsiniz."
                 className="py-2.5 px-4 bg-[#1e3a8a] hover:bg-[#1e293b] text-white font-bold text-xs rounded-2xl border border-blue-900 flex items-center justify-center gap-1.5 transition-all cursor-pointer shadow-md w-full sm:w-auto"
               >
                 <Printer className="w-4 h-4 text-white" />
-                <span>Yazdır / PDF Kaydet</span>
+                <span>Bu Dönemi Yazdır / PDF</span>
               </button>
+              {currentEmp.occupancies && currentEmp.occupancies.length > currentStayOccupancies.length && (
+                <button
+                  type="button"
+                  onClick={() => handlePrint(true)}
+                  title="Personelin önceki ve mevcut tüm konaklama dönemlerini tek belgede yazdırır."
+                  className="py-2.5 px-4 bg-slate-700 hover:bg-slate-800 text-white font-bold text-xs rounded-2xl border border-slate-800 flex items-center justify-center gap-1.5 transition-all cursor-pointer shadow-md w-full sm:w-auto"
+                >
+                  <History className="w-4 h-4" />
+                  <span>Tüm Geçmişi Yazdır</span>
+                </button>
+              )}
 
               {canDelete && <button
                 type="button"
@@ -1981,7 +2024,7 @@ export const EmployeeDetailView: React.FC<EmployeeDetailViewProps> = ({
                     <Clock className="w-5 h-5 text-[#1e3a8a] shrink-0" />
                     <div>
                       <span className="text-[10px] text-slate-500 block font-bold">Vardiya Düzeni</span>
-                      <span className="text-sm font-extrabold">{employee.shiftType || 'Gündüz Vardiyası'}</span>
+                      <span className="text-sm font-extrabold">{employee.shiftType || '08:00 - 16:00'}</span>
                     </div>
                   </div>
 
@@ -2145,19 +2188,7 @@ export const EmployeeDetailView: React.FC<EmployeeDetailViewProps> = ({
                                 </>
                               )}
 
-                              <button
-                                type="button"
-                                onClick={() => setEditingItem({ id: inv.id, type: 'delivered', itemName: inv.itemName })}
-                                title="Düzenle"
-                                className="group relative inline-flex items-center justify-center h-7 px-2 rounded-lg bg-blue-50 text-blue-700 hover:bg-blue-600 hover:text-white border border-blue-200/80 hover:border-blue-600 transition-all duration-500 ease-out shadow-2xs hover:shadow-md cursor-pointer overflow-hidden"
-                              >
-                                <Pencil className="w-3.5 h-3.5 shrink-0 transition-transform duration-500 group-hover:scale-110" />
-                                <span className="max-w-0 opacity-0 group-hover:max-w-[80px] group-hover:opacity-100 group-hover:ml-1.5 transition-all duration-500 ease-out text-[11px] font-extrabold whitespace-nowrap overflow-hidden">
-                                  Düzenle
-                                </span>
-                              </button>
-
-                              <button
+                              {canDelete && <button
                                 type="button"
                                 onClick={() => handleDeleteItem(inv.id, 'delivered')}
                                 title="Sil"
@@ -2167,7 +2198,7 @@ export const EmployeeDetailView: React.FC<EmployeeDetailViewProps> = ({
                                 <span className="max-w-0 opacity-0 group-hover:max-w-[60px] group-hover:opacity-100 group-hover:ml-1.5 transition-all duration-500 ease-out text-[11px] font-extrabold whitespace-nowrap overflow-hidden">
                                   Sil
                                 </span>
-                              </button>
+                              </button>}
                             </div>}
                           </td>
                         </tr>
@@ -2268,7 +2299,7 @@ export const EmployeeDetailView: React.FC<EmployeeDetailViewProps> = ({
                                   Düzenle
                                 </span>
                               </button>
-                              <button
+                              {canDelete && <button
                                 type="button"
                                 onClick={() => handleDeleteItem(pb.id, 'personal')}
                                 title="Sil"
@@ -2278,7 +2309,7 @@ export const EmployeeDetailView: React.FC<EmployeeDetailViewProps> = ({
                                 <span className="max-w-0 opacity-0 group-hover:max-w-[60px] group-hover:opacity-100 group-hover:ml-1.5 transition-all duration-500 ease-out text-[11px] font-extrabold whitespace-nowrap overflow-hidden">
                                   Sil
                                 </span>
-                              </button>
+                              </button>}
                             </div>}
                           </td>
                         </tr>
@@ -2347,7 +2378,7 @@ export const EmployeeDetailView: React.FC<EmployeeDetailViewProps> = ({
                                 </span>
                               </button>
 
-                              <button
+                              {canDelete && <button
                                 type="button"
                                 onClick={() => handleDeleteItem(cmp.id, 'complaint')}
                                 title="Sil"
@@ -2357,7 +2388,7 @@ export const EmployeeDetailView: React.FC<EmployeeDetailViewProps> = ({
                                 <span className="max-w-0 opacity-0 group-hover:max-w-[60px] group-hover:opacity-100 group-hover:ml-1.5 transition-all duration-500 ease-out text-[11px] font-extrabold whitespace-nowrap overflow-hidden">
                                   Sil
                                 </span>
-                              </button>
+                              </button>}
                             </div>}
                           </td>
                         </tr>

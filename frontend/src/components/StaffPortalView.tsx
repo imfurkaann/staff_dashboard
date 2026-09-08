@@ -663,7 +663,7 @@ export const StaffPortalView: React.FC<StaffPortalViewProps> = ({ currentUser: _
                     <span className="text-slate-500 block text-[11px]">Vardiya Düzeni</span>
                     <span className="font-extrabold text-slate-900 flex items-center gap-1 mt-0.5">
                       <Clock className="w-3.5 h-3.5 text-[#1e3a8a]" />
-                      {profile.shiftType || 'Gündüz Vardiyası'}
+                      {profile.shiftType || '08:00 - 16:00'}
                     </span>
                   </div>
                 </div>

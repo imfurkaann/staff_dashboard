@@ -62,6 +62,20 @@ export function scopeMaintenanceData<T>(value: T, _role?: string): T {
   return visit(value) as T;
 }
 
+// Stok ekranını yalnız teknik takip amacıyla gören roller, personel zimmetlerinin
+// kimlik ve organizasyon bilgilerine dolaylı yoldan erişmemelidir.
+export function scopeStockData<T>(value: T, role?: string): T {
+  if (hasPermission(role, permissions.STOCK_MANAGE) || hasPermission(role, permissions.EMPLOYEE_VIEW)) return value;
+  const visit = (current: unknown, key?: string): unknown => {
+    if (key === 'inventories') return [];
+    if (key === 'employee') return null;
+    if (Array.isArray(current)) return current.map((entry) => visit(entry, key));
+    if (!current || typeof current !== 'object' || current instanceof Date) return current;
+    return Object.fromEntries(Object.entries(current as Record<string, unknown>).map(([childKey, childValue]) => [childKey, visit(childValue, childKey)]));
+  };
+  return visit(value) as T;
+}
+
 function minimalBed(bed: Record<string, unknown>) {
   return { id: bed.id, bedLabel: bed.bedLabel, isOccupied: bed.isOccupied };
 }

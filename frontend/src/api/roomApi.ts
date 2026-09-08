@@ -219,7 +219,7 @@ export const roomApi = {
     return response.data.data;
   },
 
-  updateMaintenance: async (maintenanceId: string, payload: { title?: string; description?: string; priority?: string; status?: string; category?: string | null; location?: string | null; resolutionNote?: string | null }): Promise<RoomMaintenance> => {
+  updateMaintenance: async (maintenanceId: string, payload: { title?: string; description?: string; priority?: string; status?: string; assignedTo?: string | null; category?: string | null; location?: string | null; resolutionNote?: string | null }): Promise<RoomMaintenance> => {
     const response = await api.patch<{ success: boolean; data: RoomMaintenance; message: string }>(`/maintenance/${maintenanceId}`, payload);
     return response.data.data;
   },
@@ -319,6 +319,35 @@ export const roomApi = {
       } else if (error.message) {
         msg = error.message;
       }
+      throw new Error(msg);
+    }
+  },
+
+  exportRoomDetailExcel: async (roomId: string, sections: Array<'occupancy' | 'inventory' | 'maintenance' | 'cleaning'>): Promise<void> => {
+    try {
+      const response = await api.get<Blob>(`/${roomId}/export.xlsx`, {
+        params: { sections: sections.join(',') },
+        responseType: 'blob',
+      });
+      const disposition = response.headers['content-disposition'] || '';
+      const fileName = disposition.match(/filename="?([^";]+)"?/i)?.[1] || 'oda-detay-raporu.xlsx';
+      const url = URL.createObjectURL(response.data);
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = fileName;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      URL.revokeObjectURL(url);
+    } catch (error: any) {
+      let msg = 'Oda Excel dosyası oluşturulamadı.';
+      if (error.response?.data instanceof Blob) {
+        try {
+          const text = await error.response.data.text();
+          msg = JSON.parse(text).message || msg;
+        } catch (_) {}
+      } else if (error.response?.data?.message) msg = error.response.data.message;
+      else if (error.message) msg = error.message;
       throw new Error(msg);
     }
   },

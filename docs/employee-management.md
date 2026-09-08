@@ -6,6 +6,7 @@
 - **Zimmet ve şahsi eşya:** `InventoryItem` kayıtları; depo zimmetleri `StockItem` ve `StockMovement` ile bağlıdır.
 - **Şikâyet ve disiplin:** `DisciplinaryNote` kayıtları. Silme fiziksel silme değil, denetim için arşivlemedir.
 - **Oda değişimleri:** Sahte arayüz verisi kullanılmaz; `OccupancyLog` geçmişinden üretilir.
+- **Doğrudan geçiş ve takas:** Personel çıkış yapılmadan boş yatağa aktarılabilir. Hedef yatak doluysa iki personel, cinsiyet ve oda kuralları korunarak tek veritabanı işleminde yatak takası yapar.
 - **Ziyaretçiler:** `Visitor.hostEmployeeId` üzerinden personelle bağlı gerçek ziyaretçi kayıtlarıdır.
 - **Konaklama geçmişi:** Oda/yatak, giriş, çıkış, işlemi yapan kullanıcı ve transfer nedeni `OccupancyLog` üzerinden saklanır.
 
@@ -13,6 +14,7 @@
 
 - Personel listesini yalnızca `EMPLOYEE_VIEW` yetkisi olan roller görür.
 - TC/telefon/acil kişi, zimmet, disiplin ve konaklama geçmişi yalnızca `EMPLOYEE_SENSITIVE_VIEW` yetkisiyle döner ve gösterilir.
+- TC/pasaport değeri yetkili ekranlar ve Excel/PDF çıktıları dahil hiçbir yerde açık dönmez; yalnızca son dört karakter gösterilir.
 - Ekleme, güncelleme, oda atama, çıkış ve arşivleme için `EMPLOYEE_MANAGE` gerekir.
 - Excel raporu ayrı `EMPLOYEE_EXPORT` yetkisine bağlıdır.
 - Ziyaretçi sekmesi `VISITOR_VIEW`, yeni ziyaretçi işlemi `VISITOR_MANAGE` gerektirir.
@@ -22,6 +24,7 @@
 
 - `RESIDENT` personelin tam bir güncel yatağı ve tek açık konaklama kaydı bulunmalıdır.
 - Oda çıkışı aktif depo zimmeti veya içeride ziyaretçi varken yapılamaz.
+- Yeniden gelen personel için aynı sicil kaydından yeni oda ataması yapılır. Varsayılan personel PDF'i son kesintisiz konaklama dönemini basar; ayrı düğme tüm geçmişi tek belgede sunar.
 - Oda çıkışı yatağı boşaltır, açık konaklamayı kapatır ve bağlı portal hesabını pasifleştirir.
 - Ayrılmış personelin yeniden yatağa atanması durumunu `RESIDENT` yapar, eski çıkış yapan kullanıcı bilgisini temizler ve portal hesabını yeniden etkinleştirir.
 - Yönetim kullanıcılarından lojman zimmeti verirken seri numarası istenmez; ürün stok kartı ve zimmet adı üzerinden izlenir.

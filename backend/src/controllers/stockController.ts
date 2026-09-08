@@ -6,6 +6,7 @@ import { formatIstanbulDate } from '../utils/dateTime';
 import { StockMovementType } from '@prisma/client';
 import { stockPositivePage, stockRequestBody, stockSingleQuery, validateStockId } from '../security/stockPolicy';
 import { config } from '../config';
+import { scopeStockData } from '../security/dataScope';
 const userId = (req: Request) => (req as AuthenticatedRequest).user?.id;
 const requestKey = (req: Request) => {
   const value = req.get('X-Idempotency-Key');
@@ -13,8 +14,8 @@ const requestKey = (req: Request) => {
 };
 
 export const stockController = {
-  getOverview: async (_req: Request, res: Response, next: NextFunction) => {
-    try { res.status(200).json({ success: true, data: await StockService.getOverview() }); } catch (error) { next(error); }
+  getOverview: async (req: Request, res: Response, next: NextFunction) => {
+    try { res.status(200).json({ success: true, data: scopeStockData(await StockService.getOverview(), (req as AuthenticatedRequest).user?.role) }); } catch (error) { next(error); }
   },
 
   getMovements: async (req: Request, res: Response, next: NextFunction) => {
@@ -35,7 +36,7 @@ export const stockController = {
         page: stockPositivePage(req.query.page, 'Sayfa', 1),
         pageSize: Math.min(stockPositivePage(req.query.pageSize, 'Sayfa boyutu', 50), 100),
       });
-      res.status(200).json({ success: true, data });
+      res.status(200).json({ success: true, data: scopeStockData(data, (req as AuthenticatedRequest).user?.role) });
     } catch (error) { next(error); }
   },
 

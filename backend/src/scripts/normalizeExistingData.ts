@@ -1,5 +1,5 @@
 import prisma from '../db/prisma';
-import { AGE_GROUPS, canonicalChoice, EMERGENCY_RELATIONS, EMPLOYEE_DEPARTMENTS, EMPLOYEE_TITLES, LANGUAGE_NATIONALITIES, SHIFT_TYPES } from '../utils/employeeDomain';
+import { AGE_GROUPS, canonicalChoice, canonicalShift, EMERGENCY_RELATIONS, EMPLOYEE_DEPARTMENTS, EMPLOYEE_TITLES, LANGUAGE_NATIONALITIES } from '../utils/employeeDomain';
 import { normalizeIdentifier, normalizeInventoryItemName, normalizePhone, normalizeUpper } from '../utils/normalization';
 
 const applyChanges = process.argv.includes('--apply');
@@ -52,7 +52,7 @@ async function main() {
       emergencyContactName: normalizeUpper(employee.emergencyContactName),
       emergencyRelation: safeChoice(employee.emergencyRelation, EMERGENCY_RELATIONS, 'Yakınlık derecesi'),
       emergencyContactPhone: employee.emergencyContactPhone ? normalizePhone(employee.emergencyContactPhone, 'Acil durum telefonu') : null,
-      shiftType: safeChoice(employee.shiftType, SHIFT_TYPES, 'Vardiya tipi'),
+      shiftType: canonicalShift(employee.shiftType),
     };
     if (applyChanges) await prisma.employee.update({ where: { id: employee.id }, data });
   }

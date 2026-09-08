@@ -4,7 +4,7 @@ import { maintenanceService } from '../services/maintenanceService';
 import { MaintenancePriority, MaintenanceStatus, MaintenanceType, RoomInventoryStatus, RoomStatus } from '@prisma/client';
 import { AuthenticatedRequest } from '../middleware/authMiddleware';
 import { formatIstanbulDate } from '../utils/dateTime';
-import { createOccupancyWorkbook, createRoomInventoryWorkbook } from '../services/roomExportService';
+import { createOccupancyWorkbook, createRoomDetailWorkbook, createRoomInventoryWorkbook, RoomDetailExportSection } from '../services/roomExportService';
 import { scopeMaintenanceData, scopeRoomData } from '../security/dataScope';
 import { AppError } from '../middleware/errorHandler';
 import { config } from '../config';
@@ -109,12 +109,16 @@ export const roomController = {
       }
 
       const authReq = req as AuthenticatedRequest;
-      const effectiveCleanedBy = (typeof cleanedBy === 'string' && cleanedBy.trim()) ? cleanedBy.trim() : (authReq.user?.fullName || 'Lojman Yönetimi');
+      const actorName = authReq.user?.fullName || 'Lojman Yönetimi';
+      const effectiveCleanedBy = typeof cleanedBy === 'string' && cleanedBy.trim() ? cleanString(cleanedBy, 100) : undefined;
+      if (status === 'READY' && !effectiveCleanedBy) {
+        return res.status(400).json({ success: false, message: 'Odayı hazır duruma almak için temizleyen kişinin adı soyadı zorunludur.' });
+      }
 
       const updatedRoom = await roomService.updateRoomStatus(
         id,
         status as RoomStatus,
-        effectiveCleanedBy,
+        status === 'READY' ? effectiveCleanedBy! : actorName,
         typeof notes === 'string' ? notes.trim() : undefined
       );
       res.status(200).json({ success: true, data: updatedRoom, message: 'Oda durumu güncellendi.' });
@@ -253,14 +257,10 @@ export const roomController = {
         return res.status(400).json({ success: false, message: 'Geçersiz arıza durumu.' });
       }
 
-      const userSolver = req.user?.fullName || 'Lojman Yönetimi';
-      const isClosing = status === 'RESOLVED' || status === 'CLOSED';
       const cleanedAssignedTo = cleanString(assignedTo, 100);
       const targetAssignedTo = assignedTo !== undefined
-        ? (cleanedAssignedTo || (isClosing ? userSolver : null))
-        : (isClosing
-            ? userSolver
-            : (status === 'OPEN' ? null : undefined));
+        ? (cleanedAssignedTo || null)
+        : (status === 'OPEN' ? null : undefined);
 
       const updated = await maintenanceService.updateMaintenance(maintenanceId, {
         title: title === undefined ? undefined : cleanString(title, 100),
@@ -310,7 +310,8 @@ export const roomController = {
 
       const authReq = req as AuthenticatedRequest;
       const userFullName = authReq.user?.fullName || 'Lojman Yönetimi';
-      const effectiveCleanedBy = (typeof cleanedBy === 'string' && cleanedBy.trim()) ? cleanString(cleanedBy, 100) : (status === 'CLEANED' ? userFullName : undefined);
+      const effectiveCleanedBy = (typeof cleanedBy === 'string' && cleanedBy.trim()) ? cleanString(cleanedBy, 100) : undefined;
+      if (status === 'CLEANED' && !effectiveCleanedBy) return res.status(400).json({ success: false, message: 'Temizliği tamamlamak için temizleyen kişinin adı soyadı zorunludur.' });
       const effectiveRequestedBy = (typeof requestedBy === 'string' && requestedBy.trim()) ? cleanString(requestedBy, 100) : userFullName;
 
       const updatedRoom = await roomService.createCleaningLog(id, {
@@ -329,9 +330,8 @@ export const roomController = {
       const { status, notes, requestedBy, cleanedBy } = req.body;
       if (!isUuid(cleaningId)) return res.status(400).json({ success: false, message: 'Geçersiz temizlik kaydı kimliği.' });
 
-      const authReq = req as AuthenticatedRequest;
-      const userFullName = authReq.user?.fullName || 'Lojman Yönetimi';
-      const effectiveCleanedBy = (typeof cleanedBy === 'string' && cleanedBy.trim()) ? cleanString(cleanedBy, 100) : (status === 'CLEANED' ? userFullName : undefined);
+      const effectiveCleanedBy = (typeof cleanedBy === 'string' && cleanedBy.trim()) ? cleanString(cleanedBy, 100) : undefined;
+      if (status === 'CLEANED' && !effectiveCleanedBy) return res.status(400).json({ success: false, message: 'Temizliği tamamlamak için temizleyen kişinin adı soyadı zorunludur.' });
 
       const updatedRoom = await roomService.updateCleaningLog(cleaningId, {
         status: status ? cleanString(status, 30) : undefined,
@@ -361,9 +361,7 @@ export const roomController = {
       const generatedBy = authReq.user?.fullName || 'Lojman Yönetimi';
 
       const rows = await roomService.getExportOccupancies(filter, startDate, endDate, config.room.occupancyExportMaxRows);
-      const maySeeSensitive = hasPermission(authReq.user?.role, permissions.EMPLOYEE_SENSITIVE_VIEW);
-      const exportRows = maySeeSensitive ? rows : rows.map((row) => ({ ...row, employee: row.employee ? { ...row.employee, tcNo: null } : null }));
-      const buffer = await createOccupancyWorkbook(exportRows, generatedBy);
+      const buffer = await createOccupancyWorkbook(rows, generatedBy);
 
       res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
       res.setHeader('Content-Disposition', `attachment; filename=Konaklayanlar_Listesi_${formatIstanbulDate()}.xlsx`);
@@ -388,6 +386,23 @@ export const roomController = {
     } catch (error) {
       next(error);
     }
+  },
+
+  exportRoomDetailExcel: async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      if (!isUuid(req.params.id)) throw new AppError('Geçersiz oda kimliği.', 400);
+      const rawSections = singleQuery(req.query.sections, 'Rapor bölümleri') || '';
+      const allowed = new Set<RoomDetailExportSection>(['occupancy', 'inventory', 'maintenance', 'cleaning']);
+      const sections = Array.from(new Set(rawSections.split(',').map((item) => item.trim()).filter(Boolean))) as RoomDetailExportSection[];
+      if (!sections.length || sections.some((section) => !allowed.has(section))) throw new AppError('En az bir geçerli Excel bölümü seçilmelidir.', 400);
+      const authReq = req as AuthenticatedRequest;
+      const room = scopeRoomData(await roomService.getRoomById(req.params.id), authReq.user?.role);
+      const buffer = await createRoomDetailWorkbook(room, sections, authReq.user?.fullName || 'Lojman Yönetimi');
+      const safeRoomNumber = String((room as any).roomNumber || 'Oda').replace(/[^A-Za-z0-9ÇĞİÖŞÜçğıöşü_-]+/g, '_');
+      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+      res.setHeader('Content-Disposition', `attachment; filename=Oda_${safeRoomNumber}_Detay_${formatIstanbulDate()}.xlsx`);
+      res.status(200).send(buffer);
+    } catch (error) { next(error); }
   },
 
   updateRoom: async (req: Request, res: Response, next: NextFunction) => {

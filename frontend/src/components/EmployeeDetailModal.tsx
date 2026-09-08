@@ -17,12 +17,9 @@ import {
   Briefcase, 
   CheckCircle2, 
   AlertCircle,
-  Eye,
-  EyeOff,
   PackageCheck
 } from 'lucide-react';
 import { Employee, employeeApi } from '../api/employeeApi';
-import { decryptSensitiveData } from '../utils/cryptoHelpers';
 
 interface EmployeeDetailModalProps {
   employee: Employee | null;
@@ -35,7 +32,6 @@ export const EmployeeDetailModal: React.FC<EmployeeDetailModalProps> = ({
   isOpen,
   onClose,
 }) => {
-  const [showFullTc, setShowFullTc] = useState(false);
   const [generatedAcc, setGeneratedAcc] = useState<{ username: string; password: string } | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
   const [copySuccess, setCopySuccess] = useState(false);
@@ -207,7 +203,7 @@ export const EmployeeDetailModal: React.FC<EmployeeDetailModalProps> = ({
                 <Clock className="w-4 h-4 text-[#1e3a8a]" />
                 <div>
                   <span className="text-[10px] text-slate-500 block font-bold">Vardiya Düzeni</span>
-                  <span>{employee.shiftType || 'Gündüz Vardiyası'}</span>
+                  <span>{employee.shiftType || '08:00 - 16:00'}</span>
                 </div>
               </div>
             </div>
@@ -229,17 +225,8 @@ export const EmployeeDetailModal: React.FC<EmployeeDetailModalProps> = ({
                   <span className="text-slate-500 font-bold">TC Kimlik No</span>
                   <div className="flex items-center gap-2">
                     <span className="font-extrabold text-slate-900">
-                      {showFullTc ? (employee.tcNo || 'Belirtilmedi') : (employee.tcNoMasked || 'Belirtilmedi')}
+                      {employee.tcNoMasked || 'Belirtilmedi'}
                     </span>
-                    {employee.tcNo && (
-                      <button
-                        type="button"
-                        onClick={() => setShowFullTc(!showFullTc)}
-                        className="text-slate-400 hover:text-[#1e3a8a] transition-colors"
-                      >
-                        {showFullTc ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                      </button>
-                    )}
                   </div>
                 </div>
 

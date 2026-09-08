@@ -98,6 +98,7 @@ export interface UpdateMaintenanceDTO {
   status?: MaintenanceStatus;
   category?: string;
   location?: string | null;
+  assignedTo?: string | null;
   resolutionNote?: string | null;
   inventoryStatus?: string;
 }

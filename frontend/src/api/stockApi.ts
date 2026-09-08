@@ -100,7 +100,6 @@ export interface StockItem {
 export interface StockOverview {
   items: StockItem[];
   rooms: StockRoom[];
-  movements: StockMovement[];
   summary: { totalRegistered: number; available: number; inRooms: number; inService: number; issues: number };
 }
 

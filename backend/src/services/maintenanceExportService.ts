@@ -1,4 +1,5 @@
 import ExcelJS from 'exceljs';
+import { config } from '../config';
 
 interface ExportMaintenanceLog {
   id: string;
@@ -55,7 +56,7 @@ export async function createMaintenanceWorkbook(rows: ExportMaintenanceLog[], ge
   // 1. Corporate Main Header Section
   sheet.mergeCells('A1:P1');
   const titleCell = sheet.getCell('A1');
-  titleCell.value = 'DOSİNİA RESORT LOJMAN YÖNETİMİ - ARIZA KAYITLARI RAPORU';
+  titleCell.value = `${config.appName.toLocaleUpperCase('tr-TR')} - ARIZA KAYITLARI RAPORU`;
   titleCell.font = { name: 'Arial', size: 12, bold: true, color: { argb: 'FFFFFFFF' } };
   titleCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1E3A8A' } };
   titleCell.alignment = { vertical: 'middle', horizontal: 'left', indent: 1 };

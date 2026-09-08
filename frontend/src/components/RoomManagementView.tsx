@@ -126,15 +126,6 @@ export const RoomManagementView: React.FC<RoomManagementViewProps> = ({ onNaviga
     if (newStatus === 'READY') {
       const targetRoom = rooms.find((r) => r.id === roomId);
       if (targetRoom) {
-        if (currentUser.role === 'HOUSEKEEPING') {
-          try {
-            const updated = await roomApi.updateRoomStatus(roomId, 'READY', { cleanedBy: currentUser.fullName });
-            setRooms((prev) => prev.map((r) => (r.id === roomId ? { ...r, status: updated.status } : r)));
-          } catch (err: any) {
-            setError(err?.response?.data?.message || err?.message || 'Oda durumu güncellenemedi.');
-          }
-          return;
-        }
         setPendingReadyRoom(targetRoom);
         return;
       }
@@ -848,7 +839,6 @@ export const RoomManagementView: React.FC<RoomManagementViewProps> = ({ onNaviga
       <CompleteCleaningModal
         isOpen={Boolean(pendingReadyRoom)}
         roomTitle={pendingReadyRoom ? `Oda ${pendingReadyRoom.roomNumber} (${pendingReadyRoom.block.name})` : ''}
-        currentUserFullName={currentUser.fullName}
         onClose={() => setPendingReadyRoom(null)}
         onSubmit={handleCompleteCleaningSubmit}
       />

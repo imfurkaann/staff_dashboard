@@ -1,6 +1,6 @@
 import { EmployeeStatus } from '@prisma/client';
 import { AppError } from '../middleware/errorHandler';
-import { EMPLOYEE_DEPARTMENTS } from '../utils/employeeDomain';
+import { normalizeUpper } from '../utils/normalization';
 
 export const EMPLOYEE_GENDERS = new Set(['Male', 'Female']);
 export const EMPLOYEE_FILTER_STATUSES = new Set(['ALL', ...Object.values(EmployeeStatus)]);
@@ -19,10 +19,10 @@ export function validateEmployeeGenderFilter(value: unknown): string {
 
 export function validateEmployeeDepartmentFilter(value: unknown): string {
   const department = value === undefined || value === '' ? 'ALL' : value;
-  if (typeof department !== 'string' || (department !== 'ALL' && !(EMPLOYEE_DEPARTMENTS as readonly string[]).includes(department))) {
+  if (typeof department !== 'string' || department.length > 120 || (department !== 'ALL' && !/^[\p{L}\p{N}\s/&()+-]+$/u.test(department))) {
     throw new AppError('Geçersiz departman filtresi.', 400);
   }
-  return department;
+  return department === 'ALL' ? department : normalizeUpper(department)!;
 }
 
 export function validateEmployeeId(value: unknown, label = 'Personel kimliği'): string {

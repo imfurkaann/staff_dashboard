@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { normalizeIdentifier, normalizeInventoryItemName, normalizeTitleCase, normalizeUpper } from '../utils/normalization';
 import { parseIstanbulDateBoundary } from '../utils/dateTime';
-import { canonicalChoice, EMPLOYEE_DEPARTMENTS } from '../utils/employeeDomain';
+import { canonicalChoice, canonicalShift, EMPLOYEE_DEPARTMENTS } from '../utils/employeeDomain';
 
 test('Turkish text normalization is deterministic', () => {
   assert.equal(normalizeTitleCase('  fURKAN   ışık  '), 'Furkan Işık');
@@ -16,7 +16,16 @@ test('known inventory spelling variants use one canonical name', () => {
 });
 
 test('canonical choices ignore casing but preserve the official label', () => {
-  assert.equal(canonicalChoice('bilgi işlem / it', EMPLOYEE_DEPARTMENTS, 'Departman', true), 'Bilgi İşlem / IT');
+  assert.equal(canonicalChoice('bilgi işlem', EMPLOYEE_DEPARTMENTS, 'Departman', true), 'BİLGİ İŞLEM');
+});
+
+test('preset and manually selected shift ranges use one canonical format', () => {
+  assert.equal(canonicalShift('13:00-21:00'), '13:00 - 21:00');
+  assert.equal(canonicalShift('01:00 - 09:00'), '13:00 - 21:00');
+  assert.equal(canonicalShift('Gece'), '00:00 - 08:00');
+  assert.equal(canonicalShift('07:30 - 15:45'), '07:30 - 15:45');
+  assert.throws(() => canonicalShift('08:00 - 08:00'), /aynı olamaz/);
+  assert.throws(() => canonicalShift('25:00 - 09:00'), /geçerli bir aralık/);
 });
 
 test('Istanbul date boundaries map to the correct UTC instants', () => {

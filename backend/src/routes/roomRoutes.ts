@@ -29,6 +29,9 @@ router.get('/inventories/export.xlsx', authorizeAnyPermission(permissions.ROOM_I
 // GET /api/rooms/blocks - List all blocks with room/bed capacity stats
 router.get('/blocks', roomController.getBlocks);
 
+// GET /api/rooms/:id/export.xlsx - Export selected room detail sections as worksheets
+router.get('/:id/export.xlsx', authorizePermissions(permissions.ROOM_OCCUPANCY_EXPORT), roomController.exportRoomDetailExcel);
+
 // GET /api/rooms/:id - Full room detail (inventories, maintenance and occupancy history)
 router.get('/:id', roomController.getRoomById);
 

@@ -89,6 +89,7 @@ export const AddMaintenanceModal: React.FC<AddMaintenanceModalProps> = ({
   const [status, setStatus] = useState<MaintenanceStatus>('OPEN');
   const [category, setCategory] = useState(categories[0]);
   const [location, setLocation] = useState('');
+  const [assignedTo, setAssignedTo] = useState('');
   const [resolutionNote, setResolutionNote] = useState('');
 
   const fixedRoom = Boolean(initialRoomId && !maintenance);
@@ -111,6 +112,7 @@ export const AddMaintenanceModal: React.FC<AddMaintenanceModalProps> = ({
       setPriority(maintenance.priority || 'MEDIUM');
       setStatus(maintenance.status === 'RESOLVED' || maintenance.status === 'CLOSED' ? 'CLOSED' : 'OPEN');
       setCategory(maintenance.category || categories[0]);
+      setAssignedTo(maintenance.assignedTo || '');
       setResolutionNote(maintenance.resolutionNote || '');
     } else {
       setFaultType(null);
@@ -124,6 +126,7 @@ export const AddMaintenanceModal: React.FC<AddMaintenanceModalProps> = ({
       setStatus('OPEN');
       setCategory(categories[0]);
       setLocation('');
+      setAssignedTo('');
       setResolutionNote('');
     }
   }, [isOpen, maintenance, initialRoomId, initialRoomLabel]);
@@ -158,7 +161,7 @@ export const AddMaintenanceModal: React.FC<AddMaintenanceModalProps> = ({
     if (!description.trim()) return setError('Lütfen arıza durumuna uygun açıklamayı girin.');
     if (faultType === 'ROOM_INVENTORY' && !roomInventoryId) return setError('Lütfen odadaki demirbaşlardan birini seçin.');
     if (faultType === 'ROOM_INVENTORY' && inventoryStatus === 'LOST' && !lostConfirmed) return setError('Kayıp / zayi stok düşümünü onaylamalısınız.');
-    if (maintenance && status === 'CLOSED' && !resolutionNote.trim()) return setError('Arızayı kapatmak için sonuç notu yazın.');
+    if (maintenance && status === 'CLOSED' && !assignedTo.trim()) return setError('Arızayı kapatmak için arızayı çözen kişinin adını soyadını yazın.');
 
     setSubmitting(true);
     setError(null);
@@ -167,6 +170,7 @@ export const AddMaintenanceModal: React.FC<AddMaintenanceModalProps> = ({
         await maintenanceApi.updateMaintenance(maintenance.id, {
           description: description.trim(), priority, status, category,
           location: location.trim() || null,
+          assignedTo: status === 'CLOSED' ? assignedTo.trim().toLocaleUpperCase('tr-TR') : null,
           resolutionNote: resolutionNote.trim() || null,
           ...(maintenance.type === 'ROOM_INVENTORY' && status !== 'CLOSED' ? { inventoryStatus } : {}),
         });
@@ -258,7 +262,8 @@ export const AddMaintenanceModal: React.FC<AddMaintenanceModalProps> = ({
               {maintenance && <>
                 {maintenance.type === 'ROOM_INVENTORY' && status !== 'CLOSED' && <label className="sm:col-span-2 space-y-1.5 text-xs font-extrabold text-slate-700">Güncel Demirbaş Durumu<select value={inventoryStatus} onChange={(e) => setInventoryStatus(e.target.value as InventoryFaultStatus)} className="w-full px-3 py-2.5 rounded-xl border border-slate-300 bg-slate-50">{allowedInventoryStatusOptions.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select><span className="block font-semibold text-slate-500">Durum değişikliği stok hareket geçmişine kaydedilir.</span></label>}
                 <label className="sm:col-span-2 space-y-1.5 text-xs font-extrabold text-slate-700">Arıza Durumu<select value={status} onChange={(e) => setStatus(e.target.value as MaintenanceStatus)} className="w-full px-3 py-2.5 rounded-xl border border-slate-300 bg-slate-50"><option value="OPEN">Açık</option><option value="CLOSED">Kapalı</option></select></label>
-                <label className="sm:col-span-2 space-y-1.5 text-xs font-extrabold text-slate-700">Kapanış / Sonuç Notu {status === 'CLOSED' ? '*' : <span className="text-slate-400 font-semibold text-[10px]">(Kapatırken zorunlu)</span>}<textarea required={status === 'CLOSED'} rows={2} maxLength={1000} value={resolutionNote} onChange={(e) => setResolutionNote(e.target.value)} placeholder="Arıza kaydının neden kapatıldığını kısaca yazın..." className="w-full px-3 py-2.5 rounded-xl border border-slate-300 bg-slate-50 resize-none" /></label>
+                {status === 'CLOSED' && <label className="sm:col-span-2 space-y-1.5 text-xs font-extrabold text-slate-700">Arızayı Çözen Ad Soyad *<input required maxLength={100} value={assignedTo} onChange={(e) => setAssignedTo(e.target.value.toLocaleUpperCase('tr-TR'))} placeholder="Ör. AHMET YILMAZ" className="w-full px-3 py-2.5 rounded-xl border border-slate-300 bg-slate-50" /></label>}
+                <label className="sm:col-span-2 space-y-1.5 text-xs font-extrabold text-slate-700">Kapanış / Sonuç Notu <span className="text-slate-400 font-semibold text-[10px]">(İsteğe Bağlı)</span><textarea rows={2} maxLength={1000} value={resolutionNote} onChange={(e) => setResolutionNote(e.target.value)} placeholder="Varsa sonuç veya açıklama yazabilirsiniz..." className="w-full px-3 py-2.5 rounded-xl border border-slate-300 bg-slate-50 resize-none" /></label>
               </>}
             </div>
 

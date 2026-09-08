@@ -41,20 +41,24 @@ export const AddEmployeeModal: React.FC<AddEmployeeModalProps> = ({
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
   const [gender, setGender] = useState<'Male' | 'Female'>('Male');
-  const [department, setDepartment] = useState('İnşaat / Saha');
+  const [department, setDepartment] = useState('ÖN BÜRO');
+  const [isManualDepartment, setIsManualDepartment] = useState(false);
 
   // General & Roommate Compatibility State
   const [tcNo, setTcNo] = useState('');
   const [showTcNo, setShowTcNo] = useState(false);
   const [registrationNo, setRegistrationNo] = useState('');
-  const [title, setTitle] = useState('Mühendis');
+  const [title, setTitle] = useState('PERSONEL');
   const [company, setCompany] = useState('');
   const [phone, setPhone] = useState('');
   
   // Roommate Compatibility Fields (Lojmanda Oda Arkadaşı Uyumluluğu)
   const [isSmoker, setIsSmoker] = useState(false);
   const [hasSnoring, setHasSnoring] = useState(false);
-  const [shiftType, setShiftType] = useState('Gündüz');
+  const [shiftType, setShiftType] = useState('08:00 - 16:00');
+  const [isManualShift, setIsManualShift] = useState(false);
+  const [manualShiftStart, setManualShiftStart] = useState('08:00');
+  const [manualShiftEnd, setManualShiftEnd] = useState('16:00');
   const [ageGroup, setAgeGroup] = useState('26-40 Yaş (Orta Yaş)');
   const [languageNationality, setLanguageNationality] = useState('Türkçe (T.C.)');
 
@@ -95,31 +99,18 @@ export const AddEmployeeModal: React.FC<AddEmployeeModalProps> = ({
   const [isCopied, setIsCopied] = useState(false);
 
   const departmentsList = [
-    'İnşaat / Saha',
-    'İdari İşler',
-    'Güvenlik',
-    'Mutfak / Restoran',
-    'Kat Hizmetleri / Temizlik',
-    'Teknik Servis / Bakım',
-    'Bilgi İşlem / IT',
-    'Lojistik / Depo',
-    'Diğer',
+    'ÖN BÜRO', 'REZERVASYON', 'MİSAFİR İLİŞİKLERİ', 'KAT HİZMETLERİ',
+    'YİYECEK VE İÇECEK', 'MUTFAK', 'TEKNİK SERVİS', 'GÜVENLİK',
+    'İNSAN KAYNAKLARI', 'MUHASEBE VE FİNANS', 'SATIŞ VE PAZARLAMA',
+    'SATIN ALMA', 'DEPO', 'BİLGİ İŞLEM', 'ÇAMAŞIRHANE', 'SPA',
+    'ANİMASYON', 'BAHÇE VE PEYZAJ', 'İDARİ İŞLER',
   ];
 
   const titlesList = [
-    'Mühendis',
-    'Mimar',
-    'Şantiye Formeni',
-    'Usta / Teknik Eleman',
-    'Saha İşçisi / Personel',
-    'Güvenlik Görevlisi',
-    'Kat Hizmetlisi / Temizlikçi',
-    'Aşçı / Mutfak Personeli',
-    'Şoför',
-    'Depo / Lojistik Görevlisi',
-    'İK / İdari Personel',
-    'Diğer',
+    'PERSONEL', 'YÖNETİCİ', 'MÜDÜR', 'MÜDÜR YARDIMCISI', 'ŞEF',
+    'SORUMLU', 'UZMAN', 'TEKNİSYEN', 'STAJYER', 'SEZONLUK PERSONEL', 'TAŞERON PERSONEL',
   ];
+  const presetShifts = ['08:00 - 16:00', '16:00 - 00:00', '00:00 - 08:00', '13:00 - 21:00', 'DÖNÜŞÜMLÜ VARDİYA'];
 
   const relationsList = [
     'Eşi',
@@ -139,16 +130,31 @@ export const AddEmployeeModal: React.FC<AddEmployeeModalProps> = ({
         setFirstName(initialData.firstName || '');
         setLastName(initialData.lastName || '');
         setGender((initialData.gender as 'Male' | 'Female') || 'Male');
-        setDepartment(initialData.department || 'İnşaat / Saha');
+        const initialDepartment = initialData.department || 'ÖN BÜRO';
+        setDepartment(initialDepartment);
+        setIsManualDepartment(!departmentsList.includes(initialDepartment));
         setTcNo('');
         setShowTcNo(false);
         setRegistrationNo(initialData.registrationNo || '');
-        setTitle(initialData.title || 'Mühendis');
+        setTitle(titlesList.includes(initialData.title || '') ? initialData.title! : 'PERSONEL');
         setCompany(initialData.company || '');
         setPhone(initialData.phone || '');
         setIsSmoker(initialData.isSmoker ?? false);
         setHasSnoring(initialData.hasSnoring ?? false);
-        setShiftType(initialData.shiftType || 'Gündüz');
+        const storedShift = initialData.shiftType === 'Dönüşümlü' || initialData.shiftType === 'DÖNÜŞÜMLÜ'
+          ? 'DÖNÜŞÜMLÜ VARDİYA'
+          : initialData.shiftType === 'Gündüz' || initialData.shiftType === 'GÜNDÜZ'
+            ? '08:00 - 16:00'
+            : initialData.shiftType === 'Gece' || initialData.shiftType === 'GECE'
+              ? '00:00 - 08:00'
+              : initialData.shiftType || '08:00 - 16:00';
+        const storedRange = storedShift.match(/^(\d{2}:\d{2})\s*-\s*(\d{2}:\d{2})$/);
+        setShiftType(storedShift);
+        setIsManualShift(!presetShifts.includes(storedShift));
+        if (storedRange) {
+          setManualShiftStart(storedRange[1]);
+          setManualShiftEnd(storedRange[2]);
+        }
         setAgeGroup(initialData.ageGroup || '26-40 Yaş (Orta Yaş)');
         setLanguageNationality(initialData.languageNationality || 'Türkçe (T.C.)');
         setVehiclePlate(initialData.vehiclePlate || '');
@@ -176,8 +182,9 @@ export const AddEmployeeModal: React.FC<AddEmployeeModalProps> = ({
         setFirstName('');
         setLastName('');
         setGender('Male');
-        setDepartment('İnşaat / Saha');
-        setTitle('Mühendis');
+        setDepartment('ÖN BÜRO');
+        setIsManualDepartment(false);
+        setTitle('PERSONEL');
         setTcNo('');
         setShowTcNo(false);
         setRegistrationNo('');
@@ -185,7 +192,10 @@ export const AddEmployeeModal: React.FC<AddEmployeeModalProps> = ({
         setPhone('');
         setIsSmoker(false);
         setHasSnoring(false);
-        setShiftType('Gündüz');
+        setShiftType('08:00 - 16:00');
+        setIsManualShift(false);
+        setManualShiftStart('08:00');
+        setManualShiftEnd('16:00');
         setAgeGroup('26-40 Yaş (Orta Yaş)');
         setLanguageNationality('Türkçe (T.C.)');
         setVehiclePlate('');
@@ -439,8 +449,9 @@ export const AddEmployeeModal: React.FC<AddEmployeeModalProps> = ({
     setFirstName('');
     setLastName('');
     setGender('Male');
-    setDepartment('İnşaat / Saha');
-    setTitle('Mühendis');
+    setDepartment('ÖN BÜRO');
+    setIsManualDepartment(false);
+    setTitle('PERSONEL');
     setTcNo('');
     setShowTcNo(false);
     setRegistrationNo('');
@@ -452,7 +463,10 @@ export const AddEmployeeModal: React.FC<AddEmployeeModalProps> = ({
     setEmergencyContactName('');
     setEmergencyRelation('Eşi');
     setEmergencyContactPhone('');
-    setShiftType('Gündüz');
+    setShiftType('08:00 - 16:00');
+    setIsManualShift(false);
+    setManualShiftStart('08:00');
+    setManualShiftEnd('16:00');
     setPhotoUrl(null);
     setAssignBed(false);
     setSelectedBedId('');
@@ -472,14 +486,14 @@ export const AddEmployeeModal: React.FC<AddEmployeeModalProps> = ({
             <button type="button" onClick={() => { stopCamera(); setPhotoTab('upload'); }} className="rounded-xl border border-white/10 bg-white/10 p-2.5 text-slate-200 hover:bg-white/20" aria-label="Kamerayı kapat"><X className="h-5 w-5" /></button>
           </div>
 
-          <div className="flex min-h-0 flex-1 items-center justify-center p-3 sm:p-6">
-            <div className="relative aspect-[4/3] w-full max-w-4xl overflow-hidden rounded-2xl border border-white/15 bg-black shadow-2xl sm:rounded-3xl">
+          <div className="flex min-h-0 flex-1 items-center justify-center overflow-hidden p-3 sm:p-6">
+            <div className="relative h-full w-full max-w-4xl overflow-hidden rounded-2xl border border-white/15 bg-black shadow-2xl sm:rounded-3xl">
               {isCameraActive ? (
                 <>
                   <video ref={videoRef} autoPlay playsInline muted className="h-full w-full object-cover [transform:scaleX(-1)]" />
                   <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_28%_43%_at_50%_48%,transparent_97%,rgba(2,6,23,0.58)_100%)]" />
                   <div className="pointer-events-none absolute left-1/2 top-1/2 aspect-[3/4] h-[78%] -translate-x-1/2 -translate-y-1/2 rounded-[45%] border-2 border-white/70 shadow-[0_0_0_999px_rgba(2,6,23,0.18)]" />
-                  <span className="absolute bottom-4 left-1/2 -translate-x-1/2 rounded-full bg-black/55 px-3 py-1.5 text-[10px] font-bold backdrop-blur">Baş ve omuzlar çerçeve içinde olsun</span>
+                  <span className="pointer-events-none absolute bottom-4 left-1/2 -translate-x-1/2 rounded-full bg-black/55 px-3 py-1.5 text-[10px] font-bold backdrop-blur">Baş ve omuzlar çerçeve içinde olsun</span>
                 </>
               ) : (
                 <div className="flex h-full flex-col items-center justify-center gap-3 px-6 text-center"><div className="rounded-full bg-white/10 p-5"><Camera className="h-10 w-10 text-slate-400" /></div><p className="text-sm font-bold text-slate-300">{cameraError || 'Kamera görüntüsü bekleniyor'}</p><div className="flex flex-wrap justify-center gap-2"><button type="button" onClick={startCamera} className="inline-flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-2.5 text-xs font-black hover:bg-blue-500"><RefreshCw className="h-4 w-4" />Yeniden Dene</button><label className="inline-flex cursor-pointer items-center gap-2 rounded-xl border border-white/20 bg-white/10 px-4 py-2.5 text-xs font-black hover:bg-white/20"><Upload className="h-4 w-4" />Cihaz Kamerasını Aç<input type="file" accept="image/*" capture="user" onChange={handleFileUpload} className="sr-only" /></label></div></div>
@@ -487,7 +501,7 @@ export const AddEmployeeModal: React.FC<AddEmployeeModalProps> = ({
             </div>
           </div>
 
-          <div className="flex shrink-0 items-center justify-center gap-3 border-t border-white/10 bg-slate-950/95 px-4 py-4 sm:py-5">
+          <div className="relative z-20 flex shrink-0 items-center justify-center gap-3 border-t border-white/10 bg-slate-950 px-4 py-4 sm:py-5">
             <button type="button" onClick={() => { stopCamera(); setPhotoTab('upload'); }} className="rounded-xl border border-white/15 bg-white/10 px-5 py-3 text-xs font-black text-slate-200 hover:bg-white/20">Vazgeç</button>
             <button type="button" onClick={capturePhoto} disabled={!isCameraActive} className="inline-flex min-w-44 items-center justify-center gap-2 rounded-xl bg-white px-6 py-3 text-xs font-black text-slate-950 shadow-lg hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-40"><span className="flex h-5 w-5 items-center justify-center rounded-full border-2 border-slate-900"><span className="h-2.5 w-2.5 rounded-full bg-slate-900" /></span>Fotoğrafı Çek</button>
           </div>
@@ -762,15 +776,32 @@ export const AddEmployeeModal: React.FC<AddEmployeeModalProps> = ({
                   Departman <span className="text-red-500 font-black">*</span>
                 </label>
                 <select
-                  value={department}
-                  onChange={(e) => setDepartment(e.target.value)}
+                  value={isManualDepartment ? '__MANUAL__' : department}
+                  onChange={(e) => {
+                    const manual = e.target.value === '__MANUAL__';
+                    setIsManualDepartment(manual);
+                    setDepartment(manual ? '' : e.target.value);
+                  }}
                   className="w-full px-3.5 py-2.5 bg-white border border-slate-300 rounded-xl text-xs font-bold text-slate-900 focus:border-[#1e3a8a] focus:ring-1 focus:ring-[#1e3a8a] outline-none cursor-pointer shadow-sm"
                   required
                 >
                   {departmentsList.map((dept) => (
                     <option key={dept} value={dept}>{dept}</option>
                   ))}
+                  <option value="__MANUAL__">EL İLE YAZ</option>
                 </select>
+                {isManualDepartment && (
+                  <input
+                    type="text"
+                    value={department}
+                    onChange={(e) => setDepartment(e.target.value.toLocaleUpperCase('tr-TR'))}
+                    placeholder="DEPARTMAN ADINI YAZIN"
+                    maxLength={120}
+                    autoFocus
+                    className="mt-2 w-full px-3.5 py-2.5 bg-white border border-blue-300 rounded-xl text-xs font-bold text-slate-900 focus:border-[#1e3a8a] outline-none"
+                    required
+                  />
+                )}
               </div>
             </div>
           </div>
@@ -856,14 +887,46 @@ export const AddEmployeeModal: React.FC<AddEmployeeModalProps> = ({
                   Vardiya Düzeni (Uykunun Bölünmemesi İçin)
                 </label>
                 <select
-                  value={shiftType}
-                  onChange={(e) => setShiftType(e.target.value)}
+                  value={isManualShift ? '__MANUAL__' : shiftType}
+                  onChange={(e) => {
+                    const manual = e.target.value === '__MANUAL__';
+                    setIsManualShift(manual);
+                    setShiftType(manual ? `${manualShiftStart} - ${manualShiftEnd}` : e.target.value);
+                  }}
                   className="w-full px-3 py-2 bg-white border border-slate-300 rounded-xl text-xs font-bold text-slate-900 outline-none cursor-pointer shadow-sm"
                 >
-                  <option value="Gündüz">Gündüz Vardiyası</option>
-                  <option value="Gece">Gece Vardiyası</option>
-                  <option value="Dönüşümlü">Dönüşümlü (Vardiyalı)</option>
+                  <option value="08:00 - 16:00">08:00 - 16:00</option>
+                  <option value="16:00 - 00:00">16:00 - 00:00</option>
+                  <option value="00:00 - 08:00">00:00 - 08:00</option>
+                  <option value="13:00 - 21:00">13:00 - 21:00</option>
+                  <option value="DÖNÜŞÜMLÜ VARDİYA">DÖNÜŞÜMLÜ VARDİYA</option>
+                  <option value="__MANUAL__">EL İLE SAAT SEÇ</option>
                 </select>
+                {isManualShift && (
+                  <div className="mt-2 grid grid-cols-[1fr_auto_1fr] items-center gap-2">
+                    <input
+                      type="time"
+                      value={manualShiftStart}
+                      onChange={(e) => {
+                        setManualShiftStart(e.target.value);
+                        setShiftType(`${e.target.value} - ${manualShiftEnd}`);
+                      }}
+                      className="min-w-0 w-full px-2 py-2 bg-white border border-amber-300 rounded-xl text-xs font-bold text-slate-900"
+                      required
+                    />
+                    <span className="text-xs font-black text-slate-500">-</span>
+                    <input
+                      type="time"
+                      value={manualShiftEnd}
+                      onChange={(e) => {
+                        setManualShiftEnd(e.target.value);
+                        setShiftType(`${manualShiftStart} - ${e.target.value}`);
+                      }}
+                      className="min-w-0 w-full px-2 py-2 bg-white border border-amber-300 rounded-xl text-xs font-bold text-slate-900"
+                      required
+                    />
+                  </div>
+                )}
               </div>
 
               {/* Yaş Grubu */}

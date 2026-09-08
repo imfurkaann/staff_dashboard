@@ -8,7 +8,7 @@ const bad = (run: () => unknown) => assert.throws(run, (error: unknown) => error
 test('employee filters reject unknown and multi-value inputs', () => {
   assert.equal(validateEmployeeFilterStatus('RESIDENT'), 'RESIDENT');
   assert.equal(validateEmployeeGenderFilter('Female'), 'Female');
-  assert.equal(validateEmployeeDepartmentFilter('Teknik Servis / Bakım'), 'Teknik Servis / Bakım');
+  assert.equal(validateEmployeeDepartmentFilter('Teknik Servis'), 'TEKNİK SERVİS');
   bad(() => validateEmployeeFilterStatus('FORGED'));
   bad(() => validateEmployeeGenderFilter(['Male', 'Female']));
   bad(() => validateEmployeeDepartmentFilter('../all'));

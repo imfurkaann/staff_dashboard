@@ -22,6 +22,8 @@ router.get('/export.xlsx', authorizePermissions(permissions.EMPLOYEE_EXPORT), Em
 // GET /api/employees/available-beds (Get list of available beds for placement)
 router.get('/available-beds', authorizeAnyPermission(permissions.EMPLOYEE_MANAGE, permissions.ROOM_MANAGE), EmployeeController.getAvailableBeds);
 
+router.get('/:id/room-transfer-options', authorizePermissions(permissions.EMPLOYEE_MANAGE), EmployeeController.getRoomTransferOptions);
+
 // GET /api/employees/:id (Get single employee details)
 router.get('/:id', authorizePermissions(permissions.EMPLOYEE_VIEW), EmployeeController.getById);
 
@@ -36,6 +38,7 @@ router.put('/:id', authorizePermissions(permissions.EMPLOYEE_MANAGE), employeeMu
 
 // PATCH /api/employees/:id/checkout (Check out employee from room)
 router.patch('/:id/checkout', authorizePermissions(permissions.EMPLOYEE_MANAGE), employeeMutationRateLimiter, EmployeeController.checkoutRoom);
+router.patch('/:id/transfer-room', authorizePermissions(permissions.EMPLOYEE_MANAGE), employeeMutationRateLimiter, EmployeeController.transferRoom);
 
 router.delete('/:id', authorizePermissions(permissions.EMPLOYEE_DELETE), employeeMutationRateLimiter, EmployeeController.remove);
 

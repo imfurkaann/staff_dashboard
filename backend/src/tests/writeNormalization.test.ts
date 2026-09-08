@@ -28,6 +28,12 @@ test('central policy keeps routing values and enums outside uppercase conversion
   assert.equal(writeNormalizationPolicy.InventoryItem.status, undefined);
 });
 
+test('employee organization and compatibility text is stored in Turkish uppercase', () => {
+  const args = { data: { department: 'ön büro', title: 'personel', company: 'işık turizm', shiftType: 'dönüşümlü vardiya' } };
+  normalizePrismaWriteArgs('Employee', 'create', args);
+  assert.deepEqual(args.data, { department: 'ÖN BÜRO', title: 'PERSONEL', company: 'İŞIK TURİZM', shiftType: 'DÖNÜŞÜMLÜ VARDİYA' });
+});
+
 test('stock cards are persisted with canonical Turkish uppercase values', () => {
   const args = {
     data: {

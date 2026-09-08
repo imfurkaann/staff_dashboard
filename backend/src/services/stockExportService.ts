@@ -1,4 +1,7 @@
 import ExcelJS from 'exceljs';
+import { config } from '../config';
+
+const withOrganizationName = (title: string) => `${config.appName.toLocaleUpperCase('tr-TR')} - ${title.split(' - ').slice(1).join(' - ') || title}`;
 
 export function safeStockCell(value: unknown): unknown {
   if (typeof value !== 'string') return value;
@@ -24,7 +27,7 @@ const styleHeader = (cell: ExcelJS.Cell) => {
 function setupSheet(sheet: ExcelJS.Worksheet, title: string, headers: string[], widths: number[], generatedBy: string) {
   const end = sheet.getColumn(headers.length).letter;
   sheet.mergeCells(`A1:${end}1`);
-  sheet.getCell('A1').value = title;
+  sheet.getCell('A1').value = withOrganizationName(title);
   styleHeader(sheet.getCell('A1'));
   sheet.getRow(1).height = 26;
   sheet.mergeCells(`A2:${end}2`);
@@ -133,7 +136,7 @@ function setupDetailSheet(sheet: ExcelJS.Worksheet, title: string, scope: string
   sheet.views = [{ state: 'frozen', ySplit: 5, showGridLines: false }];
   sheet.mergeCells(`A1:${end}1`);
   const titleCell = sheet.getCell('A1');
-  titleCell.value = title;
+  titleCell.value = withOrganizationName(title);
   titleCell.font = { name: 'Arial', size: 12, bold: true, color: { argb: 'FFFFFFFF' } };
   titleCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1E3A8A' } };
   titleCell.alignment = { vertical: 'middle', horizontal: 'left', indent: 1 };
@@ -184,6 +187,8 @@ export async function createStockDetailWorkbook(data: any, sections: StockDetail
   const workbook = new ExcelJS.Workbook();
   workbook.creator = 'Dosinia Resort Lojman Yönetimi';
   workbook.created = new Date();
+  workbook.creator = config.appName;
+  workbook.creator = config.appName;
   const item = data.item;
   const device = data.device;
   const scope = device ? `${device.itemName} - ${device.room.block.name} / ODA ${device.room.roomNumber}` : `${item.itemName} (${item.itemCode || 'KODSUZ'})`;

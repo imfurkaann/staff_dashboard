@@ -5,6 +5,7 @@ export interface Bed {
   id: string;
   bedLabel: string;
   isOccupied: boolean;
+  currentEmployee?: { id: string; firstName: string; lastName: string; gender: string } | null;
   room: {
     id: string;
     roomNumber: string;
@@ -155,6 +156,20 @@ export const employeeApi = {
     return response.data.data;
   },
 
+  getRoomTransferOptions: async (employeeId: string): Promise<Bed[]> => {
+    const response = await api.get<{ success: boolean; data: Bed[] }>(`/${employeeId}/room-transfer-options`);
+    return response.data.data;
+  },
+
+  transferRoom: async (employeeId: string, targetBedId: string): Promise<Employee> => {
+    try {
+      const response = await api.patch<{ success: boolean; data: Employee }>(`/${employeeId}/transfer-room`, { targetBedId });
+      return response.data.data;
+    } catch (error: any) {
+      throw new Error(error.response?.data?.message || error.message || 'Oda geçişi tamamlanamadı.');
+    }
+  },
+
   addInventoryItem: async (employeeId: string, payload: { itemName: string; itemCode?: string; category?: string; serialNo?: string; photoUrl?: string; notes?: string; stockItemId?: string }) => {
     const response = await api.post<{ success: boolean; data: any }>(`/${employeeId}/inventories`, payload);
     return response.data.data;
@@ -171,8 +186,12 @@ export const employeeApi = {
   },
 
   deleteInventoryItem: async (inventoryId: string) => {
-    const response = await api.delete<{ success: boolean }>(`/inventories/${inventoryId}`);
-    return response.data;
+    try {
+      const response = await api.delete<{ success: boolean }>(`/inventories/${inventoryId}`);
+      return response.data;
+    } catch (error: any) {
+      throw new Error(error.response?.data?.message || error.message || 'Zimmet kaydı silinemedi.');
+    }
   },
 
   addDisciplinaryNote: async (employeeId: string, payload: { title: string; content: string; reportedBy?: string }) => {

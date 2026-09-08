@@ -56,14 +56,14 @@ export function hashSensitiveData(text: string): string {
 
 /**
  * Masks TC Number for UI display
- * E.g. "10293847561" -> "102******61"
+ * E.g. "10293847561" -> "*******7561"
  */
 export function maskTcNo(tcNo?: string | null): string | null {
   if (!tcNo) return null;
   
   // Decrypt if encrypted first
   const plainTc = decryptSensitiveData(tcNo);
-  if (!plainTc || plainTc.length < 6) return plainTc;
-  
-  return `${plainTc.slice(0, 3)}******${plainTc.slice(-2)}`;
+  if (!plainTc) return null;
+  if (plainTc.length <= 4) return plainTc;
+  return `${'*'.repeat(plainTc.length - 4)}${plainTc.slice(-4)}`;
 }

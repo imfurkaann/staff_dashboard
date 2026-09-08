@@ -84,6 +84,7 @@ interface EmployeeManagementViewProps {
 
 export const EmployeeManagementView: React.FC<EmployeeManagementViewProps> = ({ currentUser }) => {
   const canManage = Boolean(currentUser && can(currentUser.role, 'EMPLOYEE_MANAGE'));
+  const canDelete = Boolean(currentUser && can(currentUser.role, 'EMPLOYEE_DELETE'));
   const canExport = Boolean(currentUser && can(currentUser.role, 'EMPLOYEE_EXPORT'));
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -286,18 +287,8 @@ export const EmployeeManagementView: React.FC<EmployeeManagementViewProps> = ({ 
     return 0;
   });
 
-  const departmentsList = [
-    'ALL',
-    'İnşaat / Saha',
-    'İdari İşler',
-    'Güvenlik',
-    'Mutfak / Restoran',
-    'Kat Hizmetleri / Temizlik',
-    'Teknik Servis / Bakım',
-    'Bilgi İşlem / IT',
-    'Lojistik / Depo',
-    'Diğer',
-  ];
+  const departmentsList = Array.from(new Set(employees.map((item) => item.department).filter(Boolean)))
+    .sort((a, b) => a.localeCompare(b, 'tr'));
 
   // If a staff member is selected, render the Dedicated Full Page view!
   if (activeEmployeeDetail) {
@@ -375,7 +366,7 @@ export const EmployeeManagementView: React.FC<EmployeeManagementViewProps> = ({ 
               className="px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs font-bold text-slate-800 outline-none cursor-pointer"
             >
               <option value="ALL">Tüm Departmanlar</option>
-              {departmentsList.filter(d => d !== 'ALL').map((dept) => (
+              {departmentsList.map((dept) => (
                 <option key={dept} value={dept}>{dept}</option>
               ))}
             </select>
@@ -599,7 +590,7 @@ export const EmployeeManagementView: React.FC<EmployeeManagementViewProps> = ({ 
                       {/* 6. Aksiyonlar */}
                       <td className="py-3.5 px-4 text-right whitespace-nowrap">
                         <div className="flex items-center justify-end gap-1.5 min-h-[32px] whitespace-nowrap shrink-0">
-                          {canManage && (
+                          {canDelete && (
                             hasBed ? (
                               <button
                                 type="button"
@@ -814,7 +805,7 @@ export const EmployeeManagementView: React.FC<EmployeeManagementViewProps> = ({ 
                     const updatedEmp = await employeeApi.checkoutRoom(targetId);
                     setEmployees(prev => prev.map(p => p.id === targetId ? updatedEmp : p));
                   } catch (err: any) {
-                    alert(err.message || 'Çıkış yapılırken bir hata oluştu.');
+                    setLoadError(err.message || 'Çıkış yapılırken bir hata oluştu.');
                   }
                 }}
                 className="py-2.5 px-4 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-extrabold shadow-md cursor-pointer transition-colors"

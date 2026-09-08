@@ -149,6 +149,24 @@ export class EmployeeController {
     }
   }
 
+  public static async getRoomTransferOptions(req: AuthenticatedRequest, res: Response, next: NextFunction) {
+    try {
+      validateEmployeeId(req.params.id);
+      const beds = await EmployeeService.getRoomTransferOptions(req.params.id);
+      res.status(200).json({ success: true, data: beds });
+    } catch (error) { next(error); }
+  }
+
+  public static async transferRoom(req: AuthenticatedRequest, res: Response, next: NextFunction) {
+    try {
+      validateEmployeeId(req.params.id);
+      const body = requestBody(req.body);
+      validateEmployeeId(body.targetBedId, 'Hedef yatak kimliği');
+      const employee = await EmployeeService.transferEmployeeRoom(req.params.id, body.targetBedId, req.user?.id);
+      res.status(200).json({ success: true, message: 'Oda geçişi tamamlandı.', data: employee });
+    } catch (error) { next(error); }
+  }
+
   /**
    * POST /api/employees/:id/inventories
    */

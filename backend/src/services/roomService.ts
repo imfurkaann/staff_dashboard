@@ -399,6 +399,7 @@ export const roomService = {
   async createCleaningLog(roomId: string, data: { requestedBy?: string; cleanedBy?: string; notes?: string; status?: string }) {
     const logStatus = validateCleaningStatus(data.status);
     const isCleaned = logStatus === 'CLEANED';
+    if (isCleaned && !data.cleanedBy?.trim()) throw new AppError('Temizliği tamamlamak için temizleyen kişinin adı soyadı zorunludur.', 400);
     try {
       await prisma.$transaction(async (tx) => {
         const room = await tx.room.findUnique({ where: { id: roomId } });
@@ -413,7 +414,7 @@ export const roomService = {
           data: {
             roomId, status: logStatus,
             requestedBy: (data.requestedBy || 'Lojman Yönetimi').toLocaleUpperCase('tr-TR'),
-            cleanedBy: (data.cleanedBy || (isCleaned ? 'Lojman Yönetimi' : null))?.toLocaleUpperCase('tr-TR') || null,
+            cleanedBy: data.cleanedBy?.toLocaleUpperCase('tr-TR') || null,
             notes: data.notes?.trim().toLocaleUpperCase('tr-TR') || null,
             requestedAt: now, cleanedAt: isCleaned ? now : null,
           },
@@ -444,6 +445,8 @@ export const roomService = {
     if (!existing) throw new AppError('Temizlik kaydı bulunamadı.', 404);
     const targetStatus = data.status === undefined ? existing.status : validateCleaningStatus(data.status);
     const isCleaned = targetStatus === 'CLEANED';
+    const targetCleanedBy = data.cleanedBy !== undefined ? data.cleanedBy?.trim() || null : existing.cleanedBy;
+    if (isCleaned && !targetCleanedBy) throw new AppError('Temizliği tamamlamak için temizleyen kişinin adı soyadı zorunludur.', 400);
     try {
       await prisma.$transaction(async (tx) => {
         if (!isCleaned) {
@@ -457,7 +460,7 @@ export const roomService = {
         data: {
           status: targetStatus,
           requestedBy: data.requestedBy !== undefined ? data.requestedBy.toLocaleUpperCase('tr-TR') : existing.requestedBy,
-          cleanedBy: data.cleanedBy !== undefined ? data.cleanedBy?.toLocaleUpperCase('tr-TR') || null : (isCleaned ? existing.cleanedBy || 'LOJMAN YÖNETİMİ' : null),
+          cleanedBy: isCleaned ? targetCleanedBy?.toLocaleUpperCase('tr-TR') || null : null,
           notes: data.notes !== undefined ? data.notes.toLocaleUpperCase('tr-TR') : existing.notes,
           cleanedAt: isCleaned ? existing.cleanedAt || new Date() : null,
         },
@@ -807,8 +810,6 @@ export const roomService = {
           select: {
             firstName: true,
             lastName: true,
-            tcNo: true,
-            registrationNo: true,
             department: true,
             title: true,
             company: true,

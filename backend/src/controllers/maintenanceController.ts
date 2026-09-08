@@ -152,7 +152,7 @@ export const maintenanceController = {
   updateMaintenance: async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
     try {
       const { id } = req.params;
-      const { title, description, priority, status, category, location, resolutionNote, inventoryStatus } = requestBody(req.body);
+      const { title, description, priority, status, assignedTo, category, location, resolutionNote, inventoryStatus } = requestBody(req.body);
 
       validateMaintenanceId(id);
 
@@ -167,9 +167,10 @@ export const maintenanceController = {
 
       const userSolver = req.user?.fullName || 'Lojman Yönetimi';
       const isClosing = status === 'CLOSED';
+      const cleanedAssignedTo = assignedTo === undefined ? undefined : cleanString(assignedTo, 100);
       const cleanedResolutionNote = resolutionNote === undefined ? undefined : cleanString(resolutionNote, 1000);
-      if (isClosing && !cleanedResolutionNote) {
-        return res.status(400).json({ success: false, message: 'Arıza kaydını kapatmak için kapanış notu zorunludur.' });
+      if (isClosing && !cleanedAssignedTo) {
+        return res.status(400).json({ success: false, message: 'Arıza kaydını kapatmak için arızayı çözen kişinin adı soyadı zorunludur.' });
       }
 
       const updated = await maintenanceService.updateMaintenance(id, {
@@ -177,7 +178,7 @@ export const maintenanceController = {
         description: description === undefined ? undefined : cleanString(description, 2000),
         priority,
         status,
-        assignedTo: isClosing ? userSolver : (status === 'OPEN' ? null : undefined),
+        assignedTo: isClosing ? cleanedAssignedTo : (status === 'OPEN' ? null : undefined),
         category: category === undefined ? undefined : cleanString(category, 100) || null,
         location: location === undefined ? undefined : cleanString(location, 100) || null,
         resolutionNote: cleanedResolutionNote === undefined ? undefined : cleanedResolutionNote || null,

@@ -4,7 +4,6 @@ import { Sparkles, Check, X, Loader2, User } from 'lucide-react';
 interface CompleteCleaningModalProps {
   isOpen: boolean;
   roomTitle: string;
-  currentUserFullName: string;
   onClose: () => void;
   onSubmit: (data: { cleanedBy: string; notes?: string }) => Promise<void>;
 }
@@ -12,23 +11,22 @@ interface CompleteCleaningModalProps {
 export const CompleteCleaningModal: React.FC<CompleteCleaningModalProps> = ({
   isOpen,
   roomTitle,
-  currentUserFullName,
   onClose,
   onSubmit,
 }) => {
-  const [cleanedBy, setCleanedBy] = useState<string>(currentUserFullName || '');
+  const [cleanedBy, setCleanedBy] = useState<string>('');
   const [notes, setNotes] = useState<string>('');
   const [submitting, setSubmitting] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (isOpen) {
-      setCleanedBy(currentUserFullName || '');
+      setCleanedBy('');
       setNotes('');
       setError(null);
       setSubmitting(false);
     }
-  }, [isOpen, currentUserFullName]);
+  }, [isOpen]);
 
   if (!isOpen) return null;
 

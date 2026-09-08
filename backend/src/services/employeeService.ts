@@ -7,7 +7,7 @@ import { generateUniqueUsername, generateUniqueEasyPassword } from '../utils/cre
 import { assertDateRange, parseIstanbulDateBoundary } from '../utils/dateTime';
 import { boundedText, normalizeIdentifier, normalizeInventoryItemName, normalizePhone, normalizeUpper, strictBoolean } from '../utils/normalization';
 import { syncSharedAssetPersonnelAssignment, syncSharedAssetReturn } from './sharedAssetSync';
-import { AGE_GROUPS, canonicalChoice, EMERGENCY_RELATIONS, EMPLOYEE_DEPARTMENTS, EMPLOYEE_TITLES, LANGUAGE_NATIONALITIES, SHIFT_TYPES } from '../utils/employeeDomain';
+import { AGE_GROUPS, canonicalChoice, canonicalShift, EMERGENCY_RELATIONS, EMPLOYEE_TITLES, LANGUAGE_NATIONALITIES } from '../utils/employeeDomain';
 import { config } from '../config';
 import { releasePersonnelStock, reservePersonnelStock } from '../utils/stockBalance';
 import { validateEmployeeDepartmentFilter, validateEmployeeFilterStatus, validateEmployeeGenderFilter } from '../security/employeePolicy';
@@ -369,7 +369,7 @@ export class EmployeeService {
       throw new AppError('Geçerli bir cinsiyet (Erkek / Kadın) seçilmelidir.', 400);
     }
 
-    const normalizedDepartment = canonicalChoice(department, EMPLOYEE_DEPARTMENTS, 'Departman', true)!;
+    const normalizedDepartment = boundedText(department, 'Departman', 120, { required: true, casing: 'upper' })!;
 
     const cleanTc = tcNo ? tcNo.trim().replace(/\s+/g, '') : '';
     const cleanRegNo = normalizeIdentifier(registrationNo) || '';
@@ -417,7 +417,7 @@ export class EmployeeService {
     const normalizedAgeGroup = canonicalChoice(ageGroup, AGE_GROUPS, 'Yaş grubu');
     const normalizedLanguage = canonicalChoice(languageNationality, LANGUAGE_NATIONALITIES, 'Dil / uyruk');
     const normalizedRelation = canonicalChoice(emergencyRelation, EMERGENCY_RELATIONS, 'Yakınlık derecesi');
-    const normalizedShift = canonicalChoice(shiftType, SHIFT_TYPES, 'Vardiya tipi');
+    const normalizedShift = canonicalShift(shiftType);
 
     // Encrypt TC before saving
     const encryptedTc = cleanTc !== '' ? encryptSensitiveData(cleanTc) : null;
@@ -505,7 +505,7 @@ export class EmployeeService {
           emergencyRelation: normalizedRelation,
           emergencyContactPhone: cleanEmergencyPhone,
           photoUrl: validatePhotoUrl(photoUrl),
-          shiftType: normalizedShift || 'Gündüz',
+          shiftType: normalizedShift || '08:00 - 16:00',
           status: initialStatus,
           userId: createdUserId,
           createdById: createdById || null,
@@ -683,7 +683,7 @@ export class EmployeeService {
       }
       updateData.gender = data.gender;
     }
-    if (data.department !== undefined) updateData.department = canonicalChoice(data.department, EMPLOYEE_DEPARTMENTS, 'Departman', true);
+    if (data.department !== undefined) updateData.department = boundedText(data.department, 'Departman', 120, { required: true, casing: 'upper' });
     if (data.title !== undefined) updateData.title = canonicalChoice(data.title, EMPLOYEE_TITLES, 'Unvan');
     if (data.company !== undefined) updateData.company = boundedText(data.company, 'Şirket', 120, { casing: 'upper' });
     if (data.registrationNo !== undefined) {
@@ -703,7 +703,7 @@ export class EmployeeService {
     if (data.emergencyContactName !== undefined) updateData.emergencyContactName = boundedText(data.emergencyContactName, 'Acil durum yakını', 120, { casing: 'upper' });
     if (data.emergencyRelation !== undefined) updateData.emergencyRelation = canonicalChoice(data.emergencyRelation, EMERGENCY_RELATIONS, 'Yakınlık derecesi');
     if (data.emergencyContactPhone !== undefined) updateData.emergencyContactPhone = normalizePhone(data.emergencyContactPhone, 'Acil durum telefonu');
-    if (data.shiftType !== undefined) updateData.shiftType = canonicalChoice(data.shiftType, SHIFT_TYPES, 'Vardiya tipi');
+    if (data.shiftType !== undefined) updateData.shiftType = canonicalShift(data.shiftType);
     if (data.photoUrl !== undefined) updateData.photoUrl = validatePhotoUrl(data.photoUrl);
     if (data.tcNo && data.tcNo.trim() !== '') {
       const cleanTc = data.tcNo.trim();
@@ -1052,6 +1052,7 @@ export class EmployeeService {
   public static async updateInventoryItem(inventoryId: string, data: { itemName?: string; serialNo?: string; notes?: string }) {
     const existing = await prisma.inventoryItem.findFirst({ where: { id: inventoryId, isDeleted: false }, select: { id: true, stockItemId: true, returnedDate: true, updatedAt: true } });
     if (!existing) throw new AppError('Zimmet/Eşya kaydı bulunamadı.', 404);
+    if (existing.stockItemId) throw new AppError('Stoktan seçilen personel zimmetleri düzenlenemez. Yanlış kayıt silinip stoktan yeniden seçilmelidir.', 409);
     if (existing.returnedDate) throw new AppError('Kapatılmış zimmet veya eşya kaydı değiştirilemez.', 409);
     const cleanSerial = data.serialNo === undefined ? undefined : normalizeIdentifier(data.serialNo);
     try {
@@ -1137,7 +1138,36 @@ export class EmployeeService {
     const existing = await prisma.inventoryItem.findFirst({ where: { id: inventoryId, isDeleted: false } });
     if (!existing) throw new AppError('Zimmet/Eşya kaydı bulunamadı.', 404);
 
-    if (existing.stockItemId) throw new AppError('Stok bağlantılı zimmet kayıtları denetim geçmişini korumak için silinemez.', 409);
+    if (existing.stockItemId) {
+      return prisma.$transaction(async (tx) => {
+        const deletedAt = new Date();
+        if (!existing.returnedDate) {
+          await releasePersonnelStock(tx, existing.stockItemId!);
+          const sharedAssetId = await syncSharedAssetReturn(
+            tx, existing.stockItemId!, 'EMPLOYEE', existing.id, 'AVAILABLE',
+            'HATALI ZİMMET KAYDI YÖNETİCİ TARAFINDAN SİLİNDİ', deletedById,
+          );
+          await tx.stockMovement.create({ data: {
+            stockItemId: existing.stockItemId!, employeeId: existing.employeeId,
+            personnelInventoryId: existing.id, sharedAssetId, type: 'PERSONNEL_RETURN', quantity: 1,
+            itemNameSnapshot: existing.itemName, reason: 'HATALI ZİMMET KAYDI SİLİNDİ', createdById: deletedById || null,
+          } });
+        }
+        const archived = await tx.inventoryItem.updateMany({
+          where: { id: inventoryId, isDeleted: false, updatedAt: existing.updatedAt },
+          data: {
+            isDeleted: true, deletedAt, deletedById: deletedById || null,
+            ...(!existing.returnedDate && { returnedDate: deletedAt, returnedById: deletedById || null, status: 'HATALI_ZİMMET_İPTAL' }),
+          },
+        });
+        if (archived.count !== 1) throw new AppError('Zimmet başka bir kullanıcı tarafından güncellendi. Sayfayı yenileyin.', 409);
+        return { archived: true };
+      }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable }).catch((error: any) => {
+        if (error instanceof AppError) throw error;
+        if (error?.code === 'P2034') throw new AppError('Zimmet veya stok aynı anda değiştirildi. Lütfen işlemi yeniden deneyin.', 409);
+        throw error;
+      });
+    }
 
     const archived = await prisma.inventoryItem.updateMany({ where: { id: inventoryId, isDeleted: false, updatedAt: existing.updatedAt }, data: { isDeleted: true, deletedAt: new Date(), deletedById: deletedById || null } });
     if (archived.count !== 1) throw new AppError('Eşya kaydı başka bir kullanıcı tarafından güncellendi. Sayfayı yenileyin.', 409);
@@ -1253,6 +1283,118 @@ export class EmployeeService {
       );
       return !hasOppositeGender;
     });
+  }
+
+  public static async getRoomTransferOptions(employeeId: string) {
+    const employee = await prisma.employee.findFirst({
+      where: { id: employeeId, isDeleted: false },
+      include: { beds: { include: { room: { include: { block: true, beds: { where: { isOccupied: true }, include: { currentEmployee: { select: { id: true, gender: true } } } } } } } } },
+    });
+    if (!employee) throw new AppError('Personel bulunamadı.', 404);
+    const sourceBed = employee.beds[0] || null;
+    const beds = await prisma.bed.findMany({
+      where: {
+        room: { roomType: 'PERSONEL_ODASI', status: 'READY' },
+        OR: [
+          { currentEmployeeId: null },
+          { currentEmployeeId: { not: employeeId } },
+        ],
+      },
+      include: {
+        currentEmployee: { select: { id: true, firstName: true, lastName: true, gender: true } },
+        room: { include: { block: true, beds: { where: { isOccupied: true }, include: { currentEmployee: { select: { id: true, gender: true } } } } } },
+      },
+      orderBy: [{ room: { block: { name: 'asc' } } }, { room: { roomNumber: 'asc' } }, { bedLabel: 'asc' }],
+    });
+
+    return beds.filter((bed) => {
+      if (!bed.currentEmployee && bed.room.beds.length >= bed.room.capacity) return false;
+      const targetAllowsEmployee = (bed.room.block.genderPolicy === 'Mixed' || bed.room.block.genderPolicy === employee.gender)
+        && bed.room.beds.every((roomBed) => roomBed.currentEmployeeId === bed.currentEmployeeId || roomBed.currentEmployee?.gender === employee.gender);
+      if (!targetAllowsEmployee) return false;
+      if (!bed.currentEmployee) return true;
+      if (!sourceBed) return false;
+      const swapEmployee = bed.currentEmployee;
+      return (sourceBed.room.block.genderPolicy === 'Mixed' || sourceBed.room.block.genderPolicy === swapEmployee.gender)
+        && sourceBed.room.beds.every((roomBed) => roomBed.currentEmployeeId === employeeId || roomBed.currentEmployee?.gender === swapEmployee.gender);
+    }).map((bed) => ({
+      id: bed.id,
+      bedLabel: bed.bedLabel,
+      isOccupied: bed.isOccupied,
+      currentEmployee: bed.currentEmployee,
+      room: { id: bed.room.id, roomNumber: bed.room.roomNumber, floor: bed.room.floor, block: bed.room.block },
+    }));
+  }
+
+  public static async transferEmployeeRoom(employeeId: string, targetBedId: string, actorUserId?: string) {
+    const transferReason = 'ODA DEĞİŞİKLİĞİ';
+    try {
+      await prisma.$transaction(async (tx) => {
+        const employee = await tx.employee.findFirst({ where: { id: employeeId, isDeleted: false }, include: { beds: true } });
+        if (!employee) throw new AppError('Personel bulunamadı.', 404);
+        const sourceBed = employee.beds[0] || null;
+        if (sourceBed?.id === targetBedId) throw new AppError('Personel zaten seçilen yatakta kalıyor.', 409);
+
+        const targetBed = await tx.bed.findUnique({
+          where: { id: targetBedId },
+          include: { currentEmployee: true, room: { include: { block: true, beds: { where: { isOccupied: true }, include: { currentEmployee: true } } } } },
+        });
+        if (!targetBed) throw new AppError('Seçilen yatak bulunamadı.', 404);
+        if (targetBed.room.roomType !== 'PERSONEL_ODASI' || targetBed.room.status !== 'READY') throw new AppError('Yalnızca hazır durumdaki personel odalarına geçiş yapılabilir.', 409);
+
+        const assertRoomGender = (gender: string, blockPolicy: string, occupants: typeof targetBed.room.beds, excludedEmployeeId?: string) => {
+          if (blockPolicy !== 'Mixed' && blockPolicy !== gender) throw new AppError('Hedef bloğun cinsiyet politikası personelle uyuşmuyor.', 409);
+          if (occupants.some((bed) => bed.currentEmployeeId !== excludedEmployeeId && bed.currentEmployee?.gender !== gender)) {
+            throw new AppError('Hedef odadaki personellerin cinsiyet yerleşim kuralı bu geçişe uygun değil.', 409);
+          }
+        };
+        assertRoomGender(employee.gender, targetBed.room.block.genderPolicy, targetBed.room.beds, targetBed.currentEmployeeId || undefined);
+
+        const swapEmployee = targetBed.currentEmployeeId && targetBed.currentEmployeeId !== employeeId ? targetBed.currentEmployee : null;
+        let sourceRoom: any = null;
+        if (swapEmployee) {
+          if (!sourceBed) throw new AppError('Dolu yatakla takas için personelin mevcut bir yatağı olmalıdır.', 409);
+          sourceRoom = await tx.room.findUnique({
+            where: { id: sourceBed.roomId },
+            include: { block: true, beds: { where: { isOccupied: true }, include: { currentEmployee: true } } },
+          });
+          if (!sourceRoom || sourceRoom.status !== 'READY') throw new AppError('Mevcut oda takas için hazır durumda değil.', 409);
+          assertRoomGender(swapEmployee.gender, sourceRoom.block.genderPolicy, sourceRoom.beds, employeeId);
+        }
+
+        const affectedIds = swapEmployee ? [employeeId, swapEmployee.id] : [employeeId];
+        const openLogs = await tx.occupancyLog.count({ where: { employeeId: { in: affectedIds }, checkOutDate: null } });
+        const expectedOpenLogs = affectedIds.filter((id) => id === employeeId ? Boolean(sourceBed) : true).length;
+        if (openLogs !== expectedOpenLogs) throw new AppError('Personel yatak kaydı ile konaklama geçmişi uyuşmuyor. İşlem durduruldu.', 409);
+
+        const now = new Date();
+        await tx.occupancyLog.updateMany({ where: { employeeId: { in: affectedIds }, checkOutDate: null }, data: { checkOutDate: now, checkedOutById: actorUserId || null } });
+        const bedIds = sourceBed ? [sourceBed.id, targetBed.id] : [targetBed.id];
+        await tx.bed.updateMany({ where: { id: { in: bedIds } }, data: { isOccupied: false, currentEmployeeId: null } });
+
+        await tx.bed.update({ where: { id: targetBed.id }, data: { isOccupied: true, currentEmployeeId: employeeId } });
+        if (swapEmployee && sourceBed) await tx.bed.update({ where: { id: sourceBed.id }, data: { isOccupied: true, currentEmployeeId: swapEmployee.id } });
+
+        const createLog = (targetEmployee: typeof employee, bedId: string, logReason: string) => tx.occupancyLog.create({ data: {
+          employeeId: targetEmployee.id,
+          employeeName: `${targetEmployee.firstName} ${targetEmployee.lastName}`,
+          employeeDepartment: targetEmployee.department,
+          employeeTitle: targetEmployee.title,
+          employeeCompany: targetEmployee.company,
+          bedId, checkInDate: now, transferReason: logReason, createdById: actorUserId || null,
+        } });
+        await createLog(employee, targetBed.id, swapEmployee ? `${transferReason} / KARŞILIKLI ODA TAKASI` : transferReason);
+        if (swapEmployee && sourceBed) await createLog(swapEmployee as typeof employee, sourceBed.id, `${transferReason} / KARŞILIKLI ODA TAKASI`);
+
+        await tx.employee.updateMany({ where: { id: { in: affectedIds } }, data: { status: 'RESIDENT', checkedOutById: null } });
+        if (employee.userId) await setEmployeePortalAccountActive(tx, employee.userId, true, actorUserId, 'EMPLOYEE_PORTAL_ACCOUNT_REACTIVATED', 'PERSONEL ODA GEÇİŞİ NEDENİYLE PORTAL HESABI AÇILDI');
+      }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+      return this.getEmployeeById(employeeId);
+    } catch (error: any) {
+      if (error instanceof AppError) throw error;
+      if (error?.code === 'P2002' || error?.code === 'P2034') throw new AppError('Oda geçişi başka bir işlemle çakıştı. Sayfayı yenileyip tekrar deneyin.', 409);
+      throw error;
+    }
   }
 
   /**

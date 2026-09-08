@@ -7,6 +7,12 @@ COPY package*.json ./
 RUN npm ci
 
 COPY . .
+ARG VITE_APP_NAME=LojmanYönetim
+ARG VITE_APP_SUBTITLE="Personel Konaklama & Lojman Portalı"
+ARG VITE_COPYRIGHT_TEXT="© 2026 Personel Lojman Yönetim Sistemi. Tüm hakları saklıdır."
+ENV VITE_APP_NAME=$VITE_APP_NAME
+ENV VITE_APP_SUBTITLE=$VITE_APP_SUBTITLE
+ENV VITE_COPYRIGHT_TEXT=$VITE_COPYRIGHT_TEXT
 RUN npm run build
 
 # Stage 2: Serve via Nginx

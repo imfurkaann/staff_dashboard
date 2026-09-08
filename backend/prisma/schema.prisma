@@ -165,7 +165,7 @@ model Employee {
   emergencyRelation     String? // Acil Durum Yakınlık Derecesi (Dropdown)
   emergencyContactPhone String? // Acil Durum Yakını Telefonu
   photoUrl              String? // Photo (Base64/URL)
-  shiftType             String?        @default("Gündüz") // Gündüz / Gece / Dönüşümlü
+  shiftType             String?        @default("08:00 - 16:00") // Hazır veya kullanıcı tarafından seçilen saat aralığı
   status                EmployeeStatus @default(PENDING_ASSIGNMENT)
   isDeleted             Boolean        @default(false)
   deletedAt             DateTime?

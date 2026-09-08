@@ -438,6 +438,10 @@ export const maintenanceService = {
       throw new AppError('Kaydedilmiş çözüm notu silinemez; gerekiyorsa yeni ve açıklayıcı bir notla güncellenebilir.', 409);
     }
     const nextMaintenanceStatus = data.status || existing.status;
+    if (['RESOLVED', 'CLOSED'].includes(nextMaintenanceStatus)) {
+      const solverName = data.assignedTo === undefined ? existing.assignedTo : data.assignedTo;
+      if (!solverName?.trim()) throw new AppError('Arızayı çözen kişinin adı soyadı zorunludur.', 400);
+    }
     if (existing.type === 'ROOM_INVENTORY' && data.inventoryStatus) {
       if (['OPEN', 'IN_PROGRESS'].includes(nextMaintenanceStatus) && !inventoryFaultStatuses.has(data.inventoryStatus)) {
         throw new AppError('Devam eden demirbaş arızasında cihaz durumu sağlam olarak işaretlenemez.', 400);
@@ -469,9 +473,6 @@ export const maintenanceService = {
       updateData.status = data.status;
       if (data.status === 'RESOLVED' || data.status === 'CLOSED') {
         updateData.resolvedAt = new Date();
-        if ((updateData.assignedTo === undefined || updateData.assignedTo === null) && !existing.assignedTo) {
-          updateData.assignedTo = data.performedBy.trim().toLocaleUpperCase('tr-TR') || 'LOJMAN YÖNETİMİ';
-        }
       } else {
         updateData.resolvedAt = null;
       }

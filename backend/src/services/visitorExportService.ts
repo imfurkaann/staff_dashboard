@@ -1,4 +1,5 @@
 import ExcelJS from 'exceljs';
+import { config } from '../config';
 
 interface ExportVisitor {
   fullName: string;
@@ -62,7 +63,7 @@ export async function createVisitorWorkbook(rows: ExportVisitor[], generatedBy: 
   // 1. Corporate Header Section
   sheet.mergeCells('A1:N1');
   const titleCell = sheet.getCell('A1');
-  titleCell.value = 'DOSİNİA RESORT LOJMAN YÖNETİMİ - ZİYARETÇİ GİRİŞ / ÇIKIŞ VE İKAMET KAYITLARI RAPORU';
+  titleCell.value = `${config.appName.toLocaleUpperCase('tr-TR')} - ZİYARETÇİ GİRİŞ / ÇIKIŞ VE İKAMET KAYITLARI RAPORU`;
   titleCell.font = { name: 'Arial', size: 12, bold: true, color: { argb: 'FFFFFFFF' } };
   titleCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1E3A8A' } };
   titleCell.alignment = { vertical: 'middle', horizontal: 'left', indent: 1 };
@@ -194,4 +195,3 @@ export async function createVisitorWorkbook(rows: ExportVisitor[], generatedBy: 
   const output = await workbook.xlsx.writeBuffer();
   return Buffer.from(output);
 }
-

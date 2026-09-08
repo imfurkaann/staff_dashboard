@@ -107,7 +107,7 @@ export class StockService {
   public static async getOverview() {
     const itemCount = await prisma.stockItem.count();
     if (itemCount > config.stock.overviewMaxItems) throw new AppError(`Stok kartı sayısı ekran sınırı olan ${config.stock.overviewMaxItems.toLocaleString('tr-TR')} kaydı aşıyor. Arşivleme veya sunucu taraflı listeleme yapılandırması gerekir.`, 413);
-    const [items, rooms, movements] = await Promise.all([
+    const [items, rooms] = await Promise.all([
       prisma.stockItem.findMany({
         orderBy: [{ isActive: 'desc' }, { itemName: 'asc' }],
         include: {
@@ -134,16 +134,6 @@ export class StockService {
       prisma.room.findMany({
         orderBy: [{ block: { name: 'asc' } }, { floor: 'asc' }, { roomNumber: 'asc' }],
         select: { id: true, roomNumber: true, roomType: true, floor: true, capacity: true, status: true, block: { select: { id: true, name: true } } },
-      }),
-      prisma.stockMovement.findMany({
-        take: 80,
-        orderBy: { createdAt: 'desc' },
-        include: {
-          stockItem: { select: { itemCode: true, unit: true } },
-          createdBy: { select: { fullName: true } },
-          employee: { select: { firstName: true, lastName: true, registrationNo: true } },
-          maintenance: { select: { id: true, title: true, type: true } },
-        },
       }),
     ]);
 
@@ -192,7 +182,7 @@ export class StockService {
       return result;
     }, { totalRegistered: 0, available: 0, inRooms: 0, inService: 0, issues: 0 });
 
-    return { items: enriched, rooms, movements, summary };
+    return { items: enriched, rooms, summary };
   }
 
   public static async setRoomStandard(stockItemId: string, data: { fixedQuantity?: number; quantityPerBed?: number; roomType?: string }) {

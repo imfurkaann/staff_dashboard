@@ -3,7 +3,6 @@ import {
   BedDouble,
   Building2,
   Layers,
-  Printer,
   UserCheck,
   UserX,
   Briefcase,
@@ -31,6 +30,7 @@ import {
   RotateCcw,
   Trash2,
   Sparkles,
+  FileSpreadsheet,
 } from 'lucide-react';
 import { Room, RoomBed, RoomInventory, RoomInventoryStatus, RoomMaintenance, RoomStatusType, RoomCleaningLog, roomApi } from '../api/roomApi';
 import { stockApi, StockItem } from '../api/stockApi';
@@ -40,6 +40,7 @@ import { CompleteCleaningModal } from './CompleteCleaningModal';
 import { getInventoryStatusLabel } from '../utils/inventoryStatusLabels';
 import { User } from '../api/authApi';
 import { can } from '../security/accessControl';
+import { appConfig } from '../config/appConfig';
 
 interface RoomDetailViewProps {
   room: Room;
@@ -51,6 +52,7 @@ interface RoomDetailViewProps {
 
 type RoomTabType = 'overview' | 'inventory' | 'maintenance' | 'cleaning' | 'history';
 type RoomPrintType = 'maintenance' | 'history' | 'inventory' | 'all';
+type RoomExportSection = 'occupancy' | 'inventory' | 'maintenance' | 'cleaning';
 
 export const RoomDetailView: React.FC<RoomDetailViewProps> = ({
   room,
@@ -66,6 +68,7 @@ export const RoomDetailView: React.FC<RoomDetailViewProps> = ({
   const canFullyUpdateMaintenance = can(currentUser.role, 'MAINTENANCE_FULL_UPDATE');
   const canManageInventory = can(currentUser.role, 'ROOM_INVENTORY_MANAGE');
   const canDeleteMaintenance = can(currentUser.role, 'MAINTENANCE_DELETE');
+  const canExportRoom = can(currentUser.role, 'ROOM_OCCUPANCY_EXPORT');
   const [currentRoom, setCurrentRoom] = useState<Room>(room);
   const [activeTab, setActiveTab] = useState<RoomTabType>(() => {
     if (currentUser.role === 'TECHNICIAN') return 'maintenance';
@@ -76,7 +79,9 @@ export const RoomDetailView: React.FC<RoomDetailViewProps> = ({
   });
   const [historySearchQuery, setHistorySearchQuery] = useState<string>('');
   const [showPrintModal, setShowPrintModal] = useState(false);
-  const [printType, setPrintType] = useState<RoomPrintType>('all');
+  const [printType] = useState<RoomPrintType>('all');
+  const [selectedExportSections, setSelectedExportSections] = useState<RoomExportSection[]>(['occupancy', 'inventory', 'maintenance', 'cleaning']);
+  const [roomExporting, setRoomExporting] = useState(false);
 
   // Cleaning Log Modal & Action State
   const [showCleaningModal, setShowCleaningModal] = useState(false);
@@ -101,7 +106,7 @@ export const RoomDetailView: React.FC<RoomDetailViewProps> = ({
   const [roomError, setRoomError] = useState<string | null>(null);
   const [updatingMaintenanceId, setUpdatingMaintenanceId] = useState<string | null>(null);
   const [maintenanceToEdit, setMaintenanceToEdit] = useState<RoomMaintenance | null>(null);
-  const [editMaintenanceForm, setEditMaintenanceForm] = useState({ category: '', description: '', priority: 'MEDIUM', status: 'OPEN', location: '', resolutionNote: '' });
+  const [editMaintenanceForm, setEditMaintenanceForm] = useState({ category: '', description: '', priority: 'MEDIUM', status: 'OPEN', assignedTo: '', location: '', resolutionNote: '' });
   const [maintenanceToDelete, setMaintenanceToDelete] = useState<RoomMaintenance | null>(null);
   const [deleteMaintenanceSubmitting, setDeleteMaintenanceSubmitting] = useState(false);
 
@@ -272,6 +277,7 @@ export const RoomDetailView: React.FC<RoomDetailViewProps> = ({
       description: maintenance.description || '',
       priority: maintenance.priority || 'MEDIUM',
       status: targetStatus || (maintenance.status === 'RESOLVED' || maintenance.status === 'CLOSED' ? 'CLOSED' : 'OPEN'),
+      assignedTo: maintenance.assignedTo || '',
       location: maintenance.location || '',
       resolutionNote: maintenance.resolutionNote || ''
     });
@@ -280,8 +286,8 @@ export const RoomDetailView: React.FC<RoomDetailViewProps> = ({
 
   const handleEditMaintenance = async () => {
     if (!maintenanceToEdit || !editMaintenanceForm.category.trim() || !editMaintenanceForm.description.trim()) return;
-    if (editMaintenanceForm.status === 'CLOSED' && !editMaintenanceForm.resolutionNote.trim()) {
-      setMaintenanceError('Arıza kaydını kapatmak için kapanış notu zorunludur.');
+    if (editMaintenanceForm.status === 'CLOSED' && !editMaintenanceForm.assignedTo.trim()) {
+      setMaintenanceError('Arızayı çözen kişinin adı soyadı zorunludur.');
       return;
     }
     setUpdatingMaintenanceId(maintenanceToEdit.id);
@@ -291,6 +297,7 @@ export const RoomDetailView: React.FC<RoomDetailViewProps> = ({
         title: editMaintenanceForm.category, category: editMaintenanceForm.category,
         description: editMaintenanceForm.description, priority: editMaintenanceForm.priority,
         status: editMaintenanceForm.status as RoomMaintenance['status'], location: editMaintenanceForm.location || null,
+        assignedTo: editMaintenanceForm.status === 'CLOSED' ? editMaintenanceForm.assignedTo : null,
         resolutionNote: editMaintenanceForm.resolutionNote || null,
       });
       replaceMaintenance(updated);
@@ -350,17 +357,6 @@ export const RoomDetailView: React.FC<RoomDetailViewProps> = ({
   // Status Change Handler
   const handleStatusChange = async (newStatus: RoomStatusType) => {
     if (newStatus === 'READY') {
-      if (currentUser.role === 'HOUSEKEEPING') {
-        setRoomError(null);
-        try {
-          const updated = await roomApi.updateRoomStatus(currentRoom.id, 'READY', { cleanedBy: currentUser.fullName });
-          setCurrentRoom(updated);
-          if (onRoomUpdated) onRoomUpdated(updated);
-        } catch (err: any) {
-          setRoomError(err?.response?.data?.message || err?.message || 'Oda durumu güncellenemedi.');
-        }
-        return;
-      }
       setShowCompleteCleaningModal(true);
       return;
     }
@@ -427,22 +423,6 @@ export const RoomDetailView: React.FC<RoomDetailViewProps> = ({
   };
 
   const handleQuickMarkCleaned = async (log: RoomCleaningLog) => {
-    if (currentUser.role === 'HOUSEKEEPING') {
-      setUpdatingCleaningId(log.id);
-      try {
-        const updated = await roomApi.updateCleaningLog(log.id, {
-          status: 'CLEANED',
-          cleanedBy: currentUser.fullName,
-        });
-        setCurrentRoom(updated);
-        if (onRoomUpdated) onRoomUpdated(updated);
-      } catch (err: any) {
-        setRoomError(err.response?.data?.message || 'Temizlik durumu güncellenirken hata oluştu.');
-      } finally {
-        setUpdatingCleaningId(null);
-      }
-      return;
-    }
     setCleaningLogToMarkCleaned(log);
   };
 
@@ -484,19 +464,22 @@ export const RoomDetailView: React.FC<RoomDetailViewProps> = ({
   const occupancyRate =
     currentRoom.capacity > 0 ? Math.round((occupiedCount / currentRoom.capacity) * 100) : 0;
 
-  // Print Handler
-  const handlePrint = (type: RoomPrintType) => {
-    setPrintType(type);
-    setShowPrintModal(false);
-    const originalTitle = document.title;
-    const printNames: Record<RoomPrintType, string> = { maintenance: 'Arıza Dökümü', history: 'Konaklama Geçmişi', inventory: 'Oda Zimmetleri', all: 'Genel Oda Dökümü' };
-    document.title = `Oda-${currentRoom.roomNumber}-${printNames[type]}`;
-    const restoreTitle = () => {
-      document.title = originalTitle;
-      window.removeEventListener('afterprint', restoreTitle);
-    };
-    window.addEventListener('afterprint', restoreTitle);
-    window.setTimeout(() => window.print(), 100);
+  const toggleExportSection = (section: RoomExportSection) => {
+    setSelectedExportSections((current) => current.includes(section) ? current.filter((item) => item !== section) : [...current, section]);
+  };
+
+  const handleRoomExcelExport = async () => {
+    if (!selectedExportSections.length) return;
+    setRoomExporting(true);
+    setRoomError(null);
+    try {
+      await roomApi.exportRoomDetailExcel(currentRoom.id, selectedExportSections);
+      setShowPrintModal(false);
+    } catch (err: any) {
+      setRoomError(err?.message || 'Oda Excel raporu oluşturulamadı.');
+    } finally {
+      setRoomExporting(false);
+    }
   };
 
   // Oda detayında yalnızca halen bu odaya zimmetli aktif demirbaşlar gösterilir.
@@ -543,7 +526,7 @@ export const RoomDetailView: React.FC<RoomDetailViewProps> = ({
     <div className="room-detail-page space-y-6 w-full">
       <div className="official-print-document hidden print:block text-black font-sans text-[9px] leading-tight">
         <header className="border-b-2 border-slate-900 pb-3 mb-3 flex items-start justify-between">
-          <div><p className="font-black text-[13px] tracking-wide">DOSINIA RESORT LOJMAN YÖNETİMİ</p><h1 className="font-black text-[15px] mt-1">{printTitle[printType]}</h1><p className="mt-1 text-slate-600">Kurumsal oda kayıt ve takip belgesi</p></div>
+          <div><p className="font-black text-[13px] tracking-wide">{appConfig.appName.toLocaleUpperCase('tr-TR')}</p><h1 className="font-black text-[15px] mt-1">{printTitle[printType]}</h1><p className="mt-1 text-slate-600">Kurumsal oda kayıt ve takip belgesi</p></div>
           <div className="text-right"><p className="font-black text-[18px]">ODA {currentRoom.roomNumber}</p><p>{currentRoom.block?.name} BLOĞU</p><p className="mt-1">Döküm: {new Date().toLocaleString('tr-TR', { dateStyle: 'short', timeStyle: 'short', timeZone: 'Europe/Istanbul' })}</p></div>
         </header>
         <section className="mb-3"><h2 className="print-section-title">1. ODA GENEL BİLGİLERİ</h2><table className="print-table"><tbody><tr><th>Oda / Blok</th><td>{currentRoom.roomNumber} / {currentRoom.block?.name}</td><th>Kapasite</th><td>{currentRoom.capacity} Kişi</td></tr><tr><th>Doluluk</th><td>{occupiedCount} Dolu / {vacantCount} Boş</td><th>Oda Durumu</th><td>{currentRoom.status}</td></tr></tbody></table></section>
@@ -650,13 +633,13 @@ export const RoomDetailView: React.FC<RoomDetailViewProps> = ({
           </>
         )}
 
-        {currentUser.role !== 'TECHNICIAN' && currentUser.role !== 'HOUSEKEEPING' && currentUser.role !== 'WAREHOUSE_MANAGER' && (
+        {canExportRoom && (
           <button
             onClick={() => setShowPrintModal(true)}
             className="flex items-center gap-2 px-4 py-2 rounded-xl bg-[#1e3a8a] text-white font-bold text-xs shadow-md shadow-blue-950/20 hover:bg-blue-900 transition-all cursor-pointer active:scale-95"
           >
-            <Printer className="w-4 h-4" />
-            <span>Döküm Yazdır</span>
+            <FileSpreadsheet className="w-4 h-4" />
+            <span>Excel Çıktısı Al</span>
           </button>
         )}
       </div>
@@ -1151,7 +1134,7 @@ export const RoomDetailView: React.FC<RoomDetailViewProps> = ({
                     <th className="py-3.5 px-4 whitespace-nowrap">Öncelik</th>
                     <th className="py-3.5 px-4 whitespace-nowrap">Durum</th>
                     <th className="py-3.5 px-4 whitespace-nowrap">Bildiren Kişi</th>
-                    <th className="py-3.5 px-4 whitespace-nowrap">Kapatan Kullanıcı</th>
+                    <th className="py-3.5 px-4 whitespace-nowrap">Arızayı Çözen</th>
                     <th className="py-3.5 px-4 whitespace-nowrap">Açılış Tarihi</th>
                     <th className="py-3.5 px-4 whitespace-nowrap">Kapanış Tarihi</th>
                     <th className="py-3.5 px-4 text-right whitespace-nowrap">İşlemler</th>
@@ -1649,13 +1632,14 @@ export const RoomDetailView: React.FC<RoomDetailViewProps> = ({
       {showPrintModal && (
         <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
           <div role="dialog" aria-modal="true" aria-labelledby="room-print-title" className="bg-white border border-slate-300 rounded-3xl w-full max-w-lg shadow-2xl overflow-hidden">
-            <div className="p-6 border-b border-slate-200 flex justify-between items-center bg-slate-50"><div className="flex items-center gap-3"><div className="w-10 h-10 rounded-xl bg-[#1e3a8a] text-white flex items-center justify-center shadow-md"><Printer className="w-5 h-5"/></div><div><h2 id="room-print-title" className="text-lg font-extrabold text-slate-900">Oda Dökümü Seçin</h2><p className="text-xs font-semibold text-slate-500">PDF veya yazıcı çıktısında yer alacak kayıtları belirleyin.</p></div></div><button onClick={() => setShowPrintModal(false)} className="w-9 h-9 rounded-xl bg-slate-200 hover:bg-slate-300 flex items-center justify-center"><X className="w-5 h-5"/></button></div>
+            <div className="p-6 border-b border-slate-200 flex justify-between items-center bg-slate-50"><div className="flex items-center gap-3"><div className="w-10 h-10 rounded-xl bg-[#1e3a8a] text-white flex items-center justify-center shadow-md"><FileSpreadsheet className="w-5 h-5"/></div><div><h2 id="room-print-title" className="text-lg font-extrabold text-slate-900">Oda Excel Bölümlerini Seçin</h2><p className="text-xs font-semibold text-slate-500">Her seçilen bölüm aynı Excel dosyasında ayrı bir sayfa olarak hazırlanır.</p></div></div><button onClick={() => setShowPrintModal(false)} className="w-9 h-9 rounded-xl bg-slate-200 hover:bg-slate-300 flex items-center justify-center"><X className="w-5 h-5"/></button></div>
             <div className="p-6 grid grid-cols-1 sm:grid-cols-2 gap-3">{([
-              ['maintenance', 'Arıza Kayıtları', 'Arıza, öncelik ve çözülme tarihleri', Wrench],
-              ['history', 'Konaklama Geçmişi', 'Sakin, yatak, giriş ve çıkış kayıtları', History],
-              ['inventory', 'Oda Zimmetleri', 'Demirbaş, konum ve durum bilgileri', Package],
-              ['all', 'Tüm Oda Dökümü', 'Tüm kayıtları tek kurumsal belgede birleştirir', FileText],
-            ] as const).map(([value, title, detail, Icon]) => <button key={value} onClick={() => handlePrint(value)} className="group text-left p-4 rounded-2xl border border-slate-200 bg-white hover:border-[#1e3a8a] hover:bg-blue-50/50 transition-all"><div className="w-9 h-9 rounded-xl bg-blue-50 text-[#1e3a8a] flex items-center justify-center mb-3 group-hover:bg-[#1e3a8a] group-hover:text-white transition-colors"><Icon className="w-4.5 h-4.5"/></div><p className="text-xs font-extrabold text-slate-900">{title}</p><p className="text-[11px] text-slate-500 mt-1 leading-relaxed">{detail}</p></button>)}</div>
+              ['occupancy', 'Konaklama Kayıtları', 'Ad soyad, yatak, giriş ve çıkış bilgileri', History],
+              ['inventory', 'Oda Zimmetleri', 'Demirbaş, marka, adet ve Türkçe durum bilgileri', Package],
+              ['maintenance', 'Arıza Kayıtları', 'Öncelik, durum ve arızayı çözen kişi', Wrench],
+              ['cleaning', 'Temizlik Kayıtları', 'Talep eden, temizleyen ve tamamlanma bilgileri', Sparkles],
+            ] as const).map(([value, title, detail, Icon]) => { const selected = selectedExportSections.includes(value); return <button type="button" key={value} onClick={() => toggleExportSection(value)} className={`group text-left p-4 rounded-2xl border transition-all ${selected ? 'border-[#1e3a8a] bg-blue-50 ring-1 ring-[#1e3a8a]' : 'border-slate-200 bg-white hover:border-slate-400'}`}><div className={`w-9 h-9 rounded-xl flex items-center justify-center mb-3 ${selected ? 'bg-[#1e3a8a] text-white' : 'bg-slate-100 text-slate-500'}`}><Icon className="w-4.5 h-4.5"/></div><div className="flex items-center justify-between gap-2"><p className="text-xs font-extrabold text-slate-900">{title}</p><span className={`text-[10px] font-black ${selected ? 'text-[#1e3a8a]' : 'text-slate-400'}`}>{selected ? 'SEÇİLDİ' : 'SEÇ'}</span></div><p className="text-[11px] text-slate-500 mt-1 leading-relaxed">{detail}</p></button>; })}</div>
+            <div className="px-6 pb-6 flex items-center justify-end gap-3"><button type="button" onClick={() => setShowPrintModal(false)} className="px-4 py-2.5 rounded-xl bg-slate-100 text-slate-700 text-xs font-bold">Vazgeç</button><button type="button" onClick={handleRoomExcelExport} disabled={roomExporting || selectedExportSections.length === 0} className="px-5 py-2.5 rounded-xl bg-[#1e3a8a] text-white text-xs font-bold inline-flex items-center gap-2 disabled:opacity-50">{roomExporting ? <Loader2 className="w-4 h-4 animate-spin"/> : <FileSpreadsheet className="w-4 h-4"/>}{roomExporting ? 'Excel Hazırlanıyor...' : `Excel İndir (${selectedExportSections.length} Sayfa)`}</button></div>
           </div>
         </div>
       )}
@@ -1675,16 +1659,17 @@ export const RoomDetailView: React.FC<RoomDetailViewProps> = ({
                   <div><label className="block text-xs font-bold text-slate-800 mb-1">Arıza Kategorisi <span className="text-red-500 font-black">*</span></label><select value={editMaintenanceForm.category} onChange={(e) => setEditMaintenanceForm((prev) => ({ ...prev, category: e.target.value }))} className="w-full px-3.5 py-2.5 bg-white border border-slate-300 rounded-xl text-xs font-bold text-slate-900 focus:border-[#1e3a8a] focus:ring-1 focus:ring-[#1e3a8a] outline-none cursor-pointer">{maintenanceCategories.map((category) => <option key={category.value} value={category.value}>{category.label}</option>)}</select></div>
                   <div><label className="block text-xs font-bold text-slate-800 mb-1">Öncelik Seviyesi</label><select value={editMaintenanceForm.priority} onChange={(e) => setEditMaintenanceForm((prev) => ({ ...prev, priority: e.target.value }))} className={`w-full px-3.5 py-2.5 border rounded-xl text-xs font-bold outline-none cursor-pointer focus:ring-1 focus:ring-[#1e3a8a] ${editMaintenanceForm.priority === 'URGENT' ? 'bg-rose-50 border-rose-300 text-rose-800' : editMaintenanceForm.priority === 'HIGH' ? 'bg-orange-50 border-orange-300 text-orange-800' : editMaintenanceForm.priority === 'MEDIUM' ? 'bg-amber-50 border-amber-300 text-amber-800' : 'bg-emerald-50 border-emerald-300 text-emerald-800'}`}><option value="LOW">🟢 Düşük — Acil Değil</option><option value="MEDIUM">🟡 Orta — Normal</option><option value="HIGH">🟠 Yüksek — Öncelikli</option><option value="URGENT">🔴 Acil — Kritik</option></select></div>
                   <div className="sm:col-span-2"><label className="block text-xs font-bold text-slate-800 mb-1">Arıza Durumu</label><select value={editMaintenanceForm.status} onChange={(e) => setEditMaintenanceForm((prev) => ({ ...prev, status: e.target.value }))} className="w-full px-3.5 py-2.5 bg-white border border-slate-300 rounded-xl text-xs font-bold text-slate-900 outline-none"><option value="OPEN">Açık</option><option value="CLOSED">Kapalı</option></select></div>
+                  {editMaintenanceForm.status === 'CLOSED' && <div className="sm:col-span-2"><label className="block text-xs font-bold text-slate-800 mb-1">Arızayı Çözen Ad Soyad <span className="text-red-500 font-black">*</span></label><input required maxLength={100} value={editMaintenanceForm.assignedTo} onChange={(e) => setEditMaintenanceForm((prev) => ({ ...prev, assignedTo: e.target.value.toLocaleUpperCase('tr-TR') }))} className="w-full px-3.5 py-2.5 bg-white border border-slate-300 rounded-xl text-xs font-bold text-slate-900 outline-none" placeholder="Ör. AHMET YILMAZ"/></div>}
                 </div>
               </div>
               <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200 space-y-4">
                 <div className="flex items-center justify-between border-b border-slate-200/80 pb-2"><h3 className="text-xs font-extrabold text-slate-700 uppercase tracking-wider flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-slate-500"></span><span>Arıza Detayları</span></h3></div>
                 <div><label className="block text-xs font-bold text-slate-800 mb-1">Arıza Açıklaması <span className="text-red-500 font-black">*</span></label><textarea rows={4} value={editMaintenanceForm.description} onChange={(e) => setEditMaintenanceForm((prev) => ({ ...prev, description: e.target.value }))} className="w-full px-3.5 py-2.5 bg-white border border-slate-300 rounded-xl text-xs font-bold text-slate-900 focus:border-[#1e3a8a] focus:ring-1 focus:ring-[#1e3a8a] outline-none resize-none"/></div>
                 <div><label className="block text-xs font-bold text-slate-800 mb-1">Odadaki Konum <span className="text-slate-400 font-semibold text-[10px]">(İsteğe Bağlı)</span></label><input value={editMaintenanceForm.location} onChange={(e) => setEditMaintenanceForm((prev) => ({ ...prev, location: e.target.value }))} className="w-full px-3.5 py-2.5 bg-white border border-slate-300 rounded-xl text-xs font-bold text-slate-900 focus:border-[#1e3a8a] focus:ring-1 focus:ring-[#1e3a8a] outline-none" placeholder="Ör: Banyo girişi, Pencere kenarı, Yatak-A yanı..."/></div>
-                <div><label className="block text-xs font-bold text-slate-800 mb-1">Kapanış / Sonuç Notu {editMaintenanceForm.status === 'CLOSED' ? <span className="text-red-500 font-black">*</span> : <span className="text-slate-400 font-semibold text-[10px]">(Kapatırken zorunlu)</span>}</label><textarea required={editMaintenanceForm.status === 'CLOSED'} rows={3} maxLength={1000} value={editMaintenanceForm.resolutionNote} onChange={(e) => setEditMaintenanceForm((prev) => ({ ...prev, resolutionNote: e.target.value }))} className="w-full px-3.5 py-2.5 bg-white border border-slate-300 rounded-xl text-xs font-bold text-slate-900 outline-none resize-none" placeholder="Arıza kaydının neden kapatıldığını kısaca yazın..."/></div>
+                <div><label className="block text-xs font-bold text-slate-800 mb-1">Kapanış / Sonuç Notu <span className="text-slate-400 font-semibold text-[10px]">(İsteğe Bağlı)</span></label><textarea rows={3} maxLength={1000} value={editMaintenanceForm.resolutionNote} onChange={(e) => setEditMaintenanceForm((prev) => ({ ...prev, resolutionNote: e.target.value }))} className="w-full px-3.5 py-2.5 bg-white border border-slate-300 rounded-xl text-xs font-bold text-slate-900 outline-none resize-none" placeholder="Varsa sonuç veya açıklama yazabilirsiniz..."/></div>
               </div>
             </div>
-            <div className="p-6 pt-4 border-t border-slate-200 flex justify-end gap-3"><button onClick={() => setMaintenanceToEdit(null)} className="py-2.5 px-4 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl transition-all cursor-pointer">İptal</button><button onClick={handleEditMaintenance} disabled={updatingMaintenanceId === maintenanceToEdit.id || !editMaintenanceForm.category || !editMaintenanceForm.description.trim() || (editMaintenanceForm.status === 'CLOSED' && !editMaintenanceForm.resolutionNote.trim())} className="py-2.5 px-6 bg-[#1e3a8a] hover:bg-[#1e293b] text-white text-xs font-bold rounded-xl shadow-md shadow-blue-950/20 transition-all flex items-center gap-2 disabled:opacity-50 cursor-pointer">{updatingMaintenanceId === maintenanceToEdit.id ? <><Loader2 className="w-4 h-4 animate-spin"/><span>Kaydediliyor...</span></> : <><Check className="w-4 h-4"/><span>Değişiklikleri Kaydet</span></>}</button></div>
+            <div className="p-6 pt-4 border-t border-slate-200 flex justify-end gap-3"><button onClick={() => setMaintenanceToEdit(null)} className="py-2.5 px-4 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl transition-all cursor-pointer">İptal</button><button onClick={handleEditMaintenance} disabled={updatingMaintenanceId === maintenanceToEdit.id || !editMaintenanceForm.category || !editMaintenanceForm.description.trim() || (editMaintenanceForm.status === 'CLOSED' && !editMaintenanceForm.assignedTo.trim())} className="py-2.5 px-6 bg-[#1e3a8a] hover:bg-[#1e293b] text-white text-xs font-bold rounded-xl shadow-md shadow-blue-950/20 transition-all flex items-center gap-2 disabled:opacity-50 cursor-pointer">{updatingMaintenanceId === maintenanceToEdit.id ? <><Loader2 className="w-4 h-4 animate-spin"/><span>Kaydediliyor...</span></> : <><Check className="w-4 h-4"/><span>Değişiklikleri Kaydet</span></>}</button></div>
           </div>
         </div>
       )}
@@ -2174,7 +2159,6 @@ export const RoomDetailView: React.FC<RoomDetailViewProps> = ({
       <CompleteCleaningModal
         isOpen={showCompleteCleaningModal || Boolean(cleaningLogToMarkCleaned)}
         roomTitle={`Oda ${currentRoom.roomNumber} (${currentRoom.block.name})`}
-        currentUserFullName={currentUser.fullName}
         onClose={() => {
           setShowCompleteCleaningModal(false);
           setCleaningLogToMarkCleaned(null);
