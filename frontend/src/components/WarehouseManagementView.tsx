@@ -18,6 +18,7 @@ type MainTab = 'quick' | 'stock' | 'rooms' | 'personnel' | 'movements';
 type PassportSection = 'overview' | 'rooms' | 'coverage' | 'faults' | 'movements';
 const warehouseTabs: MainTab[] = ['quick', 'stock', 'rooms', 'personnel', 'movements'];
 const passportSections: PassportSection[] = ['overview', 'rooms', 'coverage', 'faults', 'movements'];
+const sharedAssetItemTypes = new Set(['ORTAK_EŞYA', 'ORTAK_EKİPMAN', 'ORTAK_KULLANIM']);
 type ModalState =
   | { type: 'create' }
   | { type: 'edit'; item: StockItem }
@@ -840,6 +841,23 @@ export const WarehouseManagementView: React.FC<{ currentUser: User }> = ({ curre
       onClose={() => { if (!detailExportLoading) { setExportTarget(null); setDetailExportError(''); } }}
       onExport={handleDetailExport}
     />
+  );
+
+  const assignableItems = (overview?.items || []).filter((item) => (
+    item.isActive && item.availableStock > 0 && !sharedAssetItemTypes.has(item.itemType || '')
+  ));
+  const requestedAssignItemId = modal?.type === 'assign' ? (assignForm.stockItemId || modal.item?.id || '') : '';
+  const selectedAssignItem = modal?.type === 'assign'
+    ? (overview?.items.find((item) => item.id === requestedAssignItemId) || modal.item)
+    : undefined;
+  const assignBlockedMessage = selectedAssignItem && (
+    !selectedAssignItem.isActive
+      ? 'Bu stok kartı pasif olduğu için zimmet verilemez.'
+      : sharedAssetItemTypes.has(selectedAssignItem.itemType || '')
+        ? 'Bu kayıt ortak kullanım eşyasıdır. Oda konumunu Ortak Eşya sayfasındaki “Konumu Güncelle” işlemiyle belirleyin.'
+        : selectedAssignItem.availableStock <= 0
+          ? `Bu ürünün depoda kullanılabilir stoğu yok. Önce “Depoya Ekle” ile ${selectedAssignItem.itemName} stoğu ekleyin.`
+          : ''
   );
 
   if (passportModal) {
@@ -1825,8 +1843,8 @@ export const WarehouseManagementView: React.FC<{ currentUser: User }> = ({ curre
         <ModalShell onClose={closeModal} icon={<Send className="h-4 w-4" />} title="Odaya veya Personele Zimmet Ver">
           <form onSubmit={(e) => {
             e.preventDefault();
-            const itemId = assignForm.stockItemId || modal.item?.id;
-            if (!itemId) return;
+            const itemId = selectedAssignItem?.id;
+            if (!itemId || assignBlockedMessage) return;
             if (assignForm.targetType === 'EMPLOYEE') {
               if (!assignForm.employeeId) return;
               runAction(
@@ -1883,10 +1901,16 @@ export const WarehouseManagementView: React.FC<{ currentUser: User }> = ({ curre
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <label>
                 <span className={labelClass}>Ürün *</span>
-                <select required className={inputClass} value={assignForm.stockItemId || modal.item?.id || ''} onChange={(e) => setAssignForm({ ...assignForm, stockItemId: e.target.value })}>
-                  <option value="">Ürün seçin</option>
-                  {(overview?.items || []).filter((i) => i.availableStock > 0).map((i) => <option key={i.id} value={i.id}>{i.itemName} (Depoda: {i.availableStock} {i.unit})</option>)}
-                </select>
+                {modal.item ? (
+                  <div className={`${inputClass} flex items-center bg-slate-100`}>
+                    {selectedAssignItem?.itemName || modal.item.itemName} (Depoda: {selectedAssignItem?.availableStock ?? modal.item.availableStock} {selectedAssignItem?.unit || modal.item.unit})
+                  </div>
+                ) : (
+                  <select required className={inputClass} value={assignForm.stockItemId} onChange={(e) => setAssignForm({ ...assignForm, stockItemId: e.target.value })}>
+                    <option value="">Ürün seçin</option>
+                    {assignableItems.map((i) => <option key={i.id} value={i.id}>{i.itemName} (Depoda: {i.availableStock} {i.unit})</option>)}
+                  </select>
+                )}
               </label>
 
               {assignForm.targetType === 'ROOM' ? (
@@ -1910,11 +1934,16 @@ export const WarehouseManagementView: React.FC<{ currentUser: User }> = ({ curre
               )}
             </div>
 
+            {assignBlockedMessage && (
+              <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-bold text-amber-800">
+                {assignBlockedMessage}
+              </div>
+            )}
+
             {(() => {
-              const selectedItem = (overview?.items || []).find((i) => i.id === (assignForm.stockItemId || modal.item?.id));
               return (
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <label><span className={labelClass}>Miktar *</span><input type="number" min={1} required className={inputClass} value={assignForm.quantity} onChange={(e) => setAssignForm({ ...assignForm, quantity: Number(e.target.value) })} /></label>
+                  <label><span className={labelClass}>Miktar *</span><input type="number" min={1} max={selectedAssignItem?.availableStock || undefined} required className={inputClass} value={assignForm.quantity} onChange={(e) => setAssignForm({ ...assignForm, quantity: Number(e.target.value) })} /></label>
                   <label><span className={labelClass}>Marka / Model</span><input className={inputClass} value={assignForm.brand} onChange={(e) => setAssignForm({ ...assignForm, brand: e.target.value })} placeholder="Marka" /></label>
                 </div>
               );
@@ -1924,7 +1953,7 @@ export const WarehouseManagementView: React.FC<{ currentUser: User }> = ({ curre
 
             <div className="flex justify-end gap-2 border-t border-slate-200 pt-3">
               <button type="button" onClick={closeModal} className={secondaryButton}>Vazgeç</button>
-              <button disabled={busy || (!assignForm.stockItemId && !modal.item?.id) || (assignForm.targetType === 'ROOM' ? !assignForm.roomId : !assignForm.employeeId)} className={primaryButton}>{busy ? 'İşleniyor...' : 'Zimmetle'}</button>
+              <button disabled={busy || !selectedAssignItem || Boolean(assignBlockedMessage) || assignForm.quantity < 1 || assignForm.quantity > selectedAssignItem.availableStock || (assignForm.targetType === 'ROOM' ? !assignForm.roomId : !assignForm.employeeId)} className={primaryButton}>{busy ? 'İşleniyor...' : 'Zimmetle'}</button>
             </div>
           </form>
         </ModalShell>
